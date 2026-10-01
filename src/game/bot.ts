@@ -87,6 +87,7 @@ export class Bot {
     out.jumpPressed = false;
     out.jumpHeld = false;
     out.actionPressed = false;
+    out.actionHeld = false;
     const dt = 1 / 60;
 
     if (sim.deaths !== this.lastDeaths) this.onRespawn();
@@ -119,15 +120,22 @@ export class Bot {
       const near = mv && Math.hypot(mv.pos.x - wm.pos[0], mv.pos.z - wm.pos[2]) <= wm.r && Math.abs(mv.pos.y + mv.def.size[1] / 2 - wm.pos[1]) < 0.6;
       if (!near) return;
     }
+    // 水位待ち: 水面が必要な高さになるまで (水に浮かんだまま) 待つ
+    const ww = wp.waitWater;
+    if (ww && sim.waterLevel(ww.id) < ww.level) {
+      this.swimControl(out, wp);
+      return;
+    }
     const dx = wp.pos[0] - p.pos.x;
     const dz = wp.pos[2] - p.pos.z;
     const dist = Math.hypot(dx, dz);
     const dy = wp.pos[1] - p.feetY;
+    this.swimControl(out, wp);
 
     // 到着判定
     if (wp.jump) {
       const jd = wp.jumpDist ?? DEFAULT_JUMP_DIST;
-      if (p.grounded && dist <= jd + p.horizontalSpeed * 0.04) {
+      if ((p.grounded || p.swimming) && dist <= jd + p.horizontalSpeed * 0.04) {
         out.jumpPressed = true;
         out.jumpHeld = true;
         this.holdJump = true;
@@ -198,6 +206,19 @@ export class Bot {
     const tNow = c.length / forward;
     const tWait = sim.waitUntilCalm(c.zones, seconds) + c.length / params.maxSpeed;
     return tNow <= tWait + 0.2;
+  }
+
+  /** 水中: 目標の高さへ向けて JUMP (浮上) / ACTION (潜水) を押す。 */
+  private swimControl(out: SimInput, wp: WaypointDef): void {
+    const p = this.sim.player;
+    if (!p.swimming) return;
+    if (wp.dive) {
+      out.actionHeld = true;
+      return;
+    }
+    const dy = wp.pos[1] - p.feetY;
+    if (dy > 0.25) out.jumpHeld = true;
+    else if (dy < -0.35) out.actionHeld = true;
   }
 
   /** 現在の目標へ向かう入力を out に設定する。 */

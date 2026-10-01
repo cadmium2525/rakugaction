@@ -11,6 +11,7 @@ import { NO_ENV, PlayerController } from './player';
 import type { CarryInfo, PlayerEnv } from './player';
 import { moverPosition } from './mover';
 import { calmFor, timeUntilCalm, windAt } from './wind';
+import { surfaceOf, waterSurfaceAt } from './water';
 
 interface MoverRuntime {
   def: MoverDef;
@@ -191,6 +192,9 @@ export class GameSim {
       this.env.windY = this.windOut.y;
       this.env.windZ = this.windOut.z;
     }
+    // 水: プレイヤーのいる水域の水面 (水位が上下する水域もある)
+    const waters = this.stage.waters;
+    if (waters && waters.length > 0) this.env.waterSurface = waterSurfaceAt(waters, player.pos.x, player.pos.y, player.pos.z, nextTime);
     const standing = player.standingCollider >= 0 ? this.moverByCollider.get(player.standingCollider) : undefined;
     const wasAttacking = player.attackTimer > 0;
     player.step(dt, input, this.env, standing ? standing.delta : null, this.pushEvent);
@@ -306,6 +310,12 @@ export class GameSim {
   /** 指定した風域が今から seconds 秒間ずっと弱いか (ボットの「風待ち」判定)。 */
   isCalmFor(zones: readonly string[], seconds: number): boolean {
     return calmFor(this.stage.winds ?? [], zones, this.time, seconds);
+  }
+
+  /** 水域 id の現在の水面の高さ。 */
+  waterLevel(id: string): number {
+    const w = this.stage.waters?.find((x) => x.id === id);
+    return w ? surfaceOf(w, this.time) : -Infinity;
   }
 
   /** 指定した風域が seconds 秒間ずっと弱くなるまでの待ち時間 (秒)。 */

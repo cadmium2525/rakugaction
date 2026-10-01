@@ -4,6 +4,7 @@ import type { GameSim } from '../game/sim';
 import type { StageDef } from '../stages/types';
 import { toonMaterial } from './toon';
 import { boxGeometry, buildStaticStageGeometry } from './stageMesh';
+import { WaterView } from './waterView';
 import { WindStreaks } from './windStreaks';
 
 /** ステージの描画オブジェクト。静的部分は統合メッシュ、動く物だけ個別メッシュ。 */
@@ -29,6 +30,7 @@ export class StageView {
   private static readonly MAX_DEBRIS = 96;
   private t = 0;
   private readonly windStreaks: WindStreaks | null = null;
+  private readonly waterView: WaterView | null = null;
 
   constructor(readonly stage: StageDef, sim: GameSim) {
     this.staticMesh = new THREE.Mesh(buildStaticStageGeometry(stage), this.mat);
@@ -63,6 +65,11 @@ export class StageView {
     if (stage.winds && stage.winds.length > 0) {
       this.windStreaks = new WindStreaks(stage.winds);
       if (this.windStreaks.active) this.group.add(this.windStreaks.mesh);
+    }
+    // 水域 (半透明の水面 + 水中を染める体積)
+    if (stage.waters && stage.waters.length > 0) {
+      this.waterView = new WaterView(stage.waters);
+      this.group.add(this.waterView.group);
     }
     // 破片
     this.debrisInst = new THREE.InstancedMesh(boxGeometry({ pos: [0, 0, 0], size: [0.32, 0.32, 0.32], style: 'wood' }, 'debris'), this.mat, StageView.MAX_DEBRIS);
@@ -140,6 +147,7 @@ export class StageView {
       this.goal.rotation.y = this.t * 1.5;
     }
     this.windStreaks?.update(sim.time);
+    this.waterView?.update(sim.time);
     // 破片の更新 (1 つの InstancedMesh にまとめて書き戻す)
     let n = 0;
     for (let i = this.debris.length - 1; i >= 0; i--) {
@@ -171,6 +179,7 @@ export class StageView {
     this.staticMesh.geometry.dispose();
     this.mat.dispose();
     this.windStreaks?.dispose();
+    this.waterView?.dispose();
     this.debrisInst.geometry.dispose();
     this.debrisInst.dispose();
     this.breakableInst?.geometry.dispose();

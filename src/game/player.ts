@@ -18,15 +18,29 @@ export interface PlayerEnv {
   windX: number;
   windY: number;
   windZ: number;
+  /** プレイヤーがいる水域の水面の高さ (水域の外では -Infinity)。 */
+  waterSurface: number;
 }
 
 /** スタン中に使う空入力 */
 const STUN_INPUT: SimInput = emptyInput();
 
-export const NO_ENV: Readonly<PlayerEnv> = { windX: 0, windY: 0, windZ: 0 };
+export const NO_ENV: Readonly<PlayerEnv> = { windX: 0, windY: 0, windZ: 0, waterSurface: -Infinity };
 
 /** 地上では接地の摩擦で風の影響が弱まる。 */
 const GROUND_WIND_FACTOR = 0.55;
+/** この割合以上浸かると泳ぎ (胸まで) */
+const SWIM_DEPTH = 0.5;
+/** 水面近く (これ未満の浸かり方) でジャンプすると水から跳び出せる */
+const WATER_JUMP_DEPTH = 0.92;
+const WATER_JUMP_MUL = 0.95;
+/** 浮力の係数 (m/s²): (1 - 密度) × この値 */
+const BUOYANCY = 16;
+/** 泳ぎの掻き (m/s²) と最大上下速度 (m/s)、水の抵抗 */
+const SWIM_STROKE = 15;
+const SWIM_VMAX = 4.2;
+const WATER_VDRAG = 3.2;
+const WATER_DRAG = 7;
 /** 被ダメージ直後に操作を受け付けない時間 (秒)。 */
 const STUN_TIME = 0.28;
 
@@ -71,6 +85,9 @@ export class PlayerController {
   attackCooldown = 0;
   /** 被ダメージで操作不能な残り時間 */
   stunTimer = 0;
+  /** 水中 (胸まで浸かっている) か / 体のどれだけが水に浸かっているか (0..1) */
+  swimming = false;
+  submerge = 0;
 
   private coyote = 0;
   private jumpBuffer = 0;
@@ -198,9 +215,18 @@ export class PlayerController {
     }
     this.inputMag = Math.min(1, il);
 
-    const accel = this.grounded ? p.accel : p.airAccel;
-    const tx = ix * p.maxSpeed;
-    const tz = iz * p.maxSpeed;
+    // --- 水 ---
+    const feetNow = this.pos.y - p.height / 2;
+    const sub = env.waterSurface > -1e8 ? clamp((env.waterSurface - feetNow) / p.height, 0, 1) : 0;
+    this.submerge = sub;
+    const swimming = sub > SWIM_DEPTH;
+    this.swimming = swimming;
+    // 浅瀬 (膝〜腰) では少し遅くなる。深いと泳ぎ速度 (体が小さいほど速い)。
+    const wade = 1 - 0.3 * Math.min(1, sub / SWIM_DEPTH);
+    const maxSp = swimming ? p.swimSpeed : p.maxSpeed * wade;
+    const accel = swimming ? p.swimAccel : this.grounded ? p.accel : p.airAccel;
+    const tx = ix * maxSp;
+    const tz = iz * maxSp;
     if (il > 0.01) {
       let ax = tx - this.vel.x;
       let az = tz - this.vel.z;
@@ -218,7 +244,7 @@ export class PlayerController {
       const maxTurn = p.turnRate * dt;
       this.yaw = wrapPi(this.yaw + clamp(dy, -maxTurn, maxTurn));
     } else {
-      const decel = (this.grounded ? p.friction : p.airDrag) * dt;
+      const decel = (swimming ? WATER_DRAG : this.grounded ? p.friction : p.airDrag) * dt;
       const sp = this.horizontalSpeed;
       if (sp > 0) {
         const ns = Math.max(0, sp - decel);
@@ -228,8 +254,17 @@ export class PlayerController {
       }
     }
 
+    // --- 水中のジャンプ: 水面付近なら水から跳び出す (水上ジャンプ)。深い所では泳ぎ (下の浮力) に任せる ---
+    if (swimming && this.jumpBuffer > 0 && sub < WATER_JUMP_DEPTH) {
+      this.vel.y = p.jumpVelocity * WATER_JUMP_MUL;
+      this.jumpBuffer = 0;
+      this.jumping = true;
+      this.jumpCut = false;
+      this.grounded = false;
+      push({ type: 'jump' });
+    }
     // --- ジャンプ ---
-    if (this.jumpBuffer > 0 && (this.grounded || this.coyote > 0) && !this.jumping) {
+    if (!swimming && this.jumpBuffer > 0 && (this.grounded || this.coyote > 0) && !this.jumping) {
       this.vel.y = p.jumpVelocity;
       this.grounded = false;
       this.coyote = 0;
@@ -245,9 +280,23 @@ export class PlayerController {
       this.jumpCut = true;
     }
 
-    // --- 重力 ---
-    const g = p.gravity * (this.vel.y < 0 ? p.fallGravityMul : 1);
-    this.vel.y = Math.max(-p.maxFallSpeed, this.vel.y - g * dt);
+    if (swimming && !(this.jumping && this.vel.y > 2)) {
+      // --- 浮力と泳ぎ: 軽い (密度 < 1) ほど浮き、重いほど沈む。JUMP で浮上、ACTION で潜水 ---
+      let ay = (1 - p.density) * BUOYANCY;
+      if (input.jumpHeld) ay += SWIM_STROKE;
+      if (input.actionHeld) ay -= SWIM_STROKE;
+      this.vel.y += ay * dt;
+      this.vel.y *= Math.exp(-WATER_VDRAG * dt);
+      this.vel.y = clamp(this.vel.y, -SWIM_VMAX, SWIM_VMAX);
+      // 頭 (体の 9 割) が水面を越えて上がり続けないよう、水面で止める
+      const headY = feetNow + p.height * 0.9;
+      if (headY > env.waterSurface && this.vel.y > 0) this.vel.y = Math.min(this.vel.y, (env.waterSurface - headY) * 8);
+      this.jumping = false;
+    } else {
+      // --- 重力 ---
+      const g = p.gravity * (this.vel.y < 0 ? p.fallGravityMul : 1);
+      this.vel.y = Math.max(-p.maxFallSpeed, this.vel.y - g * dt);
+    }
 
     // --- 移動量 (移動床に乗っていればそのぶん運ばれる) ---
     const d = this.desired;
@@ -258,7 +307,7 @@ export class PlayerController {
     d.z = this.vel.z * dt + (carry ? carry.dz : 0) + env.windZ * wr;
 
     // 上昇中はスナップしない (ジャンプが地面に吸われないように)
-    if (this.vel.y > 0) this.cc.disableSnapToGround();
+    if (this.vel.y > 0 || swimming) this.cc.disableSnapToGround();
     else this.cc.enableSnapToGround(SNAP_DISTANCE);
 
     this.cc.computeColliderMovement(this.collider, d);
@@ -320,7 +369,7 @@ export class PlayerController {
         const impact = Math.max(0, -wasVy);
         this.lastLandImpact = impact;
         this.landCount++;
-        if (impact > 4) this.landingTimer = LANDING_TIME;
+        if (impact > 4 && !swimming) this.landingTimer = LANDING_TIME;
         push({ type: 'land', impact });
       }
       if (this.vel.y < 0) this.vel.y = 0;

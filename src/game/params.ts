@@ -33,6 +33,9 @@ export interface PlayerParams {
   windResistance: number;
   /** 水中での沈みやすさ (1 = 標準、大きいほど沈む)。 */
   density: number;
+  /** 泳ぎの最高速度 (m/s) と加速 (m/s²)。体が小さいほど水の抵抗が小さく速い。 */
+  swimSpeed: number;
+  swimAccel: number;
   /** 段差を自動で上る高さ (m) */
   stepHeight: number;
   /** 歩いて登れる最大傾斜 (rad) */
@@ -118,6 +121,9 @@ export function statsToParams(stats: CharacterStats, traits: CharacterTraits = D
     // 風の効きやすさ。体重の 1.8 乗に反比例 (重い = 風に強い。軽い = 流されやすい)
     windResistance: 1 / Math.pow(weight, 1.8),
     density: Math.pow(weight, 0.9) / Math.pow(size, 0.6),
+    // 泳ぎ: 小さい (小型) ほど抵抗が小さく速い。大きい/重いビルドは遅い。
+    swimSpeed: BASE.maxSpeed * Math.pow(speed, 0.5) * clamp(0.62 - 0.24 * (size - 1), 0.38, 0.8),
+    swimAccel: 16,
     stepHeight: BASE.stepHeight * clamp(size, 0.7, 1.3),
     maxSlopeClimb: (52 * Math.PI) / 180,
     minSlopeSlide: (56 * Math.PI) / 180,

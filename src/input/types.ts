@@ -6,8 +6,10 @@ export interface SimInput {
   moveZ: number;
   /** このステップでジャンプボタンが押された瞬間 */
   jumpPressed: boolean;
-  /** ジャンプボタンが押されている間 true (可変ジャンプ用) */
+  /** ジャンプボタンが押されている間 true (可変ジャンプ用 / 水中では浮上) */
   jumpHeld: boolean;
+  /** アクションボタンが押されている間 true (水中では潜る) */
+  actionHeld?: boolean;
   /** このステップでアクションボタンが押された瞬間 */
   actionPressed: boolean;
 }

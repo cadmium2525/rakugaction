@@ -7,6 +7,7 @@ import type {
   HazardDef,
   MoverDef,
   SurfaceStyle,
+  WaterDef,
   WaypointDef,
   WindDef,
 } from './types';
@@ -46,6 +47,7 @@ export interface SharedLists {
   breakables: BreakableDef[];
   decor: DecorDef[];
   winds: WindDef[];
+  waters: WaterDef[];
   counter: { n: number };
 }
 
@@ -61,6 +63,7 @@ export class PathBuilder {
   readonly breakables: BreakableDef[];
   readonly decor: DecorDef[];
   readonly winds: WindDef[];
+  readonly waters: WaterDef[];
   route: WaypointDef[] = [];
   private readonly shared: SharedLists;
   goal: GoalDef | null = null;
@@ -78,7 +81,7 @@ export class PathBuilder {
   ) {
     [this.x, this.y, this.z] = start;
     this.heading = heading;
-    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], decor: [], winds: [], counter: { n: 0 } };
+    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], decor: [], winds: [], waters: [], counter: { n: 0 } };
     this.boxes = this.shared.boxes;
     this.movers = this.shared.movers;
     this.checkpoints = this.shared.checkpoints;
@@ -86,6 +89,7 @@ export class PathBuilder {
     this.breakables = this.shared.breakables;
     this.decor = this.shared.decor;
     this.winds = this.shared.winds;
+    this.waters = this.shared.waters;
   }
 
   /**
@@ -348,6 +352,20 @@ export class PathBuilder {
   windZone(a: number, l: number, size: V3t, def: Omit<WindDef, 'min' | 'max'>): void {
     const c = this.point(a, l);
     this.winds.push({ ...def, min: [c[0] - size[0] / 2, c[1], c[2] - size[2] / 2], max: [c[0] + size[0] / 2, c[1] + size[1], c[2] + size[2] / 2] });
+  }
+
+  /** 水域を追加: カーソルから 前方 a0..a1, 右 l0..l1 の範囲、底 yBottom、水面 ySurface。 */
+  water(a0: number, a1: number, l0: number, l1: number, yBottom: number, ySurface: number, o: { id?: string; level?: WaterDef['level'] } = {}): string {
+    const [x0, z0] = this.at(a0, l0);
+    const [x1, z1] = this.at(a1, l1);
+    const id = o.id ?? this.nextId('water');
+    this.waters.push({
+      id,
+      min: [Math.min(x0, x1), yBottom, Math.min(z0, z1)],
+      max: [Math.max(x0, x1), ySurface, Math.max(z0, z1)],
+      level: o.level,
+    });
+    return id;
   }
 
   deco(shape: DecorDef['shape'], pos: V3t, size: V3t, color: number): this {

@@ -87,6 +87,18 @@ export interface WindDef {
   streaks?: number;
 }
 
+/**
+ * 水域 (AABB)。max[1] が水面の高さ (level があれば水位が上下する)。
+ * 水中では浮力 (軽い = 浮く / 重い = 沈む) と泳ぎ (JUMP で浮上、ACTION で潜水) になる。
+ */
+export interface WaterDef {
+  id: string;
+  min: V3t;
+  max: V3t;
+  /** 水位の上下: 水面 = max[1] + amplitude × sin(2π (t + phase) / period) */
+  level?: { amplitude: number; period: number; phase?: number };
+}
+
 /** 当たり判定のない装飾 (遠景の山/木/雲など)。静的メッシュに統合される。 */
 export interface DecorDef {
   shape: 'box' | 'cone' | 'sphere' | 'cylinder';
@@ -120,6 +132,10 @@ export interface WaypointDef {
   waitMover?: { id: string; pos: V3t; r: number };
   /** 水中ルート (泳ぐ) */
   swim?: boolean;
+  /** 水中で ACTION を押し続けて床に張り付く (低いドアの通過用: 浮力のある軽いビルドも頭を下げて通る) */
+  dive?: boolean;
+  /** 指定した水域の水面が level 以上になるまで待つ (水位が上下する部屋) */
+  waitWater?: { id: string; level: number };
   /** 到着判定の水平半径 (m) */
   radius?: number;
 }
@@ -155,6 +171,7 @@ export interface StageDef {
   breakables?: readonly BreakableDef[];
   decor?: readonly DecorDef[];
   winds?: readonly WindDef[];
+  waters?: readonly WaterDef[];
   /**
    * ボット用ルート。'main' は誰でも通れる本道。近道など別ルートは別名で追加し、
    * バランス計測ではビルドごとに「通れた中で最速のルート」を採用する。

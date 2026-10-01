@@ -18,6 +18,8 @@ export class Hud {
   private subTimeEl: HTMLElement | null = null;
   private readonly windEl: HTMLElement;
   private readonly windArrow: HTMLElement;
+  private readonly swimEl: HTMLElement;
+  private readonly waterTint: HTMLElement;
 
   constructor(parent: HTMLElement, onPause: () => void) {
     this.hearts = h('div', { class: 'hud-hearts' });
@@ -35,7 +37,9 @@ export class Hud {
     });
     this.windArrow = h('div', { class: 'wind-arrow', text: '➤' });
     this.windEl = h('div', { class: 'hud-wind' }, this.windArrow, h('span', { text: 'かぜ' }));
-    this.el = h('div', { class: 'hud' }, this.flash, this.hearts, this.windEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.toastEl, this.fade);
+    this.swimEl = h('div', { class: 'hud-swim' }, h('span', { text: 'JUMP ＝ うく' }), h('span', { text: 'ACTION ＝ もぐる' }));
+    this.waterTint = h('div', { class: 'hud-watertint' });
+    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.toastEl, this.fade);
     parent.appendChild(this.el);
   }
 
@@ -90,6 +94,12 @@ export class Hud {
     this.windEl.classList.add('on');
     this.windArrow.style.transform = 'rotate(' + (angleDeg - 90) + 'deg)';
     this.windEl.style.setProperty('--s', String(Math.min(1, Math.max(0.3, strength))));
+  }
+
+  /** 泳いでいる間の操作ヒントと、カメラが水中にある間の青いオーバーレイ。 */
+  setSwim(swimming: boolean, cameraUnderwater: boolean): void {
+    this.swimEl.classList.toggle('on', swimming);
+    this.waterTint.classList.toggle('on', cameraUnderwater);
   }
 
   /** 中央の大きな文字 (READY / GO! / CLEAR!)。null で消す。 */

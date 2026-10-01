@@ -6,9 +6,12 @@ import { StageView } from './stageView';
 import { PlayerView } from './playerView';
 import type { FollowCamera } from '../game/camera';
 import type { GameSim } from '../game/sim';
+import { waterSurfaceAt } from '../game/water';
 import type { StageDef } from '../stages/types';
 
 export type { RenderInfo };
+
+const UNDERWATER_FOG = 0x1d7f9c;
 
 /**
  * ゲームステージ用のシーン/ライト/カメラ。レンダラー (canvas) は RenderHost から借りる。
@@ -19,6 +22,8 @@ export class GameView {
   readonly camera: THREE.PerspectiveCamera;
   readonly player = new PlayerView();
   stageView: StageView | null = null;
+  /** カメラが水面より下にある (HUD の水中オーバーレイ用) */
+  cameraUnderwater = false;
 
   private sky: THREE.Mesh | null = null;
   private readonly hemi = new THREE.HemisphereLight(0xcfe3ff, 0x8a7a5a, 1.0);
@@ -59,10 +64,25 @@ export class GameView {
     }
     this.camera.far = 300 * s.viewScale;
     this.camera.updateProjectionMatrix();
-    if (this.scene.fog && this.stageView) {
-      const th = this.stageView.stage.theme;
-      this.scene.fog = new THREE.Fog(th.fog, th.fogNear * s.viewScale, th.fogFar * s.viewScale);
-    }
+    this.applyFog();
+  }
+
+  /** フォグを現在の状態 (地上 / 水中) に合わせる。水中は近くで青緑に霞む。 */
+  private applyFog(): void {
+    if (!this.stageView) return;
+    const th = this.stageView.stage.theme;
+    const vs = this.host.currentSettings.viewScale;
+    this.scene.fog = this.cameraUnderwater ? new THREE.Fog(UNDERWATER_FOG, 1, 30 * vs) : new THREE.Fog(th.fog, th.fogNear * vs, th.fogFar * vs);
+  }
+
+  private updateUnderwater(sim: GameSim, y: number, x: number, z: number): void {
+    const waters = this.stageView?.stage.waters;
+    if (!waters || waters.length === 0) return;
+    const surface = waterSurfaceAt(waters, x, y, z, sim.time);
+    const under = y < surface;
+    if (under === this.cameraUnderwater) return;
+    this.cameraUnderwater = under;
+    this.applyFog();
   }
 
   /** ステージを読み込む (前のステージは破棄)。 */
@@ -71,10 +91,10 @@ export class GameView {
     this.stageView = new StageView(stage, sim);
     this.scene.add(this.stageView.group);
     const th = stage.theme;
-    const vs = this.host.currentSettings.viewScale;
     this.sky = createSky(th.skyTop, th.skyBottom);
     this.scene.add(this.sky);
-    this.scene.fog = new THREE.Fog(th.fog, th.fogNear * vs, th.fogFar * vs);
+    this.cameraUnderwater = false;
+    this.applyFog();
     this.hemi.color.setHex(th.ambient);
     this.sun.color.setHex(th.sun);
     this.sun.position.set(-30, 60, 20);
@@ -111,6 +131,7 @@ export class GameView {
       const pose = cam.pose;
       this.camera.position.set(pose.x, pose.y, pose.z);
       this.camera.lookAt(pose.tx, pose.ty, pose.tz);
+      if (sim) this.updateUnderwater(sim, pose.y, pose.x, pose.z);
     }
     if (this.sky) this.sky.position.copy(this.camera.position);
     host.renderer.render(this.scene, this.camera);

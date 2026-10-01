@@ -253,6 +253,7 @@ export class StageSession {
     const sub = this.deps.subTime?.();
     if (sub !== undefined) this.hud.setSubTime(sub);
     this.updateWindHud();
+    this.hud.setSwim(this.scene.sim.player.swimming, this.view.cameraUnderwater);
     if (this.scene.paused) return;
     this.phaseTime += dt;
     switch (this.phase) {

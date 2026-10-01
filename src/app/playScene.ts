@@ -133,6 +133,7 @@ export class PlayScene {
         si.moveX = this.world.x;
         si.moveZ = this.world.z;
         si.jumpHeld = raw.jumpHeld;
+        si.actionHeld = raw.actionHeld;
         if (raw.jumpPressedLatch) this.pendingJump = true;
         if (raw.actionPressedLatch) this.pendingAction = true;
       }
