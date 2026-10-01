@@ -661,3 +661,142 @@
     font-size: 20px;
   }
 }
+
+/* ---------- ランキング ---------- */
+.rk-screen {
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 16, 28, 0.55);
+}
+.rk-card {
+  width: min(640px, 94vw);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px 12px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.rk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rk-title {
+  flex: 1;
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--accent);
+}
+.rk-reload {
+  min-width: 40px;
+}
+.rk-body {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.04);
+}
+.rk-list {
+  display: flex;
+  flex-direction: column;
+}
+.rk-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.rk-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rk-row.mine {
+  background: #fff3c7;
+}
+.rk-rank {
+  width: 34px;
+  text-align: center;
+  font-weight: 900;
+  font-size: 14px;
+}
+.rk-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 800;
+}
+.rk-lv,
+.rk-label {
+  font-size: 10px;
+  color: #8a7c60;
+  white-space: nowrap;
+}
+.rk-time {
+  font: 800 14px/1.2 ui-monospace, Consolas, monospace;
+}
+.rk-detail {
+  padding: 2px 12px 8px 44px;
+  font-size: 10px;
+  color: #6a5c40;
+  line-height: 1.5;
+}
+.rk-msg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  padding: 16px;
+  text-align: center;
+}
+.rk-msg-title {
+  font-size: 15px;
+  font-weight: 900;
+}
+.rk-msg-detail {
+  font-size: 11px;
+  color: #8a7c60;
+}
+.rk-footer {
+  min-height: 24px;
+}
+.rk-mine {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: #fff3c7;
+  font-size: 12px;
+}
+.rk-mine.dim {
+  background: transparent;
+  color: #8a7c60;
+}
+@media (max-height: 420px) {
+  .rk-card {
+    padding: 6px 10px 8px;
+  }
+  .rk-row {
+    padding: 4px 8px;
+  }
+  .rk-body {
+    min-height: 80px;
+  }
+}

@@ -102,6 +102,8 @@ export interface TimeAttackResultOptions {
   submitLabel?: string;
   /** 送信の状態表示 (送信中/成功/失敗/利用不可) */
   statusText?: string;
+  /** ランキング画面を開く (ランキングが使える時だけ) */
+  onRanking?: () => void;
   onRetry(): void;
   onHub(): void;
 }
@@ -145,6 +147,7 @@ export class TimeAttackResultScreen implements Screen {
     this.statusEl = h('div', { class: 'ta-status', text: opts.statusText ?? '' });
     const btns = h('div', { class: 'rs-btns' });
     if (opts.onSubmit) btns.appendChild(h('button', { class: 'btn btn-primary', text: opts.submitLabel ?? '🏆 ランキングにのせる', on: { click: () => opts.onSubmit?.() } }));
+    if (opts.onRanking) btns.appendChild(h('button', { class: 'btn btn-ghost', text: '🏆 ランキングを見る', on: { click: () => opts.onRanking?.() } }));
     btns.append(
       h('button', { class: 'btn btn-ghost', text: '↻ もういちど', on: { click: () => opts.onRetry() } }),
       h('button', { class: 'btn btn-ghost', text: '⌂ もどる', on: { click: () => opts.onHub() } }),

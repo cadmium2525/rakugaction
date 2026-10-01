@@ -421,3 +421,28 @@ EDT/穴埋め (8 近傍の隙間)/小片除去/膨張、輪郭 (正方形=20 点
 
 ### 全ステージ通しのバランス (ボット最速ルート合計, Lv.1)
 SPEED ≈ 191s / JUMP ≈ 221s / STANDARD ≈ 244s / POWER ≈ 255s / HEAVY ≈ 306s / EXTREME ≈ 332s。ステージの勝者は S1 SPEED / S2 JUMP / S3 SPEED / S4 SPEED / S5 SPEED。→ 目標: 各ステージの勝者が分かれ、合計の差が 1.5 倍以内 (見直しは別途)。
+
+## PHASE 13: オンラインランキング
+
+詳細・セットアップ手順・不正対策は **docs/RANKING.md**。
+
+### 実装
+* **バックエンドは差し替え可能** (`RankingBackend`): `FirestoreRankingBackend` (Firestore REST + 匿名認証 REST。SDK 同梱なし) と `MockRankingBackend` (メモリ。開発/テスト用)。既存の Firebase 設定は無かったため、新規に「設定ファイル方式」にした。
+* **設定** (`public/ranking-config.json`): `{ enabled, apiKey, projectId, collection }`。同梱は `enabled: false` (= 未設定。fetch は 200 を返すので Console にエラーが出ない)。キー/ID は URL に埋め込むので厳しく形式検査。**管理者権限/秘密鍵はクライアントにも設定にも置かない** (Web API キーは公開前提の識別子)。
+* **記録** (`RankingSubmission`): 名前 (整形済み)・ビルドのラベル・総タイム・splits ×5・simMs・deaths・level・stats ×6 (レベル補正後)・gameVersion・paramsHash・flags・submittedAt・schemaVersion。1 ユーザー 1 件 (= ベスト)。
+* **サーバー側の検査** (`firebase/firestore.rules`): 本人のドキュメントだけ書込可 / 更新は「速い時だけ」/ 削除不可 / 許可フィールド固定 / 値域 / **splits の合計 = 総タイム** / 各ステージの最短タイム / 能力値・レベル・名前長 / flags 空 / 送信時刻のずれ ±10 分 / それ以外のコレクションは全禁止。クライアントの `RANK_LIMITS` と同じ値で、`tests/ranking/rules.test.ts` が一致を検査する。
+* **失敗しても止まらない**: 全操作が結果型 (`ok` / `reason` = unconfigured・offline・auth・rejected・server・invalid) を返し例外を投げない。通信は 8 秒でタイムアウト。想定外の例外もサービス層で握って失敗として返す。ランキングが落ちていても、ゲーム進行・EXP・ベスト・タイムアタックは普通に動く。
+* **サービス** (`RankingService`): 異常フラグ付きの走りは送らない / 送信前に検査 / TOP100 + 自分の記録/順位 / **60 秒キャッシュ** (TOP100 = 読み取り 100 回なので無料枠を守る。送信が通ったらキャッシュを捨てる)。
+* **UI**: ランキング画面 (🥇🥈🥉・名前/Lv/ビルド/タイム・自分の行を強調・行をタップで splits と能力値・自分の順位・読み込み中/未設定/エラー (再読み込み)・↻)。ハブの「🏆 ランキング」。ALL STAGES 結果画面の「🏆 ランキングにのせる」(クリーンな走りだけ・未設定なら出さない) と送信結果 (「ランキングに のりました！ 3位」「すでに もっと速い記録が のっています」「のせられませんでした: …」)。サーバーの文字列は `textContent` だけで表示 (HTML として解釈しない)。
+* 匿名ユーザー: 送信時にだけ作成 (閲覧のためには作らない)。refreshToken を localStorage に保存 (使えない環境ではメモリのみ)。refresh が無効なら作り直す。
+
+### 自動テスト (累計 309 件)
+`tests/ranking/` 51 件: `validate.test.ts` (名前整形 (制御/双方向制御/絵文字/空)・ハッシュ・値域検査の各境界・`buildSubmission`・Firestore コーデックの往復/壊れた/値域外/名前再整形)、`firestore.test.ts` (偽の Firestore + Identity Toolkit (`fakeFirestore.ts`。rules と同じ検査をして違反は 403) に対して: 初回送信/ unchanged / updated / 順位 / 再起動でトークン更新 / 無効な refresh からの作り直し / 期限切れ前の更新 / 不正記録は通信しない / 403・5xx・圏外 / タイムアウト / 間違った API キー / TOP の並びと壊れたドキュメントの除外・上限 100 / 自分の記録は未送信なら通信なし)、`service.test.ts` (モックの rules 相当の振る舞い・未設定でも例外なし・フラグ付きは送らない・キャッシュ・バックエンドの例外・設定の検査と同梱設定が無効であること)、`rules.test.ts` (rules ↔ `RANK_LIMITS` の一致と、誰でも書ける許可が無いこと)。
+
+### ブラウザでの確認 (実 UI)
+* 設定なし (同梱のまま): ハブの「🏆 ランキング」→「ランキングは まだ準備中です」(ゲームは普通に遊べる)。`ranking-config.json` は 200 で、Console エラーなし。
+* `?ranking=mock`: 他 4 人 + 自分を登録 → ランキング画面に 🥇🥈 / 自分 (3 位) が強調表示 / 「あなたの記録 3位 03:08.000 Lv.1」。名前が `<b>タグ</b>` の記録も文字としてそのまま表示される (タグとして解釈されない)。
+
+### 未検証 (ここでは確認できない)
+* **本物の Firebase (Firestore/匿名認証) への書き込み・rules の実際の動作** — このリポジトリには Firebase プロジェクトがないため。公開前に docs/RANKING.md の手順で 1 件送信して確認する。rules の構文は Rules Playground/Emulator で確認すること。
+* 実機 (iOS Safari の localStorage 制限下) での匿名ユーザーの保持。

@@ -21,6 +21,9 @@ import { allStagesExp, stageExp } from '../progression/exp';
 import { TimeAttackRun, compareWithBest } from '../timeattack/run';
 import type { Split, TimeAttackResult } from '../timeattack/run';
 import { SplitScreen, TimeAttackResultScreen } from '../ui/timeAttackScreens';
+import { RankingService, createRankingService } from '../ranking/service';
+import type { SubmitOutcome } from '../ranking/types';
+import { RankingScreen } from '../ui/rankingScreen';
 import { formatTime } from '../timeattack/timer';
 import { STAT_KEYS } from '../character/stats';
 import type { CharacterStats, StatKey } from '../character/stats';
@@ -39,6 +42,14 @@ import { PlayScene } from './playScene';
 import { Profile } from './profile';
 import { StageSession } from './stageSession';
 import type { StageResult } from './stageSession';
+
+/** ランキング送信の結果メッセージ。 */
+function rankMessage(o: SubmitOutcome): string {
+  const rank = o.rank !== null ? `  ${o.rank}位` : '';
+  if (o.status === 'created') return `🏆 ランキングに のりました！${rank}`;
+  if (o.status === 'updated') return `🏆 ベストを こうしんしました！${rank}`;
+  return `すでに もっと速い記録が のっています${rank}`;
+}
 
 function loadingScreen(text: string): Screen {
   return {
@@ -78,6 +89,8 @@ export class App {
   /** 開発/QA 用: タイムアタックのステージタイマーに使う時計を差し替える (非表示タブで高速に進める自動テスト用) */
   devClock: (() => number) | null = null;
   private parCache: Record<string, number | undefined> | null = null;
+  /** オンラインランキング。設定がない/読み込み前は available = false (ゲーム本体は影響を受けない) */
+  ranking = new RankingService(null);
 
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
@@ -96,6 +109,8 @@ export class App {
 
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
     void loadRapier();
+    // ランキング設定 (public/ranking-config.json)。無い/無効なら未設定として扱う。?ranking=mock でメモリ上のモック (開発用)
+    this.ranking = await createRankingService({ mock: this.devMode && this.params.get('ranking') === 'mock' });
 
     const doodle = this.params.get('doodle');
     if (doodle && this.devMode) await this.loadDevDoodle(doodle);
@@ -267,6 +282,7 @@ export class App {
         level: this.profile.progress,
         onPlayStage: (id) => void this.startStage(id),
         onTimeAttack: () => void this.startTimeAttack(),
+        onRanking: () => this.showRanking(),
         taBestMs: this.profile.allStagesBest?.totalMs ?? null,
         onDraw: () => this.showEditor(),
         onTitle: () => this.showTitle(),
@@ -450,8 +466,9 @@ export class App {
     const after = this.profile.progress;
     const levelUp = lv.after > lv.before ? summarizeLevelUp(lv.before, lv.after) : undefined;
     this.lastTaResult = result;
-    this.setScreen(
-      new TimeAttackResultScreen({
+    const rec = this.profile.selected;
+    let screen: TimeAttackResultScreen | null = null;
+    screen = new TimeAttackResultScreen({
         stages: run.stageIds.map((id) => this.stageLabel(id)),
         result,
         deltaMs: cmp.deltaMs,
@@ -459,13 +476,34 @@ export class App {
         newBest: cmp.newBest,
         bestMs: this.profile.allStagesBest?.totalMs ?? null,
         progress: clean ? { gain, before, after, levelUp } : undefined,
+        // 参考記録 (フラグ付き) はランキングに送れない。ランキングが未設定ならボタンを出さない
+        onSubmit: clean && rec && this.ranking.available ? () => void this.submitRanking(screen, result, rec) : undefined,
+        onRanking: this.ranking.available ? () => this.showRanking() : undefined,
+        statusText: this.ranking.available ? '' : 'ランキングは まだ準備中です',
         onRetry: () => void this.startTimeAttack(),
         onHub: () => {
           this.ta = null;
           void this.showHub();
         },
-      }),
-    );
+      });
+    this.setScreen(screen);
+  }
+
+  /** ALL STAGES の記録をランキングへ送る (結果は画面のメッセージで知らせる。失敗してもゲームは続けられる)。 */
+  private async submitRanking(screen: TimeAttackResultScreen | null, result: TimeAttackResult, rec: CharacterRecord): Promise<void> {
+    screen?.setStatus('おくっています…');
+    const eff = this.effectiveStats(rec);
+    const res = await this.ranking.submit({ result, name: rec.name, label: describeBuild(eff).label, stats: eff, level: this.profile.level });
+    if (!res.ok) {
+      screen?.setStatus(`ランキングに のせられませんでした: ${res.message}`);
+      return;
+    }
+    screen?.setStatus(rankMessage(res.value));
+  }
+
+  showRanking(): void {
+    this.leaveGame();
+    this.setScreen(new RankingScreen({ service: this.ranking, onBack: () => void this.showHub() }));
   }
 
   /** 開発/QA 用: 実行中のステージをボットに自動プレイさせる (実描画・実 HUD・実結果画面を通した E2E 確認用)。 */

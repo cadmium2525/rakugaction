@@ -1,0 +1,6 @@
+{
+  "enabled": true,
+  "apiKey": "AIzaSy-あなたのFirebaseプロジェクトのWeb-APIキー",
+  "projectId": "your-firebase-project-id",
+  "collection": "ranking"
+}
