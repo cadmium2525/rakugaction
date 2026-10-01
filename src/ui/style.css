@@ -220,3 +220,121 @@ body {
     display: flex;
   }
 }
+
+/* ---------- 共通 UI ---------- */
+.screen {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #fff6e0 0%, #ffeccc 100%);
+  color: var(--ink);
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  touch-action: none;
+}
+.btn {
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:active {
+  transform: scale(0.96);
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 3px 0 #c9561f;
+}
+.btn-ghost {
+  background: #fff;
+  color: var(--ink);
+  border-color: #e6d8bb;
+}
+.btn-small {
+  min-height: 32px;
+  font-size: 12px;
+  padding: 0 8px;
+  background: #fff;
+  color: var(--ink);
+  border-color: #e6d8bb;
+}
+.btn-big {
+  min-height: 52px;
+  font-size: 18px;
+  padding: 0 22px;
+}
+.btn:disabled {
+  opacity: 0.4;
+}
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 24px);
+  transform: translate(-50%, 20px);
+  z-index: 200;
+  max-width: 80vw;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(20, 28, 44, 0.92);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+}
+.toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.toast:empty {
+  display: none;
+}
+
+/* ---------- タイトル ---------- */
+.title-screen {
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  text-align: center;
+}
+.title-logo {
+  font-size: clamp(30px, 9vh, 56px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  text-shadow: 3px 3px 0 #fff, 5px 5px 0 rgba(255, 122, 61, 0.25);
+}
+.title-sub {
+  font-size: clamp(12px, 3.4vh, 16px);
+  font-weight: 700;
+  color: #7a6a4c;
+}
+.title-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(300px, 70vw);
+}
+.title-menu .btn {
+  min-height: 48px;
+  font-size: 16px;
+}
+
+.ui-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ui-layer > * {
+  pointer-events: auto;
+}
