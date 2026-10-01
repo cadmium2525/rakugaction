@@ -8,6 +8,7 @@ import type {
   MoverDef,
   SurfaceStyle,
   WaypointDef,
+  WindDef,
 } from './types';
 import type { V3t } from '../core/math';
 import { rampX, rampZ } from './helpers';
@@ -36,33 +37,79 @@ export interface SegmentOptions {
  * 衝突ジオメトリとボット用ウェイポイントを同時に生成する。90° ずつ曲がれる (軸平行なので衝突が単純)。
  * 座標はカーソル = 現在の床の上面中心 (x, y, z)。
  */
+/** 枝分かれ (branch) した PathBuilder 同士で共有するジオメトリ/ギミックの一覧。 */
+export interface SharedLists {
+  boxes: BoxDef[];
+  movers: MoverDef[];
+  checkpoints: CheckpointDef[];
+  hazards: HazardDef[];
+  breakables: BreakableDef[];
+  decor: DecorDef[];
+  winds: WindDef[];
+  counter: { n: number };
+}
+
 export class PathBuilder {
   x: number;
   y: number;
   z: number;
   heading: Heading;
-  readonly boxes: BoxDef[] = [];
-  readonly movers: MoverDef[] = [];
-  readonly checkpoints: CheckpointDef[] = [];
-  readonly hazards: HazardDef[] = [];
-  readonly breakables: BreakableDef[] = [];
-  readonly decor: DecorDef[] = [];
-  readonly route: WaypointDef[] = [];
+  readonly boxes: BoxDef[];
+  readonly movers: MoverDef[];
+  readonly checkpoints: CheckpointDef[];
+  readonly hazards: HazardDef[];
+  readonly breakables: BreakableDef[];
+  readonly decor: DecorDef[];
+  readonly winds: WindDef[];
+  route: WaypointDef[] = [];
+  private readonly shared: SharedLists;
   goal: GoalDef | null = null;
   private lastAutoWp = -1;
   /** 直前の床の横ずれ (ギャップの踏み切り位置に使う) */
   private lastLateral = 0;
   /** 着地目標をまだ設定していないジャンプ用ウェイポイント */
   private pendingJump: WaypointDef | null = null;
-  private idCounter = 0;
 
   constructor(
     start: V3t,
     heading: Heading = 'z+',
     private readonly defaults: { w: number; thick: number; style: SurfaceStyle } = { w: 6, thick: 1.4, style: 'grass' },
+    shared?: SharedLists,
   ) {
     [this.x, this.y, this.z] = start;
     this.heading = heading;
+    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], decor: [], winds: [], counter: { n: 0 } };
+    this.boxes = this.shared.boxes;
+    this.movers = this.shared.movers;
+    this.checkpoints = this.shared.checkpoints;
+    this.hazards = this.shared.hazards;
+    this.breakables = this.shared.breakables;
+    this.decor = this.shared.decor;
+    this.winds = this.shared.winds;
+  }
+
+  /**
+   * 現在位置から横へ ずらした位置 (右が正) に、同じ向きの別の経路を作る。ジオメトリは共有し、ルートは別。
+   * 戻ってくる (合流する) 時は jumpTo() で本流のカーソルを合わせる。
+   */
+  branch(lateral: number, dy = 0): PathBuilder {
+    return new PathBuilder(this.point(0, lateral, this.y + dy), this.heading, this.defaults, this.shared);
+  }
+
+  /** カーソルを他の PathBuilder の位置へ移す (枝分かれの合流後)。 */
+  jumpTo(other: PathBuilder): this {
+    this.x = other.x;
+    this.y = other.y;
+    this.z = other.z;
+    return this;
+  }
+
+  /** ルートを取り出して空にする (RouteSet に渡す)。 */
+  takeRoute(): WaypointDef[] {
+    const r = this.route;
+    this.route = [];
+    this.lastAutoWp = -1;
+    return r;
   }
 
   // ---- 座標変換 ----
@@ -88,7 +135,7 @@ export class PathBuilder {
   }
 
   nextId(prefix: string): string {
-    return `${prefix}${this.idCounter++}`;
+    return `${prefix}${this.shared.counter.n++}`;
   }
 
   /** 軸平行の板を置く: カーソルから 前方 a0..a1, 右 l0..l1, 上面 topY, 厚み thick。 */
@@ -263,6 +310,44 @@ export class PathBuilder {
     this.z = ez;
     this.route.push({ pos: this.point(0.8, lat), radius: 1.0 });
     return this;
+  }
+
+  /**
+   * 風が吹き抜ける細い橋 (スパン)。デッキ (幅 w) を置き、その上に風域 (vel は世界座標の風速) を作る。
+   * 直前に「風を見て渡る」待機ウェイポイント (風に抗えるビルドはそのまま、抗えないビルドは風が弱まるまで待つ)、
+   * 渡る線分追従ウェイポイントを追加する。風域 ID を返す。
+   */
+  windSpan(len: number, o: { w?: number; vel: V3t; gust?: WindDef['gust']; pulse?: WindDef['pulse']; id?: string; style?: SurfaceStyle; lateral?: number; margin?: number }): string {
+    const id = o.id ?? this.nextId('wind');
+    const w = o.w ?? 4;
+    const lat = o.lateral ?? 0;
+    const margin = o.margin ?? 6;
+    // 渡る前の判断 (デッキの手前の端で)
+    this.route.push({ pos: this.point(-0.3, lat), wait: 'calm', calm: { zones: [id], length: len }, radius: 0.6 });
+    this.plate(0, len, lat - w / 2, lat + w / 2, this.y, 0.7, o.style ?? 'wood');
+    // 風域: 進行方向は橋の長さちょうど、横は margin だけ広く (デッキから落ちかけても風の中)
+    const [x0, z0] = this.at(0, lat - w / 2 - margin);
+    const [x1, z1] = this.at(len, lat + w / 2 + margin);
+    this.winds.push({
+      id,
+      min: [Math.min(x0, x1), this.y - 7, Math.min(z0, z1)],
+      max: [Math.max(x0, x1), this.y + 6, Math.max(z0, z1)],
+      vel: o.vel,
+      gust: o.gust,
+      pulse: o.pulse,
+    });
+    const [ex, ez] = this.at(len, 0);
+    this.x = ex;
+    this.z = ez;
+    this.route.push({ pos: this.point(0, lat), follow: true, radius: 0.9 });
+    this.lastAutoWp = -1;
+    return id;
+  }
+
+  /** 任意の風域を追加 (上昇気流など)。a,l はカーソルからの位置、size は [横, 高さ, 奥行き] (世界軸)。 */
+  windZone(a: number, l: number, size: V3t, def: Omit<WindDef, 'min' | 'max'>): void {
+    const c = this.point(a, l);
+    this.winds.push({ ...def, min: [c[0] - size[0] / 2, c[1], c[2] - size[2] / 2], max: [c[0] + size[0] / 2, c[1] + size[1], c[2] + size[2] / 2] });
   }
 
   deco(shape: DecorDef['shape'], pos: V3t, size: V3t, color: number): this {

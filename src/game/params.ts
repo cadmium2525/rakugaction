@@ -115,7 +115,8 @@ export function statsToParams(stats: CharacterStats, traits: CharacterTraits = D
     jumpCutMul: BASE.jumpCutMul,
     coyoteTime: BASE.coyoteTime,
     jumpBufferTime: BASE.jumpBufferTime,
-    windResistance: 1 / Math.pow(weight, 1.1),
+    // 風の効きやすさ。体重の 1.8 乗に反比例 (重い = 風に強い。軽い = 流されやすい)
+    windResistance: 1 / Math.pow(weight, 1.8),
     density: Math.pow(weight, 0.9) / Math.pow(size, 0.6),
     stepHeight: BASE.stepHeight * clamp(size, 0.7, 1.3),
     maxSlopeClimb: (52 * Math.PI) / 180,

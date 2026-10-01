@@ -72,6 +72,21 @@ export interface BreakableDef {
   style?: SurfaceStyle;
 }
 
+/** 風が吹く領域 (AABB)。vel = 最大強度での風速 (m/s)。位置を直接押す (重いほど効きにくい)。 */
+export interface WindDef {
+  id: string;
+  min: V3t;
+  max: V3t;
+  /** 風速 (m/s)。x,z = 横風/向かい風、y = 上昇気流 */
+  vel: V3t;
+  /** 周期的に吹く/止む (period のうち on 秒だけ吹く) */
+  gust?: { period: number; on: number; phase?: number; ramp?: number };
+  /** 常に吹き、強さが min..1 で脈打つ */
+  pulse?: { period: number; min: number; phase?: number };
+  /** 描画用: 風の筋の色/密度 */
+  streaks?: number;
+}
+
 /** 当たり判定のない装飾 (遠景の山/木/雲など)。静的メッシュに統合される。 */
 export interface DecorDef {
   shape: 'box' | 'cone' | 'sphere' | 'cylinder';
@@ -92,8 +107,15 @@ export interface WaypointDef {
   land?: V3t;
   /** 到着したら ACTION を押す */
   action?: boolean;
-  /** 到着後に待つ: 数値 = 秒、'calm' = 風が弱まるまで (PHASE 7) */
+  /** 到着後に待つ: 数値 = 秒、'calm' = calm で指定した風域が弱まるまで */
   wait?: number | 'calm';
+  /**
+   * 風域を渡る前の判断: 風に抗えるビルド (風速 × 風の効きやすさ ≦ 最高速度の 80%) はそのまま渡り、
+   * そうでなければ、長さ length の区間を渡り切れる間 (風が弱い間) まで待つ。
+   */
+  calm?: { zones: readonly string[]; length: number };
+  /** 直前のウェイポイントからこのウェイポイントまでの線分に沿って進む (細い橋/横風用。蛇行・流されを抑える) */
+  follow?: boolean;
   /** 指定した移動床が pos の近く (r m 以内) に来るまで待つ */
   waitMover?: { id: string; pos: V3t; r: number };
   /** 水中ルート (泳ぐ) */
@@ -132,6 +154,7 @@ export interface StageDef {
   hazards?: readonly HazardDef[];
   breakables?: readonly BreakableDef[];
   decor?: readonly DecorDef[];
+  winds?: readonly WindDef[];
   /**
    * ボット用ルート。'main' は誰でも通れる本道。近道など別ルートは別名で追加し、
    * バランス計測ではビルドごとに「通れた中で最速のルート」を採用する。

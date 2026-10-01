@@ -10,6 +10,7 @@ import type { PlayerParams } from './params';
 import { NO_ENV, PlayerController } from './player';
 import type { CarryInfo, PlayerEnv } from './player';
 import { moverPosition } from './mover';
+import { calmFor, timeUntilCalm, windAt } from './wind';
 
 interface MoverRuntime {
   def: MoverDef;
@@ -65,6 +66,7 @@ export class GameSim {
   private readonly staticColliders: RAPIER.Collider[] = [];
   /** 現在の攻撃で既に処理した対象 (同じ対象に多段ヒットさせない。複数の対象には当たる) */
   private readonly attackHits = new Set<string>();
+  private readonly windOut = { x: 0, y: 0, z: 0 };
 
   constructor(
     private readonly R: Rapier,
@@ -181,6 +183,14 @@ export class GameSim {
     }
 
     const player = this.player;
+    // 風: プレイヤー位置の風速を環境へ (体重による効きの差は PlayerController 側)
+    const wz = this.stage.winds;
+    if (wz && wz.length > 0) {
+      windAt(wz, player.pos.x, player.pos.y, player.pos.z, nextTime, this.windOut);
+      this.env.windX = this.windOut.x;
+      this.env.windY = this.windOut.y;
+      this.env.windZ = this.windOut.z;
+    }
     const standing = player.standingCollider >= 0 ? this.moverByCollider.get(player.standingCollider) : undefined;
     const wasAttacking = player.attackTimer > 0;
     player.step(dt, input, this.env, standing ? standing.delta : null, this.pushEvent);
@@ -291,6 +301,16 @@ export class GameSim {
       }
       this.attackHits.add(b.def.id);
     }
+  }
+
+  /** 指定した風域が今から seconds 秒間ずっと弱いか (ボットの「風待ち」判定)。 */
+  isCalmFor(zones: readonly string[], seconds: number): boolean {
+    return calmFor(this.stage.winds ?? [], zones, this.time, seconds);
+  }
+
+  /** 指定した風域が seconds 秒間ずっと弱くなるまでの待ち時間 (秒)。 */
+  waitUntilCalm(zones: readonly string[], seconds: number): number {
+    return timeUntilCalm(this.stage.winds ?? [], zones, this.time, seconds);
   }
 
   /** 死亡/落下/手動リトライ: 直近のチェックポイントから HP 満タンで復活。 */

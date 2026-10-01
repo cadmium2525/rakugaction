@@ -16,6 +16,8 @@ export class Hud {
   private lastTime = '';
   private lastHp = -1;
   private subTimeEl: HTMLElement | null = null;
+  private readonly windEl: HTMLElement;
+  private readonly windArrow: HTMLElement;
 
   constructor(parent: HTMLElement, onPause: () => void) {
     this.hearts = h('div', { class: 'hud-hearts' });
@@ -31,7 +33,9 @@ export class Hud {
       e.stopPropagation();
       onPause();
     });
-    this.el = h('div', { class: 'hud' }, this.flash, this.hearts, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.toastEl, this.fade);
+    this.windArrow = h('div', { class: 'wind-arrow', text: '➤' });
+    this.windEl = h('div', { class: 'hud-wind' }, this.windArrow, h('span', { text: 'かぜ' }));
+    this.el = h('div', { class: 'hud' }, this.flash, this.hearts, this.windEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.toastEl, this.fade);
     parent.appendChild(this.el);
   }
 
@@ -75,6 +79,17 @@ export class Hud {
       this.timeEl.after(this.subTimeEl);
     }
     this.subTimeEl.textContent = text;
+  }
+
+  /** 風の向き (画面基準: 0 = 上へ向かう風, 時計回りに度) と強さ (0..1)。null で非表示。 */
+  setWind(angleDeg: number | null, strength = 0): void {
+    if (angleDeg === null) {
+      this.windEl.classList.remove('on');
+      return;
+    }
+    this.windEl.classList.add('on');
+    this.windArrow.style.transform = 'rotate(' + (angleDeg - 90) + 'deg)';
+    this.windEl.style.setProperty('--s', String(Math.min(1, Math.max(0.3, strength))));
   }
 
   /** 中央の大きな文字 (READY / GO! / CLEAR!)。null で消す。 */

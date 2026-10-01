@@ -408,3 +408,28 @@
     font-size: 14px;
   }
 }
+
+/* ---------- 風インジケーター ---------- */
+.hud-wind {
+  --s: 0.6;
+  position: absolute;
+  top: calc(var(--safe-top) + 64px);
+  right: calc(var(--safe-right) + 14px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-size: 10px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.hud-wind.on {
+  opacity: 1;
+}
+.wind-arrow {
+  font-size: calc(18px + var(--s) * 18px);
+  line-height: 1;
+  color: #bfe9ff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}

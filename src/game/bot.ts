@@ -44,6 +44,7 @@ export class Bot {
   private waitLeft = 0;
   private waiting = false;
   private calmWaiting = false;
+  private calmSpec: { zones: readonly string[]; length: number } | null = null;
   private lastDeaths = 0;
   private blockedTime = 0;
   private bestDist = Infinity;
@@ -100,8 +101,9 @@ export class Bot {
     // 待機
     if (this.waiting) {
       if (this.calmWaiting) {
-        const calm = (sim as unknown as { isCalm?: () => boolean }).isCalm;
-        if (typeof calm !== 'function' || calm.call(sim)) this.waiting = false;
+        const c = this.calmSpec;
+        if (!c) this.waiting = false;
+        else if (this.decideCross(c)) this.waiting = false;
       } else {
         this.waitLeft -= dt;
         if (this.waitLeft <= 0) this.waiting = false;
@@ -176,6 +178,28 @@ export class Bot {
     } else this.blockedTime = 0;
   }
 
+  /**
+   * 風域を今すぐ渡るか、風が弱まるまで待つかを、所要時間の見積りで決める。
+   *  - 今渡る: 風に抗える (風速 × 効きやすさ × 接地係数 が最高速度の 93% 以内) なら、斜めに進んで渡る (前進速度 = √(最高速度² − 流される速度²))
+   *  - 待つ: 風が弱くなるまでの待ち時間 + 全速で渡る時間
+   */
+  private decideCross(c: { zones: readonly string[]; length: number }): boolean {
+    const sim = this.sim;
+    const params = sim.player.params;
+    const seconds = (c.length / params.maxSpeed) * 1.1 + 0.2;
+    // 風が今まさに弱い (渡り切れるだけ続く) なら迷わず渡る
+    if (sim.isCalmFor(c.zones, seconds)) return true;
+    const wz = sim.stage.winds ?? [];
+    let maxWind = 0;
+    for (const w of wz) if (c.zones.includes(w.id)) maxWind = Math.max(maxWind, Math.hypot(w.vel[0], w.vel[2]));
+    const drift = maxWind * params.windResistance * 0.55;
+    if (drift > params.maxSpeed * 0.93) return false; // 抗えない → 待つ
+    const forward = Math.sqrt(params.maxSpeed * params.maxSpeed - drift * drift);
+    const tNow = c.length / forward;
+    const tWait = sim.waitUntilCalm(c.zones, seconds) + c.length / params.maxSpeed;
+    return tNow <= tWait + 0.2;
+  }
+
   /** 現在の目標へ向かう入力を out に設定する。 */
   private steer(out: SimInput): void {
     if (this.idx >= this.route.length) return;
@@ -185,7 +209,19 @@ export class Bot {
     else if (this.airborneSinceJump) this.landTarget = null;
     const wp = this.route[this.idx];
     // 空中でジャンプの着地目標が決まっていれば、そこへ向かう
-    const tgt = this.landTarget && (!p.grounded || !this.airborneSinceJump) ? this.landTarget : wp.pos;
+    let tgt = this.landTarget && (!p.grounded || !this.airborneSinceJump) ? this.landTarget : wp.pos;
+    // 線分追従: 前の点 → この点の線分へ射影し、少し先を狙う (横風でも中心線から外れにくい)
+    if (wp.follow && this.idx > 0 && p.grounded) {
+      const a = this.route[this.idx - 1].pos;
+      const sx = wp.pos[0] - a[0];
+      const sz = wp.pos[2] - a[2];
+      const sl = Math.hypot(sx, sz);
+      if (sl > 1e-3) {
+        const t = Math.max(0, Math.min(sl, ((p.pos.x - a[0]) * sx + (p.pos.z - a[2]) * sz) / sl));
+        const la = Math.min(sl, t + 0.5);
+        tgt = [a[0] + (sx / sl) * la, wp.pos[1], a[2] + (sz / sl) * la];
+      }
+    }
     const dx = tgt[0] - p.pos.x;
     const dz = tgt[2] - p.pos.z;
     const d = Math.hypot(dx, dz);
@@ -218,6 +254,7 @@ export class Bot {
       this.waiting = true;
       if (wp.wait === 'calm') {
         this.calmWaiting = true;
+        this.calmSpec = wp.calm ?? null;
       } else {
         this.calmWaiting = false;
         this.waitLeft = wp.wait;

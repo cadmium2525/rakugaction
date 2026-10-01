@@ -79,6 +79,7 @@ export class StageSession {
   private disposed = false;
   private result: StageResult | null = null;
   private goBannerShown = false;
+  private windHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
   botInput: ((si: SimInput) => void) | null = null;
 
@@ -227,11 +228,31 @@ export class StageSession {
     };
   }
 
+  /** 風が吹いている間、風向き (カメラ基準) と強さを HUD に出す。 */
+  private updateWindHud(): void {
+    const e = this.scene.sim.env;
+    const spd = Math.hypot(e.windX, e.windZ);
+    if (spd < 1.2) {
+      this.hud.setWind(null);
+      return;
+    }
+    const yaw = this.scene.camera.yaw;
+    // 画面右 = (cos yaw, -sin yaw), 画面奥 = (-sin yaw, -cos yaw)
+    const sx = e.windX * Math.cos(yaw) + e.windZ * -Math.sin(yaw);
+    const sy = e.windX * -Math.sin(yaw) + e.windZ * -Math.cos(yaw);
+    this.hud.setWind((Math.atan2(sx, sy) * 180) / Math.PI, spd / 14);
+    if (!this.windHintShown && spd > 3 && this.phase === 'playing') {
+      this.windHintShown = true;
+      this.hud.toast('🌪 強い風！ 重いほど風に強いよ。風が止むのを待ってもOK', 3200);
+    }
+  }
+
   private onFrame(dt: number): void {
     if (this.disposed) return;
     this.hud.setTime(this.timer.elapsedMs);
     const sub = this.deps.subTime?.();
     if (sub !== undefined) this.hud.setSubTime(sub);
+    this.updateWindHud();
     if (this.scene.paused) return;
     this.phaseTime += dt;
     switch (this.phase) {

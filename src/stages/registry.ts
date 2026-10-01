@@ -1,4 +1,5 @@
 import { buildStage1 } from './stage1';
+import { buildStage2 } from './stage2';
 import type { StageDef } from './types';
 
 export interface StageEntry {
@@ -15,6 +16,7 @@ export interface StageEntry {
 /** 全ステージ。PHASE 7〜10 で順次追加する。 */
 export const STAGE_LIST: readonly StageEntry[] = [
   { order: 1, id: 'stage1', title: 'STAGE 1', subtitle: '草原', emoji: '🌿', build: buildStage1 },
+  { order: 2, id: 'stage2', title: 'STAGE 2', subtitle: '強風の谷', emoji: '🌪️', build: buildStage2 },
 ];
 
 export function getStageEntry(id: string): StageEntry | undefined {
