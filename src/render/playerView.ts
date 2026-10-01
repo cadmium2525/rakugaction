@@ -1,17 +1,16 @@
 import * as THREE from 'three';
-import { angleDelta, clamp, damp, lerp } from '../core/math';
+import { angleDelta, clamp, lerp } from '../core/math';
+import { CharacterAnimator } from '../character/animator';
 import type { CharacterRig } from '../character/rig';
 import type { GameSim } from '../game/sim';
 import { createBlobShadow } from './shadowBlob';
 
-/** プレイヤー 1 体分の描画。シミュレーション状態 → リグ姿勢への反映と丸影を担当。 */
+/** プレイヤー 1 体分の描画。シミュレーション状態 → リグ姿勢への反映 (手続きアニメーション) と丸影を担当。 */
 export class PlayerView {
   readonly group = new THREE.Group();
   private readonly shadow = createBlobShadow();
   private rig: CharacterRig | null = null;
-  private squash = 0;
-  private lean = 0;
-  private bobT = 0;
+  private animator: CharacterAnimator | null = null;
 
   constructor() {
     this.group.add(this.shadow);
@@ -23,11 +22,16 @@ export class PlayerView {
       this.rig.dispose();
     }
     this.rig = rig;
+    this.animator = new CharacterAnimator(rig);
     this.group.add(rig.root);
   }
 
   get currentRig(): CharacterRig | null {
     return this.rig;
+  }
+
+  get currentAnimator(): CharacterAnimator | null {
+    return this.animator;
   }
 
   update(sim: GameSim, alpha: number, dt: number): void {
@@ -40,19 +44,18 @@ export class PlayerView {
     const feet = y - params.height / 2;
     const yaw = p.prevYaw + angleDelta(p.prevYaw, p.yaw) * alpha;
 
-    if (rig) {
-      const scale = params.height / rig.totalHeight;
+    if (rig && this.animator) {
       rig.root.position.set(x, feet, z);
       rig.root.rotation.y = yaw;
-      // 簡易スカッシュ&ストレッチ (PHASE 4 でアニメーターへ置き換え)
-      const targetSquash = p.mode === 'landing' ? 0.18 : p.grounded ? 0 : clamp(Math.abs(p.vel.y) * 0.012, 0, 0.18) * -1;
-      this.squash = damp(this.squash, targetSquash, 18, dt);
-      rig.root.scale.set(scale * (1 + this.squash * 0.6), scale * (1 - this.squash), scale * (1 + this.squash * 0.6));
-      const speedFrac = clamp(p.horizontalSpeed / Math.max(1, params.maxSpeed), 0, 1);
-      this.lean = damp(this.lean, speedFrac * 0.22, 10, dt);
-      this.bobT += dt * (6 + speedFrac * 10);
-      rig.body.rotation.x = this.lean;
-      rig.body.position.y = rig.hipHeight + (p.grounded ? Math.abs(Math.sin(this.bobT)) * 0.05 * speedFrac : 0);
+      this.animator.baseScale = params.height / rig.totalHeight;
+      this.animator.update(dt, {
+        speed: p.horizontalSpeed,
+        maxSpeed: params.maxSpeed,
+        grounded: p.grounded,
+        vy: p.vel.y,
+        landCount: p.landCount,
+        landImpact: p.lastLandImpact,
+      });
     }
 
     // 丸影: 真下の地面へレイを飛ばす

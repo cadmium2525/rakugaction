@@ -55,7 +55,15 @@ export class App {
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
     void loadRapier();
 
-    if (this.params.has('arena')) await this.startArena(this.params.get('build') ?? 'STANDARD');
+    if (this.params.has('arena')) {
+      const doodle = this.params.get('doodle');
+      if (doodle && this.devMode) {
+        const { extremeDoodles } = await import('../dev/doodles');
+        const found = extremeDoodles().find((d) => d.name === doodle);
+        if (found) this.drawing = cloneDrawing(found.data);
+      }
+      await this.startArena(this.params.get('build') ?? 'STANDARD');
+    }
     else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') ?? 'normal');
     else if (this.params.has('editor')) this.showEditor();
     else this.showTitle();
@@ -160,10 +168,11 @@ export class App {
     const debug = this.devMode ? new DebugPanel(this.root) : null;
     this.debug = debug;
     const params = statsToParams(build.stats, build.traits);
+    const useRig = rig ?? (this.drawing ? buildCharacter(this.drawing, { targetHeight: params.height }).rig : createPlaceholderRig());
     this.scene = await PlayScene.create(this.view, this.input, {
       stage: TEST_ARENA,
       params,
-      rig: rig ?? createPlaceholderRig(),
+      rig: useRig,
       onFrame: (s, dt) => debug?.update(s, dt),
     });
     this.scene.start();

@@ -101,6 +101,17 @@ export function extremeDoodles(): NamedDoodle[] {
     }),
   });
 
+  // 腕が地面に刺さるほど長く、脚が極端に短い (腕を外へ開く補正が必要)
+  list.push({
+    name: 'giantArms',
+    data: drawing({
+      head: blob('#202124', '#fdd835', circle(0.5, 0.5, 0.2), [0.5, 0.5]),
+      body: blob('#202124', '#43a047', rectPts(0.35, 0.35, 0.65, 0.65), [0.5, 0.5]),
+      armLeft: [pen('#e53935', 0.08, [0.5, 0.0, 0.5, 1.0])],
+      legLeft: [pen('#8d5a2b', 0.1, [0.5, 0.4, 0.5, 0.55])],
+    }),
+  });
+
   list.push({
     name: 'fat',
     data: drawing({

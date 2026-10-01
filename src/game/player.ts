@@ -1,5 +1,5 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { angleDelta, approach, clamp, v3, v3IsFinite, wrapPi } from '../core/math';
+import { angleDelta, clamp, v3, v3IsFinite, wrapPi } from '../core/math';
 import type { V3 } from '../core/math';
 import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
@@ -52,6 +52,8 @@ export class PlayerController {
   inputMag = 0;
   /** 直近の着地衝撃 (m/s)。アニメ/演出用。 */
   lastLandImpact = 0;
+  /** 着地した回数 (アニメーションが着地の瞬間を検出するため)。 */
+  landCount = 0;
 
   private coyote = 0;
   private jumpBuffer = 0;
@@ -293,12 +295,9 @@ export class PlayerController {
         // 着地
         const impact = Math.max(0, -wasVy);
         this.lastLandImpact = impact;
-        if (impact > 4) {
-          this.landingTimer = LANDING_TIME;
-          push({ type: 'land', impact });
-        } else {
-          push({ type: 'land', impact });
-        }
+        this.landCount++;
+        if (impact > 4) this.landingTimer = LANDING_TIME;
+        push({ type: 'land', impact });
       }
       if (this.vel.y < 0) this.vel.y = 0;
       this.jumping = false;
@@ -321,16 +320,6 @@ export class PlayerController {
   /** 接地中の水平移動を止める (リスポーン/ゴール演出用)。 */
   stop(): void {
     this.vel.x = this.vel.y = this.vel.z = 0;
-  }
-
-  /** 水平速度を approach で減衰させる補助 (演出用)。 */
-  damp(rate: number, dt: number): void {
-    const sp = this.horizontalSpeed;
-    if (sp === 0) return;
-    const ns = approach(sp, 0, rate * dt);
-    const k = ns / sp;
-    this.vel.x *= k;
-    this.vel.z *= k;
   }
 
   dispose(): void {

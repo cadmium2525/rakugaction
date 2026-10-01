@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { buildSimplePolygon, convexHull, isSimplePolygon, signedArea, smoothClosed, traceLoops } from '../../src/character/contour';
 import { dilate, distanceSquared, fillHoles, labelComponents, maxInscribedRadius, removeSpecks } from '../../src/character/maskOps';
+import { CharacterAnimator } from '../../src/character/animator';
 import { buildCharacter } from '../../src/character/builder';
 import { TEX_RES } from '../../src/character/cleanPart';
 import { PART_KEYS } from '../../src/drawing/model';
@@ -179,6 +180,9 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
         expect(map.image.data!.length).toBe(TEX_RES * TEX_RES * 4);
       });
       expect(meshes).toBe(6);
+      // 実際の利用と同じく Animator を付けた状態 (待機ポーズ: 長すぎる腕は外へ開く) で全体寸法を見る
+      new CharacterAnimator(rig);
+      rig.root.updateMatrixWorld(true);
       // 全体寸法: 高さが目標付近、足が地面に埋まりすぎない/浮きすぎない
       const box = new THREE.Box3().setFromObject(rig.root);
       expect(Number.isFinite(box.min.y) && Number.isFinite(box.max.y)).toBe(true);

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { clamp } from '../core/math';
+import { CharacterAnimator } from '../character/animator';
+import type { AnimInput, AnimState } from '../character/animator';
 import type { CharacterRig } from '../character/rig';
 import type { RenderHost } from './renderHost';
 import { createBlobShadow } from './shadowBlob';
@@ -57,6 +59,10 @@ export class ShowcaseView {
   onLanded: (() => void) | null = null;
 
   private rig: CharacterRig | null = null;
+  private animator: CharacterAnimator | null = null;
+  /** 待機中にその場で再生するアニメーション (演出/QA 用)。 */
+  demoState: AnimState = 'idle';
+  private readonly demoInput: AnimInput = { speed: 0, maxSpeed: 7, grounded: true, vy: 0, landCount: 0, landImpact: 0 };
   private readonly holder = new THREE.Group();
   private readonly shadow = createBlobShadow();
   private readonly pedestal: THREE.Mesh;
@@ -125,6 +131,7 @@ export class ShowcaseView {
       this.rig.dispose();
     }
     this.rig = rig;
+    this.animator = new CharacterAnimator(rig);
     this.holder.add(rig.root);
     this.height = rig.totalHeight;
     this.pedestal.scale.setScalar(Math.max(0.8, Math.min(1.8, rig.totalHeight / 1.6)));
@@ -149,6 +156,7 @@ export class ShowcaseView {
   takeCharacter(): CharacterRig | null {
     const rig = this.rig;
     if (!rig) return null;
+    this.animator = null;
     this.holder.remove(rig.root);
     rig.root.position.set(0, 0, 0);
     rig.root.rotation.set(0, 0, 0);
@@ -289,17 +297,45 @@ export class ShowcaseView {
       }
       this.applyPose(this.t);
       if (this.t >= T_END) this.finishBirth();
-    } else if (this.rig) {
-      // 待機: ゆっくり呼吸 + ターンテーブル
+    } else if (this.rig && this.animator) {
+      // 待機: アニメーター (呼吸など) + ターンテーブル
       this.idleT += dt;
       if (this.autoRotate) this.yawOffset += dt * 0.5;
-      const b = Math.sin(this.idleT * 2.4) * 0.012;
+      this.driveDemo(dt);
       this.rig.root.rotation.y = this.yawOffset;
       this.rig.root.position.y = 0;
-      this.rig.root.scale.set(1 - b, 1 + b * 1.4, 1 - b);
     }
     this.updateParticles(dt);
     this.sky.position.copy(this.camera.position);
+  }
+
+  /** demoState に応じた入力でその場アニメーションを進める。 */
+  private driveDemo(dt: number): void {
+    const a = this.animator;
+    if (!a) return;
+    const d = this.demoInput;
+    d.grounded = true;
+    d.vy = 0;
+    d.speed = 0;
+    switch (this.demoState) {
+      case 'walk':
+        d.speed = d.maxSpeed * 0.35;
+        break;
+      case 'run':
+        d.speed = d.maxSpeed;
+        break;
+      case 'jump':
+        d.grounded = false;
+        d.vy = 8;
+        break;
+      case 'fall':
+        d.grounded = false;
+        d.vy = -8;
+        break;
+      default:
+        break;
+    }
+    a.update(dt, d);
   }
 
   render(dt: number): void {
