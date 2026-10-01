@@ -9,6 +9,21 @@ import * as THREE from 'three';
  *       └ legLeft / legRight
  * ラクガキ由来のメッシュは各ピボット (関節位置) の子として付ける。
  */
+/** 組み立て後の寸法 (m)。手続きアニメーションの振れ幅調整や能力解析に使う。 */
+export interface RigMetrics {
+  armLengthLeft: number;
+  armLengthRight: number;
+  legLengthLeft: number;
+  legLengthRight: number;
+  headHeight: number;
+  bodyHeight: number;
+  bodyWidth: number;
+  /** 全体の横幅 */
+  width: number;
+  /** キャンバス幅 1.0 あたりのメートル数 */
+  scale: number;
+}
+
 export interface CharacterRig {
   root: THREE.Group;
   body: THREE.Group;
@@ -21,6 +36,7 @@ export interface CharacterRig {
   hipHeight: number;
   /** リグ全体の高さ (m, スケール適用前) */
   totalHeight: number;
+  metrics?: RigMetrics;
   dispose(): void;
 }
 

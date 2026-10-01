@@ -7,7 +7,7 @@ import { EditorState } from '../../src/drawing/editorState';
 import { maskMetrics } from '../../src/drawing/metrics';
 import { resolveAllParts } from '../../src/drawing/defaults';
 import { computeLayout } from '../../src/character/layout';
-import { circle, drawing, extremeDoodles, fill, pen, rectPts, standardDoodle } from '../helpers/doodles';
+import { circle, drawing, extremeDoodles, fill, pen, rectPts, standardDoodle } from '../../src/dev/doodles';
 
 const RES = 128; // テストは軽量な解像度で
 

@@ -1,35 +1,40 @@
+import { buildCharacter } from '../character/builder';
 import { createPlaceholderRig } from '../character/placeholder';
+import type { CharacterRig } from '../character/rig';
 import { TEST_BUILDS, getBuild } from '../character/stats';
 import { cloneDrawing } from '../drawing/model';
 import type { DrawingData } from '../drawing/model';
+import { sanitizeDrawing } from '../drawing/sanitize';
 import { statsToParams } from '../game/params';
 import { InputManager } from '../input/manager';
 import { loadRapier } from '../physics/rapier';
 import { GameView } from '../render/gameView';
 import { detectDefaultQuality, isQuality } from '../render/quality';
 import type { Quality } from '../render/quality';
+import { RenderHost } from '../render/renderHost';
 import { TEST_ARENA } from '../stages/testArena';
+import { BirthScreen } from '../ui/birthScreen';
 import { DebugPanel } from '../ui/debugPanel';
 import { h } from '../ui/dom';
 import type { Screen } from '../ui/dom';
 import { EditorScreen } from '../ui/editor/editorScreen';
-import { toast } from '../ui/toast';
 import { TitleScreen } from '../ui/titleScreen';
 import { PlayScene } from './playScene';
 
 /**
  * アプリ全体 (画面遷移の管理)。
  *  - 全画面 UI (タイトル/エディタ/…) は #ui 配下の Screen として 1 つだけ表示する
- *  - 3D ゲームシーン (GameView + PlayScene) は必要な時だけ作り、離れる時に WebGL ごと破棄する
+ *  - WebGL (RenderHost) はアプリで 1 つだけ。ゲームシーン (GameView/PlayScene) は必要な時だけ作って破棄する
  */
 export class App {
+  host: RenderHost | null = null;
   view: GameView | null = null;
   input: InputManager | null = null;
   scene: PlayScene | null = null;
-  /** 直近に描いたラクガキ (PHASE 3 以降でキャラクター生成に使う) */
+  /** 直近に描いたラクガキ */
   drawing: DrawingData | null = null;
+  screen: Screen | null = null;
 
-  private screen: Screen | null = null;
   private debug: DebugPanel | null = null;
   private buildButtons: HTMLElement | null = null;
   private viewEl!: HTMLElement;
@@ -51,8 +56,18 @@ export class App {
     void loadRapier();
 
     if (this.params.has('arena')) await this.startArena(this.params.get('build') ?? 'STANDARD');
+    else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') ?? 'normal');
     else if (this.params.has('editor')) this.showEditor();
     else this.showTitle();
+  }
+
+  /** 開発用: テスト用ラクガキ (src/dev/doodles.ts) で直接「誕生」へ。?birth=<名前> (例: giant, weird, fat)。 */
+  async devBirth(name: string): Promise<void> {
+    const { extremeDoodles } = await import('../dev/doodles');
+    const list = extremeDoodles();
+    const found = list.find((d) => d.name === name) ?? list[0];
+    this.drawing = cloneDrawing(found.data);
+    await this.showBirth(this.drawing);
   }
 
   // ===== 画面遷移 =====
@@ -70,7 +85,7 @@ export class App {
     this.leaveGame();
     this.setScreen(
       new TitleScreen({
-        onDraw: () => this.showEditor(),
+        onDraw: () => this.showEditor(this.drawing ?? undefined),
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
       }),
     );
@@ -84,8 +99,35 @@ export class App {
         host: this.root,
         onBack: () => this.showTitle(),
         onDone: (data) => {
-          this.drawing = cloneDrawing(data);
-          toast(this.root, 'ラクガキを受け取ったよ！ (3D 化は次のフェーズで実装)', 2600);
+          this.drawing = cloneDrawing(sanitizeDrawing(data));
+          void this.showBirth(this.drawing);
+        },
+      }),
+    );
+  }
+
+  /** 誕生: ラクガキを 3D 化して演出を見せる。 */
+  async showBirth(drawing: DrawingData): Promise<void> {
+    this.leaveGame();
+    this.setScreen({
+      el: h('div', { class: 'screen' }, h('div', { class: 'loading-card', text: 'ラクガキを立体にしているよ…' })),
+      dispose() {
+        this.el.remove();
+      },
+    });
+    // ローディング表示を 1 フレーム描画してから重い生成を行う
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    const host = this.ensureHost();
+    const built = buildCharacter(drawing);
+    this.setScreen(
+      new BirthScreen({
+        host,
+        rig: built.rig,
+        onRetry: () => this.showEditor(this.drawing ?? undefined),
+        onPlay: () => {
+          const birth = this.screen as BirthScreen;
+          const rig = birth.view.takeCharacter();
+          void this.startArena('STANDARD', rig ?? undefined);
         },
       }),
     );
@@ -98,11 +140,17 @@ export class App {
     return isQuality(q) ? q : detectDefaultQuality();
   }
 
-  /** テストアリーナ (開発用)。 */
-  async startArena(buildId: string): Promise<void> {
+  private ensureHost(): RenderHost {
+    this.host ??= new RenderHost(this.viewEl, this.quality());
+    return this.host;
+  }
+
+  /** テストアリーナ。rig を渡すとそのキャラクター (ラクガキ由来) で遊ぶ。 */
+  async startArena(buildId: string, rig?: CharacterRig): Promise<void> {
     this.setScreen(null);
     this.leaveGame();
-    this.view = new GameView(this.viewEl, this.quality());
+    const host = this.ensureHost();
+    this.view = new GameView(host);
     this.input = new InputManager(this.viewEl, this.root);
     // マウス環境 (PC) ではタッチ UI を隠す。?touch=1 で強制表示。
     const coarse = matchMedia('(pointer: coarse)').matches;
@@ -111,10 +159,11 @@ export class App {
     const build = TEST_BUILDS.find((b) => b.id === buildId.toUpperCase()) ?? TEST_BUILDS[0];
     const debug = this.devMode ? new DebugPanel(this.root) : null;
     this.debug = debug;
+    const params = statsToParams(build.stats, build.traits);
     this.scene = await PlayScene.create(this.view, this.input, {
       stage: TEST_ARENA,
-      params: statsToParams(build.stats, build.traits),
-      rig: createPlaceholderRig(),
+      params,
+      rig: rig ?? createPlaceholderRig(),
       onFrame: (s, dt) => debug?.update(s, dt),
     });
     this.scene.start();
@@ -137,13 +186,15 @@ export class App {
     this.root.appendChild(wrap);
   }
 
-  /** デバッグ用: テストビルドに切り替える。 */
+  /** デバッグ用: テストビルドに切り替える (ラクガキがあればそのキャラのまま能力だけ変える)。 */
   setBuild(id: string): void {
     const b = getBuild(id);
-    this.scene?.setBuild(statsToParams(b.stats, b.traits), createPlaceholderRig());
+    const params = statsToParams(b.stats, b.traits);
+    const rig = this.drawing ? buildCharacter(this.drawing, { targetHeight: params.height }).rig : createPlaceholderRig();
+    this.scene?.setBuild(params, rig);
   }
 
-  /** ゲームシーン一式を破棄して WebGL コンテキストを解放する。 */
+  /** ゲームシーン一式を破棄する (WebGL ホストは残す)。 */
   private leaveGame(): void {
     this.debug?.dispose();
     this.debug = null;
@@ -160,5 +211,6 @@ export class App {
   dispose(): void {
     this.leaveGame();
     this.screen?.dispose();
+    this.host?.dispose();
   }
 }

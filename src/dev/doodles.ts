@@ -1,6 +1,6 @@
-import { emptyDrawing } from '../../src/drawing/model';
-import type { DrawOp, DrawingData, PartKey } from '../../src/drawing/model';
-import { Rng } from '../../src/core/rng';
+import { emptyDrawing } from '../drawing/model';
+import type { DrawOp, DrawingData, PartKey } from '../drawing/model';
+import { Rng } from '../core/rng';
 
 /** テスト用: 極端なラクガキを大量に作るヘルパー。PHASE 2〜5 のテストで共有する。 */
 
