@@ -77,6 +77,24 @@ describe('壁', () => {
   });
 });
 
+describe('壁との衝突反応 (回帰)', () => {
+  it('壁に押し付けて走り続けると水平速度が壁向きに残らない (速度 = 実際の進行)', async () => {
+    const sim = await makeSim(stage([FLOOR, wall([6, 0, 0], [2, 6, 40])]));
+    run(sim, 20);
+    run(sim, 120, () => ({ moveX: 1 }));
+    expect(sim.player.pos.x).toBeLessThan(5.1);
+    expect(sim.player.horizontalSpeed).toBeLessThan(0.6);
+  });
+
+  it('斜めに壁へ当たると壁に沿った速度成分だけが残る', async () => {
+    const sim = await makeSim(stage([FLOOR, wall([6, 0, 0], [2, 6, 100])]));
+    run(sim, 20);
+    run(sim, 90, () => ({ moveX: 1, moveZ: 1 }));
+    expect(Math.abs(sim.player.vel.x)).toBeLessThan(0.6);
+    expect(sim.player.vel.z).toBeGreaterThan(3);
+  });
+});
+
 describe('ジャンプ', () => {
   it('ジャンプ高さが v²/2g と一致し、押しっぱなしでの最大高さが理論値以下', async () => {
     const sim = await makeSim(stage([FLOOR]));
@@ -242,6 +260,27 @@ describe('移動床', () => {
     // 2m/s × 2s = 4m 運ばれる
     expect(sim.player.pos.x - x0).toBeGreaterThan(3.2);
     expect(sim.player.grounded).toBe(true);
+  });
+});
+
+describe('移動床 (回帰)', () => {
+  it('動かない移動床の上でも前進できる / 動く床の上で歩いて端から降りられる', async () => {
+    const mover = {
+      id: 'm',
+      size: [5, 0.5, 4.5] as const,
+      points: [
+        [0, 0.25, 0],
+        [0, 0.25, 6],
+      ] as const,
+      speed: 1,
+      pause: 100,
+    };
+    const sim = await makeSim(stage([slab([0, -3, 0], [200, 200], 1)], { movers: [mover] }));
+    sim.player.placeFeet(0, 0.5, -1.5);
+    run(sim, 30);
+    const z0 = sim.player.pos.z;
+    run(sim, 60, () => ({ moveZ: 1 }));
+    expect(sim.player.pos.z - z0).toBeGreaterThan(3);
   });
 });
 

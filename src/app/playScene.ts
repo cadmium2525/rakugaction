@@ -164,6 +164,7 @@ export class PlayScene {
   private handleEvents(events: readonly SimEvent[]): void {
     for (const e of events) {
       if (e.type === 'checkpoint') this.view.stageView?.markCheckpoint(e.id);
+      else if (e.type === 'break') this.view.stageView?.onBreak(e.id);
       else if (e.type === 'respawn') this.camera.snapTo(this.sim, this.sim.player.yaw);
     }
   }

@@ -45,6 +45,11 @@ export interface PlayerParams {
   reach: number;
   /** 攻撃力倍率 */
   attackPower: number;
+  /** ACTION (ダッシュ攻撃) の持続/クールダウン (秒)、踏み込み速度 (m/s)、攻撃の届く半径 (m) */
+  attackDuration: number;
+  attackCooldown: number;
+  lungeSpeed: number;
+  hitReach: number;
   /** 最大 HP */
   maxHp: number;
   /** ダメージ軽減係数 (0..1 に収める。1 = 被ダメ 100%) */
@@ -90,6 +95,7 @@ export function statsToParams(stats: CharacterStats, traits: CharacterTraits = D
   const weight = m(stats.weight, 0.4, 2.8);
   const size = clamp(Number.isFinite(traits.size) ? traits.size : 1, 0.6, 1.6);
 
+  const reach = clamp(Number.isFinite(traits.reach) ? traits.reach : 1, 0.5, 2);
   const radius = BASE.radius * clamp(size, 0.7, 1.45);
   const height = Math.max(BASE.height * size, radius * 2 + 0.2);
 
@@ -115,8 +121,13 @@ export function statsToParams(stats: CharacterStats, traits: CharacterTraits = D
     maxSlopeClimb: (52 * Math.PI) / 180,
     minSlopeSlide: (56 * Math.PI) / 180,
     size,
-    reach: clamp(Number.isFinite(traits.reach) ? traits.reach : 1, 0.5, 2),
+    reach,
     attackPower: Math.pow(m(stats.power), 0.8),
+    // 腕が長いと届くが振りが遅い (リーチ ↔ 動作速度のトレードオフ)
+    attackDuration: clamp(0.26 * (1 + 0.35 * (reach - 1)), 0.18, 0.45),
+    attackCooldown: clamp(0.4 * (1 + 0.45 * (reach - 1)), 0.28, 0.7),
+    lungeSpeed: 6.5 * Math.pow(m(stats.power), 0.25),
+    hitReach: radius + 0.65 * reach * size + 0.3,
     maxHp: Math.max(1, Math.round(3 * Math.pow(m(stats.hp), 0.6))),
     damageTaken: 1 / Math.pow(m(stats.defense), 0.5),
     knockbackMul: 1 / Math.pow(weight, 0.5),

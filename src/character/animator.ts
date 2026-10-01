@@ -15,9 +15,11 @@ export interface AnimInput {
   landCount: number;
   /** 直近の着地衝撃 (m/s) */
   landImpact: number;
+  /** ACTION (ダッシュ攻撃) 中 */
+  attacking?: boolean;
 }
 
-export type AnimState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'land';
+export type AnimState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'land' | 'attack';
 
 interface Pose {
   bodyY: number;
@@ -195,6 +197,7 @@ export class CharacterAnimator {
 
   /** 入力状態から現在のアニメーション状態を決める。 */
   private decide(inp: AnimInput): AnimState {
+    if (inp.attacking) return 'attack';
     if (!inp.grounded) return inp.vy > 0.8 ? 'jump' : 'fall';
     if (this.landEnv > 0.45) return 'land';
     const frac = inp.speed / Math.max(1, inp.maxSpeed);
@@ -297,6 +300,21 @@ export class CharacterAnimator {
         g.squashXZ = 0.98;
         g.headX = 0.12;
         smooth = 12;
+        break;
+      }
+      case 'attack': {
+        // 両腕を前へ突き出し、体を前傾 (パンチ/ダッシュ)
+        g.armLX = -1.65 * armScale;
+        g.armRX = -1.45 * armScale;
+        g.armLZ = restL + 0.12;
+        g.armRZ = restR - 0.12;
+        g.legLX = -0.55 * legScale;
+        g.legRX = 0.45 * legScale;
+        g.lean = 0.28;
+        g.headX = -0.12;
+        g.squashY = 0.96;
+        g.squashXZ = 1.04;
+        smooth = 34;
         break;
       }
       case 'land': {

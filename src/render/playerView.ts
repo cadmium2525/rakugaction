@@ -47,6 +47,8 @@ export class PlayerView {
     if (rig && this.animator) {
       rig.root.position.set(x, feet, z);
       rig.root.rotation.y = yaw;
+      // 無敵中 (被弾直後/復活直後) は点滅
+      rig.root.visible = !(sim.invuln > 0 && Math.floor(sim.time * 14) % 2 === 0);
       this.animator.baseScale = params.height / rig.totalHeight;
       this.animator.update(dt, {
         speed: p.horizontalSpeed,
@@ -55,6 +57,7 @@ export class PlayerView {
         vy: p.vel.y,
         landCount: p.landCount,
         landImpact: p.lastLandImpact,
+        attacking: p.attacking,
       });
     }
 

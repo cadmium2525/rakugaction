@@ -187,6 +187,14 @@ export class ShowcaseView {
     this.applyPose(0);
   }
 
+  /** 演出なしで、最初から待機状態にする (ハブなど)。 */
+  skipBirthInstant(): void {
+    this.mode = 'idle';
+    this.settled = true;
+    this.popped = this.landed = true;
+    this.applyPose(T_END);
+  }
+
   /** 演出をスキップして待機状態へ。 */
   skip(): void {
     if (this.mode !== 'birth') return;

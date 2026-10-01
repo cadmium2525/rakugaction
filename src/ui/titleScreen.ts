@@ -2,6 +2,8 @@ import { h } from './dom';
 import type { Screen } from './dom';
 
 export interface TitleOptions {
+  /** あそぶ (キャラクターがいればハブ、いなければお絵かきへ) */
+  onPlay(): void;
   onDraw(): void;
   /** 開発用 (?debug / dev サーバーのみ表示) */
   onArena?(): void;
@@ -14,7 +16,8 @@ export class TitleScreen implements Screen {
     const menu = h(
       'div',
       { class: 'title-menu' },
-      h('button', { class: 'btn btn-primary', text: '✏️ ラクガキを描く', on: { click: opts.onDraw } }),
+      h('button', { class: 'btn btn-primary', text: '▶ あそぶ', on: { click: opts.onPlay } }),
+      h('button', { class: 'btn btn-ghost', text: '✏️ ラクガキを描く', on: { click: opts.onDraw } }),
     );
     if (opts.onArena) {
       menu.appendChild(h('button', { class: 'btn btn-ghost', text: '🧪 テストアリーナ (開発用)', on: { click: opts.onArena } }));

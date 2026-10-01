@@ -1,47 +1,69 @@
 import { buildCharacter } from '../character/builder';
+import { createPlaceholderRig } from '../character/placeholder';
+import { STAT_FORMULA_VERSION } from '../character/record';
+import type { CharacterRecord } from '../character/record';
+import type { CharacterRig } from '../character/rig';
 import { describeBuild } from '../character/statGen';
 import type { StatGenResult } from '../character/statGen';
-import { createPlaceholderRig } from '../character/placeholder';
-import type { CharacterRig } from '../character/rig';
 import { TEST_BUILDS, getBuild } from '../character/stats';
 import { cloneDrawing } from '../drawing/model';
 import type { DrawingData } from '../drawing/model';
 import { sanitizeDrawing } from '../drawing/sanitize';
 import { statsToParams } from '../game/params';
+import type { PlayerParams } from '../game/params';
 import { InputManager } from '../input/manager';
 import { loadRapier } from '../physics/rapier';
 import { GameView } from '../render/gameView';
 import { detectDefaultQuality, isQuality } from '../render/quality';
 import type { Quality } from '../render/quality';
 import { RenderHost } from '../render/renderHost';
+import { STAGE_LIST, getStageEntry } from '../stages/registry';
 import { TEST_ARENA } from '../stages/testArena';
 import { BirthScreen } from '../ui/birthScreen';
 import { DebugPanel } from '../ui/debugPanel';
 import { h } from '../ui/dom';
 import type { Screen } from '../ui/dom';
 import { EditorScreen } from '../ui/editor/editorScreen';
+import { HubScreen } from '../ui/hubScreen';
+import { ResultScreen } from '../ui/resultScreen';
 import { TitleScreen } from '../ui/titleScreen';
 import { PlayScene } from './playScene';
+import { Profile } from './profile';
+import { StageSession } from './stageSession';
+import type { StageResult } from './stageSession';
+
+function loadingScreen(text: string): Screen {
+  return {
+    el: h('div', { class: 'screen' }, h('div', { class: 'loading-card', text })),
+    dispose() {
+      this.el.remove();
+    },
+  };
+}
 
 /**
  * アプリ全体 (画面遷移の管理)。
- *  - 全画面 UI (タイトル/エディタ/…) は #ui 配下の Screen として 1 つだけ表示する
- *  - WebGL (RenderHost) はアプリで 1 つだけ。ゲームシーン (GameView/PlayScene) は必要な時だけ作って破棄する
+ *  - 全画面 UI (タイトル/エディタ/ハブ/結果…) は #ui 配下の Screen として 1 つだけ表示する
+ *  - WebGL (RenderHost) はアプリで 1 つだけ。ゲームシーン (StageSession/ShowcaseView) は必要な時だけ作って破棄する
  */
 export class App {
   host: RenderHost | null = null;
-  view: GameView | null = null;
-  input: InputManager | null = null;
-  scene: PlayScene | null = null;
-  /** 直近に描いたラクガキ */
+  profile = new Profile();
+  /** 直近に描いたラクガキ / そこから決まった能力 (誕生画面 → ハブへ渡す) */
   drawing: DrawingData | null = null;
-  /** そのラクガキから決まった能力 */
   analysis: StatGenResult | null = null;
   characterName = '';
   screen: Screen | null = null;
+  session: StageSession | null = null;
 
+  // 開発用アリーナ
+  view: GameView | null = null;
+  input: InputManager | null = null;
+  scene: PlayScene | null = null;
   private debug: DebugPanel | null = null;
   private buildButtons: HTMLElement | null = null;
+  private useTestBuild = false;
+
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
   private readonly params = new URLSearchParams(location.search);
@@ -60,27 +82,43 @@ export class App {
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
     void loadRapier();
 
-    if (this.params.has('arena')) {
-      const doodle = this.params.get('doodle');
-      if (doodle && this.devMode) {
-        const { extremeDoodles } = await import('../dev/doodles');
-        const found = extremeDoodles().find((d) => d.name === doodle);
-        if (found) this.drawing = cloneDrawing(found.data);
-      }
-      await this.startArena(this.params.get('build') ?? 'STANDARD');
-    }
-    else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') ?? 'normal');
+    const doodle = this.params.get('doodle');
+    if (doodle && this.devMode) await this.loadDevDoodle(doodle);
+
+    if (this.params.has('arena')) await this.startArena(this.params.get('build') ?? 'STANDARD');
+    else if (this.params.has('stage') && this.devMode) await this.devStage(this.params.get('stage') || 'stage1');
+    else if (this.params.has('hub') && this.devMode) await this.devHub();
+    else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') || 'normal');
     else if (this.params.has('editor')) this.showEditor();
     else this.showTitle();
   }
 
-  /** 開発用: テスト用ラクガキ (src/dev/doodles.ts) で直接「誕生」へ。?birth=<名前> (例: giant, weird, fat)。 */
-  async devBirth(name: string): Promise<void> {
-    const { extremeDoodles } = await import('../dev/doodles');
-    const list = extremeDoodles();
-    const found = list.find((d) => d.name === name) ?? list[0];
-    this.drawing = cloneDrawing(found.data);
-    await this.showBirth(this.drawing);
+  // ===== 開発用ショートカット (?doodle=名前 / ?stage= / ?hub / ?birth=) =====
+
+  /** テスト用ラクガキを読み込み、キャラクターとして登録する。名前は extremeDoodles の名前か TEST_BUILDS の ID。 */
+  private async loadDevDoodle(name: string): Promise<void> {
+    const { extremeDoodles, testBuildDoodle } = await import('../dev/doodles');
+    let data: DrawingData | undefined = extremeDoodles().find((d) => d.name === name)?.data;
+    if (!data && /^[A-Z]+$/.test(name)) data = testBuildDoodle(name);
+    if (!data) return;
+    this.drawing = cloneDrawing(data);
+    this.analysis = null;
+    this.registerCharacter(name);
+  }
+
+  private async devBirth(name: string): Promise<void> {
+    await this.loadDevDoodle(name);
+    if (this.drawing) await this.showBirth(this.drawing);
+  }
+
+  private async devHub(): Promise<void> {
+    if (!this.profile.selected) await this.loadDevDoodle('normal');
+    await this.showHub();
+  }
+
+  private async devStage(id: string): Promise<void> {
+    if (!this.profile.selected) await this.loadDevDoodle('normal');
+    await this.startStage(id);
   }
 
   // ===== 画面遷移 =====
@@ -98,7 +136,8 @@ export class App {
     this.leaveGame();
     this.setScreen(
       new TitleScreen({
-        onDraw: () => this.showEditor(this.drawing ?? undefined),
+        onPlay: () => (this.profile.selected ? void this.showHub() : this.showEditor()),
+        onDraw: () => this.showEditor(),
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
       }),
     );
@@ -110,7 +149,7 @@ export class App {
       new EditorScreen({
         initial,
         host: this.root,
-        onBack: () => this.showTitle(),
+        onBack: () => (this.profile.selected ? void this.showHub() : this.showTitle()),
         onDone: (data) => {
           this.drawing = cloneDrawing(sanitizeDrawing(data));
           void this.showBirth(this.drawing);
@@ -122,12 +161,7 @@ export class App {
   /** 誕生: ラクガキを 3D 化して演出を見せる。 */
   async showBirth(drawing: DrawingData): Promise<void> {
     this.leaveGame();
-    this.setScreen({
-      el: h('div', { class: 'screen' }, h('div', { class: 'loading-card', text: 'ラクガキを立体にしているよ…' })),
-      dispose() {
-        this.el.remove();
-      },
-    });
+    this.setScreen(loadingScreen('ラクガキを立体にしているよ…'));
     // ローディング表示を 1 フレーム描画してから重い生成を行う
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     const host = this.ensureHost();
@@ -138,19 +172,141 @@ export class App {
         host,
         rig: built.rig,
         stats: built.analysis.stats,
-        name: this.characterName || describeBuild(built.analysis.stats).label,
+        name: describeBuild(built.analysis.stats).label,
         onRetry: () => this.showEditor(this.drawing ?? undefined),
         onPlay: (name) => {
           this.characterName = name;
-          const birth = this.screen as BirthScreen;
-          const rig = birth.view.takeCharacter();
-          void this.startArena('STANDARD', rig ?? undefined);
+          this.registerCharacter(name);
+          void this.showHub();
         },
       }),
     );
   }
 
-  // ===== 3D ゲーム =====
+  /** 描いたラクガキ + 能力を CharacterRecord にして、プロフィールへ追加・選択する。 */
+  private registerCharacter(name: string): CharacterRecord | null {
+    if (!this.drawing) return null;
+    const analysis = this.analysis ?? buildCharacter(this.drawing).analysis;
+    this.analysis = analysis;
+    const rec: CharacterRecord = {
+      id: `c${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
+      name: name || describeBuild(analysis.stats).label,
+      createdAt: Date.now(),
+      drawing: cloneDrawing(this.drawing),
+      stats: analysis.stats,
+      traits: analysis.traits,
+      special: analysis.special,
+      formulaVersion: STAT_FORMULA_VERSION,
+    };
+    this.profile.addCharacter(rec);
+    return rec;
+  }
+
+  // ===== ハブ / ステージ =====
+
+  private paramsOf(rec: CharacterRecord): PlayerParams {
+    return statsToParams(rec.stats, rec.traits);
+  }
+
+  private makeRigOf(rec: CharacterRecord): () => CharacterRig {
+    const params = this.paramsOf(rec);
+    return () => buildCharacter(rec.drawing, { targetHeight: params.height }).rig;
+  }
+
+  async showHub(): Promise<void> {
+    const rec = this.profile.selected;
+    if (!rec) {
+      this.showEditor();
+      return;
+    }
+    this.leaveGame();
+    const host = this.ensureHost();
+    this.setScreen(
+      new HubScreen({
+        host,
+        profile: this.profile,
+        stages: STAGE_LIST,
+        rig: this.makeRigOf(rec)(),
+        name: rec.name,
+        stats: rec.stats,
+        onPlayStage: (id) => void this.startStage(id),
+        onDraw: () => this.showEditor(),
+        onTitle: () => this.showTitle(),
+      }),
+    );
+  }
+
+  /** ステージを始める (READY → GO → プレイ)。 */
+  async startStage(id: string): Promise<void> {
+    const rec = this.profile.selected;
+    const entry = getStageEntry(id);
+    if (!rec || !entry) {
+      void this.showHub();
+      return;
+    }
+    this.leaveGame();
+    this.setScreen(loadingScreen('ステージをよみこみ中…'));
+    const host = this.ensureHost();
+    const session = await StageSession.create({
+      host,
+      root: this.root,
+      viewEl: this.viewEl,
+      stage: entry.build(),
+      params: this.paramsOf(rec),
+      makeRig: this.makeRigOf(rec),
+      intro: entry.title,
+      onFinish: (r) => this.onStageFinished(entry.id, r),
+      onQuit: () => void this.showHub(),
+    });
+    this.session = session;
+    this.setScreen(null);
+    session.start();
+  }
+
+  private onStageFinished(stageId: string, r: StageResult): void {
+    const entry = getStageEntry(stageId);
+    const session = this.session;
+    if (!entry || !session) return;
+    const prevBest = this.profile.stage(stageId).bestMs;
+    const { newBest } = this.profile.recordClear(stageId, r.timeMs);
+    const next = STAGE_LIST.find((s) => s.order === entry.order + 1);
+    session.hud.el.style.display = 'none';
+    session.setControlsVisible(false);
+    this.setScreen(
+      new ResultScreen({
+        stageName: `${entry.title}  ${entry.subtitle}`,
+        timeMs: r.timeMs,
+        prevBestMs: prevBest,
+        newBest,
+        rank: r.rank,
+        deaths: r.deaths,
+        hits: r.hits,
+        onNext: next ? () => void this.startStage(next.id) : undefined,
+        nextLabel: next ? `${next.title} ▶` : undefined,
+        onRetry: () => {
+          this.setScreen(null);
+          session.hud.el.style.display = '';
+          session.setControlsVisible(true);
+          void session.restart();
+        },
+        onHub: () => void this.showHub(),
+      }),
+    );
+  }
+
+  /** 開発/QA 用: 実行中のステージをボットに自動プレイさせる (実描画・実 HUD・実結果画面を通した E2E 確認用)。 */
+  async autoplay(route = 'main'): Promise<void> {
+    const s = this.session;
+    if (!s) return;
+    const { Bot } = await import('../game/bot');
+    const wp = s.scene.sim.stage.routes?.[route];
+    if (!wp) return;
+    const bot = new Bot(s.scene.sim, wp);
+    s.botInput = (si) => bot.next(si);
+    if (s.phase === 'playing') s.scene.inputOverride = s.botInput;
+  }
+
+  // ===== 開発用アリーナ =====
 
   private quality(): Quality {
     const q = this.params.get('quality');
@@ -162,35 +318,27 @@ export class App {
     return this.host;
   }
 
-  /** テストアリーナ。rig を渡すとそのキャラクター (ラクガキ由来) で遊ぶ。 */
-  async startArena(buildId: string, rig?: CharacterRig): Promise<void> {
+  /** テストアリーナ。ラクガキがあればそのキャラクターで遊ぶ。 */
+  async startArena(buildId: string): Promise<void> {
     this.setScreen(null);
     this.leaveGame();
     const host = this.ensureHost();
     this.view = new GameView(host);
     this.input = new InputManager(this.viewEl, this.root);
-    // マウス環境 (PC) ではタッチ UI を隠す。?touch=1 で強制表示。
     const coarse = matchMedia('(pointer: coarse)').matches;
     this.input.touch.setVisible(coarse || this.params.has('touch'));
 
     const build = TEST_BUILDS.find((b) => b.id === buildId.toUpperCase()) ?? TEST_BUILDS[0];
     const debug = this.devMode ? new DebugPanel(this.root) : null;
     this.debug = debug;
-    // ラクガキ由来のキャラクターなら、描いた形から決まった能力で遊ぶ (?build= 指定やデバッグボタンでテストビルドに上書き)
-    let drawnRig = rig;
-    if (!drawnRig && this.drawing) {
-      const built = buildCharacter(this.drawing);
-      this.analysis = built.analysis;
-      drawnRig = built.rig;
-    }
-    const fromDrawing = !!this.analysis && !!drawnRig && !this.params.has('build') && !this.useTestBuild;
-    const params =
-      fromDrawing && this.analysis ? statsToParams(this.analysis.stats, this.analysis.traits) : statsToParams(build.stats, build.traits);
-    const useRig = drawnRig ?? createPlaceholderRig();
+    const rec = this.profile.selected;
+    const fromDrawing = !!rec && !this.params.has('build') && !this.useTestBuild;
+    const params = fromDrawing && rec ? this.paramsOf(rec) : statsToParams(build.stats, build.traits);
+    const rig = rec ? buildCharacter(rec.drawing, { targetHeight: params.height }).rig : createPlaceholderRig();
     this.scene = await PlayScene.create(this.view, this.input, {
       stage: TEST_ARENA,
       params,
-      rig: useRig,
+      rig,
       onFrame: (s, dt) => debug?.update(s, dt),
     });
     this.scene.start();
@@ -213,19 +361,20 @@ export class App {
     this.root.appendChild(wrap);
   }
 
-  private useTestBuild = false;
-
-  /** デバッグ用: テストビルドに切り替える (ラクガキがあればそのキャラのまま能力だけ変える)。 */
+  /** デバッグ用: テストビルドの能力に切り替える (ラクガキがあればその見た目のまま)。 */
   setBuild(id: string): void {
     this.useTestBuild = true;
     const b = getBuild(id);
     const params = statsToParams(b.stats, b.traits);
-    const rig = this.drawing ? buildCharacter(this.drawing, { targetHeight: params.height }).rig : createPlaceholderRig();
+    const rec = this.profile.selected;
+    const rig = rec ? buildCharacter(rec.drawing, { targetHeight: params.height }).rig : createPlaceholderRig();
     this.scene?.setBuild(params, rig);
   }
 
   /** ゲームシーン一式を破棄する (WebGL ホストは残す)。 */
   private leaveGame(): void {
+    this.session?.dispose();
+    this.session = null;
     this.debug?.dispose();
     this.debug = null;
     this.buildButtons?.remove();

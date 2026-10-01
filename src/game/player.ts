@@ -5,18 +5,30 @@ import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
 import type { PlayerParams } from './params';
 import type { SimEvent } from './events';
+import { emptyInput } from '../input/types';
 
 export type PlayerMode = 'ground' | 'air' | 'landing';
 
-/** ステージ側から毎ステップ与えられる環境 (風/水など)。PHASE 7 以降で拡張。 */
+/** ステージ側から毎ステップ与えられる環境 (風/水など)。 */
 export interface PlayerEnv {
-  /** 風による加速度 (m/s²)。windResistance 適用前。 */
+  /**
+   * 風速 (m/s)。位置を直接押す「動く歩道」型: 速度に積算せず、windResistance (重いほど小さい) を掛けて
+   * 毎ステップの移動量に加える。操作の加速度に打ち勝つ必要がなく、体重差が素直に効く。
+   */
   windX: number;
   windY: number;
   windZ: number;
 }
 
+/** スタン中に使う空入力 */
+const STUN_INPUT: SimInput = emptyInput();
+
 export const NO_ENV: Readonly<PlayerEnv> = { windX: 0, windY: 0, windZ: 0 };
+
+/** 地上では接地の摩擦で風の影響が弱まる。 */
+const GROUND_WIND_FACTOR = 0.55;
+/** 被ダメージ直後に操作を受け付けない時間 (秒)。 */
+const STUN_TIME = 0.28;
 
 /** 着地硬直の長さ (秒)。 */
 const LANDING_TIME = 0.1;
@@ -54,6 +66,11 @@ export class PlayerController {
   lastLandImpact = 0;
   /** 着地した回数 (アニメーションが着地の瞬間を検出するため)。 */
   landCount = 0;
+  /** ACTION (ダッシュ攻撃) の残り時間 / 次に出せるまでの時間 */
+  attackTimer = 0;
+  attackCooldown = 0;
+  /** 被ダメージで操作不能な残り時間 */
+  stunTimer = 0;
 
   private coyote = 0;
   private jumpBuffer = 0;
@@ -156,6 +173,16 @@ export class PlayerController {
     this.prevPos.z = this.pos.z;
     this.prevYaw = this.yaw;
 
+    // --- 攻撃/スタンのタイマー ---
+    this.attackTimer = Math.max(0, this.attackTimer - dt);
+    this.attackCooldown = Math.max(0, this.attackCooldown - dt);
+    this.stunTimer = Math.max(0, this.stunTimer - dt);
+    if (this.stunTimer > 0) {
+      // 被弾中は入力を受け付けない (ジャンプ/移動/攻撃)
+      input = STUN_INPUT;
+    }
+    if (input.actionPressed && this.attackCooldown <= 0 && this.attackTimer <= 0) this.startAttack(push);
+
     // --- タイマー ---
     this.jumpBuffer = input.jumpPressed ? p.jumpBufferTime : Math.max(0, this.jumpBuffer - dt);
     this.coyote = this.grounded ? p.coyoteTime : Math.max(0, this.coyote - dt);
@@ -201,12 +228,6 @@ export class PlayerController {
       }
     }
 
-    // --- 風など外力 (重いほど受けにくい) ---
-    const wr = p.windResistance * dt;
-    this.vel.x += env.windX * wr;
-    this.vel.y += env.windY * wr;
-    this.vel.z += env.windZ * wr;
-
     // --- ジャンプ ---
     if (this.jumpBuffer > 0 && (this.grounded || this.coyote > 0) && !this.jumping) {
       this.vel.y = p.jumpVelocity;
@@ -230,9 +251,11 @@ export class PlayerController {
 
     // --- 移動量 (移動床に乗っていればそのぶん運ばれる) ---
     const d = this.desired;
-    d.x = this.vel.x * dt + (carry ? carry.dx : 0);
-    d.y = this.vel.y * dt + (carry ? carry.dy : 0);
-    d.z = this.vel.z * dt + (carry ? carry.dz : 0);
+    // 風: 重いほど受けにくい。空中は地上より強く流される (上昇気流は縦方向にも効く)
+    const wr = p.windResistance * dt * (this.grounded ? GROUND_WIND_FACTOR : 1);
+    d.x = this.vel.x * dt + (carry ? carry.dx : 0) + env.windX * wr;
+    d.y = this.vel.y * dt + (carry ? carry.dy : 0) + env.windY * p.windResistance * dt;
+    d.z = this.vel.z * dt + (carry ? carry.dz : 0) + env.windZ * wr;
 
     // 上昇中はスナップしない (ジャンプが地面に吸われないように)
     if (this.vel.y > 0) this.cc.disableSnapToGround();
@@ -250,10 +273,11 @@ export class PlayerController {
     const n = this.cc.numComputedCollisions();
     for (let i = 0; i < n; i++) {
       const c = this.cc.computedCollision(i);
-      if (!c || !c.normal2) continue;
-      const nx = c.normal2.x;
-      const ny = c.normal2.y;
-      const nz = c.normal2.z;
+      // Rapier の CharacterCollision: normal1 = 相手 (障害物) 表面の法線 (床なら +Y、壁ならプレイヤー側を向く)
+      if (!c || !c.normal1) continue;
+      const nx = c.normal1.x;
+      const ny = c.normal1.y;
+      const nz = c.normal1.z;
       if (ny > 0.5) {
         hitGround = true;
         groundNY = ny;
@@ -315,6 +339,51 @@ export class PlayerController {
       this.vel.y = Number.isFinite(this.vel.y) ? this.vel.y : 0;
       this.vel.z = Number.isFinite(this.vel.z) ? this.vel.z : 0;
     }
+  }
+
+  /** ACTION 開始: 向いている方向へ短く踏み込む (ダッシュ攻撃)。当たり判定は GameSim が判定する。 */
+  private startAttack(push: (e: SimEvent) => void): void {
+    const p = this.params;
+    this.attackTimer = p.attackDuration;
+    this.attackCooldown = p.attackCooldown;
+    const fx = Math.sin(this.yaw);
+    const fz = Math.cos(this.yaw);
+    const along = this.vel.x * fx + this.vel.z * fz;
+    if (along < p.lungeSpeed) {
+      const add = p.lungeSpeed - along;
+      this.vel.x += fx * add;
+      this.vel.z += fz * add;
+    }
+    push({ type: 'attack' });
+  }
+
+  get attacking(): boolean {
+    return this.attackTimer > 0;
+  }
+
+  /** 外からの衝撃 (ノックバック/バネ/風など)。 */
+  applyImpulse(x: number, y: number, z: number): void {
+    this.vel.x += x;
+    this.vel.y += y;
+    this.vel.z += z;
+    if (y > 0) {
+      this.grounded = false;
+      this.jumping = true; // 空中ジャンプ不可のまま
+    }
+  }
+
+  /** ノックバック: 現在の速度を捨てて、指定の速度で弾き飛ばす (走っていても確実に押し戻される)。 */
+  knockback(x: number, y: number, z: number): void {
+    this.vel.x = x;
+    this.vel.y = y;
+    this.vel.z = z;
+    this.grounded = false;
+    this.jumping = true; // 被弾中の空中ジャンプはできない
+  }
+
+  /** 被ダメージの硬直を開始する。 */
+  stun(): void {
+    this.stunTimer = STUN_TIME;
   }
 
   /** 接地中の水平移動を止める (リスポーン/ゴール演出用)。 */

@@ -1,0 +1,53 @@
+import { describe, expect, it } from 'vitest';
+import { buildStage1 } from '../../src/stages/stage1';
+import { ALL_BUILDS, fmt, runStage } from './harness';
+import type { RunReport } from './harness';
+import { validateStage } from './validate';
+
+describe('STAGE 1 草原', () => {
+  const stage = buildStage1();
+
+  it('ステージ定義が健全 (有限値/地面/ゴール/ルート)', async () => {
+    await validateStage(stage);
+    expect(stage.breakables!.length).toBeGreaterThanOrEqual(6);
+    expect(stage.hazards!.length).toBeGreaterThanOrEqual(4);
+    expect(stage.checkpoints!.length).toBeGreaterThanOrEqual(3);
+  });
+
+  const results = new Map<string, RunReport>();
+  const best = new Map<string, RunReport>();
+
+  it('全てのテストビルドが本道 (main) をクリアできる (死亡 3 回以内・想定タイムの 2 倍以内)', async () => {
+    for (const id of ALL_BUILDS) {
+      const r = await runStage(stage, id, 'main', { maxTime: 200, maxDeaths: 10 });
+      results.set(id, r);
+      expect(r.cleared, fmt(r)).toBe(true);
+      expect(r.deaths, fmt(r)).toBeLessThanOrEqual(3);
+      expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 70) * 2);
+    }
+  }, 300_000);
+
+  it('近道 (dash) は高速型だけが成功し、標準/ジャンプ/重量型は 6.4m のギャップを越えられない', async () => {
+    const dash = new Map<string, RunReport>();
+    for (const id of ALL_BUILDS) dash.set(id, await runStage(stage, id, 'dash', { maxTime: 90, maxDeaths: 3 }));
+    expect(dash.get('SPEED')!.cleared, fmt(dash.get('SPEED')!)).toBe(true);
+    for (const id of ['STANDARD', 'JUMP', 'HEAVY', 'EXTREME']) expect(dash.get(id)!.cleared, fmt(dash.get(id)!)).toBe(false);
+    for (const id of ALL_BUILDS) {
+      const m = results.get(id)!;
+      const d = dash.get(id)!;
+      best.set(id, d.cleared && d.time < m.time ? d : m);
+    }
+  }, 300_000);
+
+  it('STAGE 1 は高速型が有利: SPEED の最速タイムが STANDARD より 15% 以上速く、重量型より速い', () => {
+    const t = (id: string): number => best.get(id)!.time;
+    expect(t('SPEED')).toBeLessThan(t('STANDARD') * 0.85);
+    expect(t('SPEED')).toBeLessThan(t('HEAVY') * 0.75);
+    expect(t('SPEED')).toBeLessThan(t('JUMP'));
+  });
+
+  it('どのビルドも極端に遅くはない (最速と最遅の差が 2 倍未満)', () => {
+    const times = ALL_BUILDS.map((id) => best.get(id)!.time);
+    expect(Math.max(...times) / Math.min(...times)).toBeLessThan(2);
+  });
+});

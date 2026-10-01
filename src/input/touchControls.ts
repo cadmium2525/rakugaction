@@ -35,7 +35,6 @@ export class TouchControls {
   private readonly knob: HTMLElement;
   private readonly jumpBtn: HTMLElement;
   private readonly actionBtn: HTMLElement;
-  private readonly pauseBtn: HTMLElement;
 
   private stickPointer = -1;
   private camPointer = -1;
@@ -56,7 +55,6 @@ export class TouchControls {
       '<div class="touch-stick-base"><div class="touch-stick-knob"></div></div>',
       '<button class="touch-btn touch-btn-action" type="button" aria-label="アクション">ACTION</button>',
       '<button class="touch-btn touch-btn-jump" type="button" aria-label="ジャンプ">JUMP</button>',
-      '<button class="touch-pause" type="button" aria-label="ポーズ">Ⅱ</button>',
     ].join('');
     parent.appendChild(this.root);
     const q = <T extends HTMLElement>(s: string): T => this.root.querySelector(s) as T;
@@ -66,7 +64,6 @@ export class TouchControls {
     this.knob = q('.touch-stick-knob');
     this.jumpBtn = q('.touch-btn-jump');
     this.actionBtn = q('.touch-btn-action');
-    this.pauseBtn = q('.touch-pause');
     this.bind();
     this.updateRadius();
     window.addEventListener('resize', this.updateRadius);
@@ -145,12 +142,6 @@ export class TouchControls {
     // --- ボタン ---
     this.bindButton(this.jumpBtn, 'jump');
     this.bindButton(this.actionBtn, 'action');
-
-    this.pauseBtn.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.pauseLatch = true;
-    });
 
     // 長押しメニューやダブルタップ拡大を抑止
     this.root.addEventListener('contextmenu', (e) => e.preventDefault());
