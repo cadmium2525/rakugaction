@@ -73,55 +73,52 @@ const BASE = {
 } as const;
 
 /** 100 基準の能力値を倍率へ。極端な値でも暴走しないよう clamp する。 */
-function m(stat: number, lo = 0.5, hi = 2.2): number {
-  return clamp(stat / 100, lo, hi);
+function m(stat: number, lo = 0.4, hi = 2.4): number {
+  return clamp(Number.isFinite(stat) ? stat / 100 : 1, lo, hi);
 }
 
 /**
  * 能力値 → 実パラメータ。
  * SPEED → 最高速度/加速、JUMP → ジャンプ力、WEIGHT → 慣性/風耐性/沈みやすさ。
- * 各倍率は指数で圧縮して、極端な能力値でもステージ設計の範囲 (ギャップ幅など) に収める。
+ * 各倍率は小さな指数で圧縮して、能力値 (約 45〜222) の範囲でも
+ *   最高速度 約 4.7〜10 m/s / ジャンプ初速 約 7.4〜14 m/s
+ * に収める (ステージのギャップ幅は最も弱いビルドでも越えられる長さで設計するため)。
  */
 export function statsToParams(stats: CharacterStats, traits: CharacterTraits = DEFAULT_TRAITS): PlayerParams {
-  const speed = m(stats.speed, 0.5, 1.8);
-  const jump = m(stats.jump, 0.5, 1.8);
-  const weight = m(stats.weight, 0.4, 3);
-  const size = clamp(traits.size, 0.6, 1.6);
+  const speed = m(stats.speed);
+  const jump = m(stats.jump);
+  const weight = m(stats.weight, 0.4, 2.8);
+  const size = clamp(Number.isFinite(traits.size) ? traits.size : 1, 0.6, 1.6);
 
-  const heightScale = size;
   const radius = BASE.radius * clamp(size, 0.7, 1.45);
-  const height = Math.max(BASE.height * heightScale, radius * 2 + 0.2);
-
-  const speedMul = Math.pow(speed, 0.85);
-  const jumpMul = Math.pow(jump, 0.7);
-  const weightMul = weight;
+  const height = Math.max(BASE.height * size, radius * 2 + 0.2);
 
   return {
     radius,
     height,
-    maxSpeed: BASE.maxSpeed * speedMul,
-    accel: BASE.accel * Math.pow(speed, 0.5) / Math.pow(weightMul, 0.45),
-    friction: BASE.friction / Math.pow(weightMul, 0.55),
-    airAccel: BASE.airAccel * Math.pow(speed, 0.4) / Math.pow(weightMul, 0.3),
+    maxSpeed: BASE.maxSpeed * Math.pow(speed, 0.5),
+    accel: (BASE.accel * Math.pow(speed, 0.35)) / Math.pow(weight, 0.6),
+    friction: BASE.friction / Math.pow(weight, 0.8),
+    airAccel: (BASE.airAccel * Math.pow(speed, 0.3)) / Math.pow(weight, 0.25),
     airDrag: BASE.airDrag,
-    turnRate: BASE.turnRate / Math.pow(weightMul, 0.3),
-    jumpVelocity: BASE.jumpVelocity * jumpMul,
+    turnRate: BASE.turnRate / Math.pow(weight, 0.3),
+    jumpVelocity: BASE.jumpVelocity * Math.pow(jump, 0.4),
     gravity: BASE.gravity,
     fallGravityMul: BASE.fallGravityMul,
     maxFallSpeed: BASE.maxFallSpeed,
     jumpCutMul: BASE.jumpCutMul,
     coyoteTime: BASE.coyoteTime,
     jumpBufferTime: BASE.jumpBufferTime,
-    windResistance: 1 / Math.pow(weightMul, 1.1),
-    density: Math.pow(weightMul, 0.9) / Math.pow(clamp(size, 0.6, 1.6), 0.6),
+    windResistance: 1 / Math.pow(weight, 1.1),
+    density: Math.pow(weight, 0.9) / Math.pow(size, 0.6),
     stepHeight: BASE.stepHeight * clamp(size, 0.7, 1.3),
     maxSlopeClimb: (52 * Math.PI) / 180,
     minSlopeSlide: (56 * Math.PI) / 180,
     size,
-    reach: clamp(traits.reach, 0.5, 2),
-    attackPower: m(stats.power, 0.4, 2.5),
-    maxHp: Math.max(1, Math.round(3 * Math.pow(m(stats.hp, 0.4, 2.5), 0.6))),
-    damageTaken: 1 / Math.pow(m(stats.defense, 0.4, 2.5), 0.5),
-    knockbackMul: 1 / Math.pow(weightMul, 0.5),
+    reach: clamp(Number.isFinite(traits.reach) ? traits.reach : 1, 0.5, 2),
+    attackPower: Math.pow(m(stats.power), 0.8),
+    maxHp: Math.max(1, Math.round(3 * Math.pow(m(stats.hp), 0.6))),
+    damageTaken: 1 / Math.pow(m(stats.defense), 0.5),
+    knockbackMul: 1 / Math.pow(weight, 0.5),
   };
 }

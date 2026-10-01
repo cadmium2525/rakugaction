@@ -1,4 +1,6 @@
 import { buildCharacter } from '../character/builder';
+import { describeBuild } from '../character/statGen';
+import type { StatGenResult } from '../character/statGen';
 import { createPlaceholderRig } from '../character/placeholder';
 import type { CharacterRig } from '../character/rig';
 import { TEST_BUILDS, getBuild } from '../character/stats';
@@ -33,6 +35,9 @@ export class App {
   scene: PlayScene | null = null;
   /** 直近に描いたラクガキ */
   drawing: DrawingData | null = null;
+  /** そのラクガキから決まった能力 */
+  analysis: StatGenResult | null = null;
+  characterName = '';
   screen: Screen | null = null;
 
   private debug: DebugPanel | null = null;
@@ -127,12 +132,16 @@ export class App {
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     const host = this.ensureHost();
     const built = buildCharacter(drawing);
+    this.analysis = built.analysis;
     this.setScreen(
       new BirthScreen({
         host,
         rig: built.rig,
+        stats: built.analysis.stats,
+        name: this.characterName || describeBuild(built.analysis.stats).label,
         onRetry: () => this.showEditor(this.drawing ?? undefined),
-        onPlay: () => {
+        onPlay: (name) => {
+          this.characterName = name;
           const birth = this.screen as BirthScreen;
           const rig = birth.view.takeCharacter();
           void this.startArena('STANDARD', rig ?? undefined);
@@ -167,8 +176,17 @@ export class App {
     const build = TEST_BUILDS.find((b) => b.id === buildId.toUpperCase()) ?? TEST_BUILDS[0];
     const debug = this.devMode ? new DebugPanel(this.root) : null;
     this.debug = debug;
-    const params = statsToParams(build.stats, build.traits);
-    const useRig = rig ?? (this.drawing ? buildCharacter(this.drawing, { targetHeight: params.height }).rig : createPlaceholderRig());
+    // ラクガキ由来のキャラクターなら、描いた形から決まった能力で遊ぶ (?build= 指定やデバッグボタンでテストビルドに上書き)
+    let drawnRig = rig;
+    if (!drawnRig && this.drawing) {
+      const built = buildCharacter(this.drawing);
+      this.analysis = built.analysis;
+      drawnRig = built.rig;
+    }
+    const fromDrawing = !!this.analysis && !!drawnRig && !this.params.has('build') && !this.useTestBuild;
+    const params =
+      fromDrawing && this.analysis ? statsToParams(this.analysis.stats, this.analysis.traits) : statsToParams(build.stats, build.traits);
+    const useRig = drawnRig ?? createPlaceholderRig();
     this.scene = await PlayScene.create(this.view, this.input, {
       stage: TEST_ARENA,
       params,
@@ -195,8 +213,11 @@ export class App {
     this.root.appendChild(wrap);
   }
 
+  private useTestBuild = false;
+
   /** デバッグ用: テストビルドに切り替える (ラクガキがあればそのキャラのまま能力だけ変える)。 */
   setBuild(id: string): void {
+    this.useTestBuild = true;
     const b = getBuild(id);
     const params = statsToParams(b.stats, b.traits);
     const rig = this.drawing ? buildCharacter(this.drawing, { targetHeight: params.height }).rig : createPlaceholderRig();

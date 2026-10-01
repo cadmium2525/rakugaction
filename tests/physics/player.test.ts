@@ -1,7 +1,9 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { StageDef } from '../../src/stages/types';
 import { rampX, slab, wall } from '../../src/stages/helpers';
-import { makeSim, paramsFor, rapier, run } from '../helpers/headless';
+import { makeSim, rapier, run } from '../helpers/headless';
+import { getBuild } from '../../src/character/stats';
+import { statsToParams } from '../../src/game/params';
 import { TEST_ARENA } from '../../src/stages/testArena';
 
 const THEME = TEST_ARENA.theme;
@@ -311,18 +313,30 @@ describe('能力値と挙動', () => {
     expect(await apexOf('HEAVY')).toBeLessThan(std * 0.95);
   });
 
-  it('WEIGHT が高いほど止まるまでに滑る (慣性)', async () => {
-    const slideOf = async (id: string): Promise<number> => {
-      const sim = await makeSim(stage([FLOOR]), id);
+  it('同じ SPEED なら WEIGHT が高いほど加速が鈍く、止まるまで長く滑る (慣性)', async () => {
+    const base = getBuild('STANDARD');
+    const light = statsToParams({ ...base.stats, weight: 70 }, base.traits);
+    const heavy = statsToParams({ ...base.stats, weight: 170 }, base.traits);
+    const measure = async (params: typeof light): Promise<{ accelTime: number; stopTime: number; slide: number }> => {
+      const sim = await makeSim(stage([FLOOR]), params);
       run(sim, 30);
-      run(sim, 120, () => ({ moveX: 1 }));
+      let accelTime = -1;
+      run(sim, 240, (i, s) => {
+        if (accelTime < 0 && s.player.horizontalSpeed > params.maxSpeed * 0.95) accelTime = i / 60;
+        return { moveX: 1 };
+      });
       const x0 = sim.player.pos.x;
-      run(sim, 120);
-      return sim.player.pos.x - x0;
+      let stopTime = -1;
+      run(sim, 240, (i, s) => {
+        if (stopTime < 0 && s.player.horizontalSpeed < 0.05) stopTime = i / 60;
+        return {};
+      });
+      return { accelTime, stopTime, slide: sim.player.pos.x - x0 };
     };
-    const std = await slideOf('STANDARD');
-    const heavy = await slideOf('HEAVY');
-    expect(heavy).toBeGreaterThan(std * 0.8); // 最高速が低い分を考慮しても、減速時間が長い
-    expect(paramsFor('HEAVY').friction).toBeLessThan(paramsFor('STANDARD').friction);
+    const l = await measure(light);
+    const h = await measure(heavy);
+    expect(h.accelTime).toBeGreaterThan(l.accelTime * 1.2);
+    expect(h.stopTime).toBeGreaterThan(l.stopTime * 1.2);
+    expect(h.slide).toBeGreaterThan(l.slide * 1.2);
   });
 });

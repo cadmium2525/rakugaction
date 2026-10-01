@@ -6,6 +6,10 @@ import { downsampleMask } from '../drawing/downsample';
 import { rasterize } from '../drawing/raster';
 import { toonMaterial } from '../render/toon';
 import { cleanPart, TEX_RES } from './cleanPart';
+import { measureBody, measureColors } from './measure';
+import type { BodyMeasures, ColorMeasures } from './measure';
+import { computeStats } from './statGen';
+import type { StatGenResult } from './statGen';
 import type { CleanedPart } from './cleanPart';
 import { computeLayout } from './layout';
 import type { CharacterLayout } from './layout';
@@ -15,8 +19,11 @@ import type { CharacterRig, RigMetrics } from './rig';
 
 const LAYOUT_FACTOR = 4;
 
+/** 標準サイズ (size = 1) のキャラクター全高 (m)。 */
+export const BASE_HEIGHT = 1.6;
+
 export interface BuildOptions {
-  /** キャラクターの全高 (m)。既定 1.6 (標準)。能力計算 (PHASE 5) の size で変える。 */
+  /** キャラクターの全高 (m)。省略時は BASE_HEIGHT × 能力計算の size (体が大きい絵ほど大きく見える)。 */
   targetHeight?: number;
   /** ラスタ解像度 (テスト用に小さくできる)。 */
   rasterRes?: number;
@@ -44,8 +51,12 @@ export interface BuildReport {
 export interface BuiltCharacter {
   rig: CharacterRig;
   layout: CharacterLayout;
-  /** 解析 (PHASE 5) 用: 整形後のシルエットとテクスチャ */
+  /** 整形後のシルエットとテクスチャ */
   cleaned: Record<PartKey, CleanedPart>;
+  /** 形状・色の計測値と、そこから決まった能力値 (形状が主要因・色は副次補正) */
+  body: BodyMeasures;
+  color: ColorMeasures;
+  analysis: StatGenResult;
   report: BuildReport;
 }
 
@@ -77,7 +88,6 @@ function textureFromRgba(rgba: Uint8ClampedArray, size: number): THREE.DataTextu
  */
 export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): BuiltCharacter {
   const t0 = performance.now();
-  const targetHeight = opts.targetHeight ?? 1.6;
   const resolved: Record<PartKey, { usedDefault: boolean }> = {} as Record<PartKey, { usedDefault: boolean }>;
   const cleaned = {} as Record<PartKey, CleanedPart>;
 
@@ -101,6 +111,10 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     lin[key] = downsampleMask(c.mask, c.res, LAYOUT_FACTOR, 1);
   }
   const layout = computeLayout(lin);
+  const body = measureBody(cleaned, layout);
+  const color = measureColors(cleaned);
+  const analysis = computeStats(body, color);
+  const targetHeight = opts.targetHeight ?? BASE_HEIGHT * analysis.traits.size;
   const S = targetHeight / Math.max(0.05, layout.totalHeight);
 
   const rig = createEmptyRig();
@@ -198,5 +212,5 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     drawCalls: meshes.length,
     ms: performance.now() - t0,
   };
-  return { rig: character, layout, cleaned, report };
+  return { rig: character, layout, cleaned, body, color, analysis, report };
 }

@@ -33,7 +33,11 @@ export interface BuildPreset {
   traits: CharacterTraits;
 }
 
-/** バランス計測・テストプレイ用のテストビルド。実際のラクガキ由来のビルドは PHASE 5 以降。 */
+/**
+ * バランス計測・ボットテスト用のテストビルド。
+ * **実際にラクガキで作れる範囲の能力**にするため、値は `testBuildDoodle(id)` (src/dev/doodles.ts) の
+ * 計測結果と一致させている (tests/character/stats.test.ts が一致を検証する)。
+ */
 export const TEST_BUILDS: readonly BuildPreset[] = [
   {
     id: 'STANDARD',
@@ -44,32 +48,32 @@ export const TEST_BUILDS: readonly BuildPreset[] = [
   {
     id: 'SPEED',
     label: '高速型',
-    stats: { hp: 80, power: 85, defense: 80, speed: 135, jump: 100, weight: 70 },
-    traits: { size: 0.85, reach: 0.9, stability: 0.8 },
+    stats: { hp: 81, power: 89, defense: 81, speed: 159, jump: 128, weight: 80 },
+    traits: { size: 0.92, reach: 1, stability: 0.8 },
   },
   {
     id: 'JUMP',
     label: 'ジャンプ型',
-    stats: { hp: 85, power: 80, defense: 80, speed: 100, jump: 135, weight: 75 },
-    traits: { size: 0.95, reach: 0.9, stability: 0.8 },
+    stats: { hp: 94, power: 89, defense: 88, speed: 95, jump: 131, weight: 108 },
+    traits: { size: 1.07, reach: 1, stability: 1.4 },
   },
   {
     id: 'HEAVY',
     label: '重量型',
-    stats: { hp: 150, power: 115, defense: 150, speed: 75, jump: 78, weight: 170 },
-    traits: { size: 1.3, reach: 1.1, stability: 1.5 },
+    stats: { hp: 131, power: 105, defense: 125, speed: 62, jump: 77, weight: 131 },
+    traits: { size: 1.48, reach: 1.57, stability: 1.4 },
   },
   {
     id: 'POWER',
     label: '力持ち型',
-    stats: { hp: 110, power: 150, defense: 95, speed: 90, jump: 90, weight: 125 },
-    traits: { size: 1.1, reach: 1.25, stability: 1.1 },
+    stats: { hp: 92, power: 163, defense: 89, speed: 80, jump: 80, weight: 110 },
+    traits: { size: 1.04, reach: 0.83, stability: 1.02 },
   },
   {
     id: 'EXTREME',
     label: '極端型',
-    stats: { hp: 200, power: 60, defense: 200, speed: 60, jump: 70, weight: 230 },
-    traits: { size: 1.5, reach: 0.8, stability: 2 },
+    stats: { hp: 123, power: 142, defense: 110, speed: 51, jump: 75, weight: 163 },
+    traits: { size: 1.5, reach: 1.75, stability: 2 },
   },
 ] as const;
 

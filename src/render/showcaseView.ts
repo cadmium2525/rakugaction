@@ -139,6 +139,14 @@ export class ShowcaseView {
     this.applyPose(0);
   }
 
+  /** 構図のずらし量 (画面幅に対する比)。正の値でキャラクターが左へ寄る (右側に UI を置く時)。 */
+  private offsetX = 0;
+
+  setCompositionOffset(frac: number): void {
+    this.offsetX = frac;
+    this.frame();
+  }
+
   /** キャラクター全体が収まるカメラ位置。 */
   private frame(): void {
     const H = this.height;
@@ -149,6 +157,11 @@ export class ShowcaseView {
     const d = Math.max(dH, dW) * 1.1;
     this.camera.position.set(0, H * 0.6, d);
     this.camera.lookAt(0, H * 0.46, 0);
+    // setViewOffset: 視錐台を横へずらして、キャラクターを画面の左寄りに映す
+    const w = this.host.width;
+    const hh = this.host.height;
+    if (this.offsetX !== 0) this.camera.setViewOffset(w, hh, w * this.offsetX, 0, w, hh);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
   }
 

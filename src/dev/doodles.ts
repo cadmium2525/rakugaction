@@ -32,6 +32,92 @@ const blob = (color: string, fillColor: string, pts: number[], seed: [number, nu
   fill(fillColor, seed[0], seed[1]),
 ];
 
+/** 角丸の長方形の点列 (閉じた輪郭)。 */
+export function roundRectPts(x0: number, y0: number, x1: number, y1: number, r: number, seg = 6): number[] {
+  const pts: number[] = [];
+  const corner = (cx: number, cy: number, a0: number): void => {
+    for (let i = 0; i <= seg; i++) {
+      const a = a0 + (i / seg) * (Math.PI / 2);
+      pts.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+  };
+  corner(x1 - r, y0 + r, -Math.PI / 2); // 右上
+  corner(x1 - r, y1 - r, 0); // 右下
+  corner(x0 + r, y1 - r, Math.PI / 2); // 左下
+  corner(x0 + r, y0 + r, Math.PI); // 左上
+  pts.push(pts[0], pts[1]);
+  return pts;
+}
+
+/**
+ * 基準ラクガキ: エディタのガイド (薄い目安) の形をそのままなぞったもの。
+ * 「標準」= 能力値 100 の基準を定義するために使う (statGen の REF はこの計測値)。色は無彩色のみ。
+ */
+export function referenceDoodle(): DrawingData {
+  const gray = '#9e9e9e';
+  const ink = '#202124';
+  return drawing({
+    head: [pen(ink, 0.04, circle(0.5, 0.46, 0.3, 64)), fill(gray, 0.5, 0.46)],
+    body: [pen(ink, 0.04, roundRectPts(0.27, 0.12, 0.73, 0.88, 0.12)), fill(gray, 0.5, 0.5)],
+    armLeft: [pen(ink, 0.04, roundRectPts(0.41, 0.1, 0.59, 0.8, 0.09)), fill(gray, 0.5, 0.45)],
+    legLeft: [pen(ink, 0.04, roundRectPts(0.39, 0.1, 0.61, 0.86, 0.09)), fill(gray, 0.5, 0.45)],
+  });
+}
+
+/** 基準ラクガキの寸法を変えられるバリエーション (能力式の方向性テストとテストビルドの元になる)。 */
+export interface VariantOptions {
+  bodyW?: number;
+  bodyH?: number;
+  legLen?: number;
+  legW?: number;
+  armW?: number;
+  armLen?: number;
+  headScale?: number;
+  color?: string;
+  outline?: string;
+}
+
+export function variantDoodle(o: VariantOptions = {}): DrawingData {
+  const c = o.color ?? '#9e9e9e';
+  const ink = o.outline ?? '#202124';
+  const hs = o.headScale ?? 1;
+  const bx = o.bodyW ?? 0.23;
+  const by = o.bodyH ?? 0.38;
+  const legW = o.legW ?? 0.11;
+  const armW = o.armW ?? 0.09;
+  const legBottom = Math.min(0.98, 0.1 + (o.legLen ?? 0.76));
+  const armBottom = Math.min(0.98, 0.1 + (o.armLen ?? 0.7));
+  return drawing({
+    head: [pen(ink, 0.04, circle(0.5, 0.46, Math.min(0.48, 0.3 * hs), 64)), fill(c, 0.5, 0.46)],
+    body: [pen(ink, 0.04, roundRectPts(0.5 - bx, 0.5 - by, 0.5 + bx, 0.5 + by, Math.min(0.12, bx))), fill(c, 0.5, 0.5)],
+    armLeft: [pen(ink, 0.04, roundRectPts(0.5 - armW, 0.1, 0.5 + armW, armBottom, Math.min(0.09, armW))), fill(c, 0.5, 0.4)],
+    legLeft: [pen(ink, 0.04, roundRectPts(0.5 - legW, 0.1, 0.5 + legW, legBottom, Math.min(0.09, legW))), fill(c, 0.5, 0.4)],
+  });
+}
+
+/**
+ * テストビルド (TEST_BUILDS) の元になるラクガキ。バランス計測/ボットテストでは、
+ * 「実際に描ける範囲の能力」で検証するため、能力値はこのラクガキの計測結果と一致させている。
+ */
+export function testBuildDoodle(id: string): DrawingData {
+  switch (id) {
+    case 'STANDARD':
+      return referenceDoodle();
+    case 'SPEED':
+      return variantDoodle({ bodyW: 0.17, bodyH: 0.3, legLen: 0.93, legW: 0.09, armW: 0.07, headScale: 0.8, color: '#43a047' });
+    case 'JUMP':
+      return variantDoodle({ bodyW: 0.22, bodyH: 0.34, legLen: 0.93, legW: 0.22, color: '#fdd835' });
+    case 'HEAVY':
+      return extremeDoodles().find((d) => d.name === 'giant')!.data;
+    case 'POWER':
+      return variantDoodle({ armW: 0.24, armLen: 0.55, color: '#e53935' });
+    case 'EXTREME':
+      return extremeDoodles().find((d) => d.name === 'chaos')!.data;
+    default:
+      throw new Error(`unknown test build: ${id}`);
+  }
+}
+
 export interface NamedDoodle {
   name: string;
   data: DrawingData;

@@ -1,4 +1,6 @@
 import type { DrawingRaster } from '../drawing/raster';
+import { COLOR_CLASSES, classifyColor, emptyWeights } from './colorClass';
+import type { ColorWeights } from './colorClass';
 import { dilate, fillHoles, maxInscribedRadius, medianHalfWidth, removeSpecks } from './maskOps';
 
 /** 3D 化で使うテクスチャの解像度 (正方形)。ラスタ解像度の約数であること。 */
@@ -9,15 +11,19 @@ export const PAPER_RGB: readonly [number, number, number] = [255, 248, 236];
 
 /** これ以下の太さのパーツは膨らませる (キャンバス幅に対する比)。 */
 const MIN_FEATURE = 0.05;
-/** 常に行う基本の膨張 (px)。極細の線で押し出し形状が壊れないようにする。 */
-const BASE_DILATE = 2;
+/** 常に行う基本の膨張 (キャンバス幅に対する比)。極細の線で押し出し形状が壊れないようにする。384px で 2px。 */
+const BASE_DILATE = 0.0052;
 
 export interface CleanedPart {
   res: number;
   /** 整形後のシルエット (穴埋め・ゴミ除去・太さ補正済み) */
   mask: Uint8Array;
-  /** TEX_RES の不透明 RGBA (画像の行順: 先頭行が上)。マスクの外側も近傍色でにじませてある。 */
+  /** TEX_RES の不透明 RGBA (画像の行順: 先頭行が上)。マスクの外側も近傍色でにじませてある。texture:false の場合は空。 */
   texture: Uint8ClampedArray;
+  /** ユーザーが実際に描いた/塗ったピクセル (紙色・にじみ・膨張部分を除く) の数 */
+  inkPixels: number;
+  /** インクピクセルを色分類 (赤/黄/緑/青/紫/無彩色) した重みの合計 (合計 = inkPixels) */
+  colorWeights: ColorWeights;
   /** 整形前 (元の線) のピクセル数 / 整形後のピクセル数 */
   rawArea: number;
   area: number;
@@ -29,6 +35,31 @@ export interface CleanedPart {
   inscribedRadius: number;
   /** 典型的な半幅 (px) */
   halfWidth: number;
+}
+
+/** 実際に描かれたピクセルを色分類して集計する (同じ色は結果を再利用)。 */
+function measureInk(raster: DrawingRaster, src: Uint8Array): { inkPixels: number; colorWeights: ColorWeights } {
+  const total = emptyWeights();
+  const cache = new Map<number, ColorWeights>();
+  const tmp = emptyWeights();
+  const rgba = raster.rgba;
+  let ink = 0;
+  for (let i = 0; i < src.length; i++) {
+    if (!src[i]) continue;
+    ink++;
+    const r = rgba[i * 4];
+    const g = rgba[i * 4 + 1];
+    const b = rgba[i * 4 + 2];
+    // 量子化した色をキーに分類結果をキャッシュ (4 bit/ch)
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    let w = cache.get(key);
+    if (!w) {
+      w = { ...classifyColor((r & 0xf0) | 8, (g & 0xf0) | 8, (b & 0xf0) | 8, tmp) };
+      cache.set(key, w);
+    }
+    for (const k of COLOR_CLASSES) total[k] += w[k];
+  }
+  return { inkPixels: ink, colorWeights: total };
 }
 
 function count(m: Uint8Array): number {
@@ -45,7 +76,7 @@ function count(m: Uint8Array): number {
  *  4. テクスチャを作る: 線/塗りの色、囲まれた未塗り部分は紙色、膨らませた部分は近傍色でにじませる
  * 入力のマスクが空の場合は呼び出し側で既定形状に差し替えること。
  */
-export function cleanPart(raster: DrawingRaster): CleanedPart {
+export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean } = {}): CleanedPart {
   const res = raster.res;
   const src = raster.mask();
   const rawArea = count(src);
@@ -55,21 +86,26 @@ export function cleanPart(raster: DrawingRaster): CleanedPart {
   const base = sp.mask;
   const rIn = maxInscribedRadius(base, res);
   const need = (MIN_FEATURE * res) / 2 - rIn;
-  const dilateRadius = Math.max(BASE_DILATE, Math.ceil(need));
+  const dilateRadius = Math.max(Math.max(1, Math.round(BASE_DILATE * res)), Math.ceil(need));
   const mask = dilate(base, res, dilateRadius);
-  const halfWidth = medianHalfWidth(mask, res);
+  // 典型半幅はジオメトリ生成 (ベベル幅) でのみ使う。計測だけの場合は EDT を省く
+  const halfWidth = opts.texture === false ? rIn : medianHalfWidth(mask, res);
 
-  const texture = buildTexture(raster, src, base, res, dilateRadius);
+  const texture = opts.texture === false ? new Uint8ClampedArray(0) : buildTexture(raster, src, base, res, dilateRadius);
+  const { inkPixels, colorWeights } = measureInk(raster, src);
   return {
     res,
     mask,
     texture,
+    inkPixels,
+    colorWeights,
     rawArea,
     area: count(mask),
     holesFilledPx,
     specksRemoved: sp.removed,
     dilateRadius,
-    inscribedRadius: maxInscribedRadius(mask, res),
+    // 膨張で内接円半径は dilateRadius だけ増える (EDT の再計算を省く)
+    inscribedRadius: rIn + dilateRadius,
     halfWidth,
   };
 }

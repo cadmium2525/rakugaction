@@ -1,7 +1,7 @@
 import type { DrawOp, DrawingData, PartKey } from './model';
 import { PART_KEYS, mirrorOps, mirroredSource } from './model';
 
-const DEFAULT_COLOR = '#f5d8a8';
+const DEFAULT_COLOR = '#e6dcc8';
 
 /**
  * 何も描かれていないパーツ用の既定形状 (太い線 1 本 = 丸みのあるカプセル)。
