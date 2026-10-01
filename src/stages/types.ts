@@ -59,7 +59,23 @@ export interface HazardDef {
   size: V3t;
   /** ダメージ量 (既定 1 = HP 1 個ぶん。DEFENSE で軽減) */
   damage?: number;
-  style?: 'spikes' | 'bumper';
+  /** spikes = トゲ / bumper = 鉄の柱 / fire = 炎の床 (ノックバックなし。上を走り抜けると 1.1 秒ごとにダメージ) */
+  style?: 'spikes' | 'bumper' | 'fire';
+}
+
+/**
+ * 動く危険物 (巡回する鉄球/振り子)。経路の動かし方は移動床と同じ (経過時間だけで決まる = 決定的)。
+ * 床ではない: 触れるとダメージ + ノックバック (すり抜けはできない代わりに、ジャンプで飛び越えることもできる)。
+ */
+export interface SweeperDef {
+  id: string;
+  size: V3t;
+  points: readonly V3t[];
+  speed: number;
+  pause?: number;
+  phase?: number;
+  loop?: boolean;
+  damage?: number;
 }
 
 /** ACTION (ダッシュ攻撃) で壊せる箱。toughness <= 攻撃力 のキャラだけが壊せる。 */
@@ -149,6 +165,8 @@ export interface WaypointDef {
   swim?: boolean;
   /** 水中で ACTION を押し続けて床に張り付く (低いドアの通過用: 浮力のある軽いビルドも頭を下げて通る) */
   dive?: boolean;
+  /** 領域 (AABB) に動く危険物が seconds 秒間入ってこない時まで待つ (領域に入った後は止まらない) */
+  waitClear?: { min: V3t; max: V3t; seconds: number };
   /** 指定した水域の水面が level 以上になるまで待つ (水位が上下する部屋) */
   waitWater?: { id: string; level: number };
   /** 到着判定の水平半径 (m) */
@@ -185,6 +203,7 @@ export interface StageDef {
   hazards?: readonly HazardDef[];
   breakables?: readonly BreakableDef[];
   crumbles?: readonly CrumbleDef[];
+  sweepers?: readonly SweeperDef[];
   decor?: readonly DecorDef[];
   winds?: readonly WindDef[];
   waters?: readonly WaterDef[];

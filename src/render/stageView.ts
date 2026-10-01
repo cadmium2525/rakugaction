@@ -12,6 +12,8 @@ export class StageView {
   readonly group = new THREE.Group();
   private readonly staticMesh: THREE.Mesh;
   private readonly moverMeshes: THREE.Mesh[] = [];
+  /** 動く危険物 (赤い鉄球/ブロック) */
+  private readonly sweeperMeshes: THREE.Mesh[] = [];
   private readonly checkpointFlags = new Map<string, THREE.Mesh>();
   private readonly goal: THREE.Group | null = null;
   private readonly mat = toonMaterial({ vertexColors: true });
@@ -51,6 +53,17 @@ export class StageView {
       this.group.add(mesh);
     }
 
+    // 動く危険物: 赤いブロック + 黒い縞 (危険の合図)
+    const sweepMat = toonMaterial({ color: 0xe5483a });
+    const stripeMat = new THREE.MeshBasicMaterial({ color: 0x2b1b1b });
+    for (const s of sim.sweepers) {
+      const [sx, sy, sz] = s.def.size;
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), sweepMat);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(sx * 1.02, sy * 0.22, sz * 1.02), stripeMat);
+      mesh.add(stripe);
+      this.sweeperMeshes.push(mesh);
+      this.group.add(mesh);
+    }
     // 壊せる箱 (壊すと消えて破片が飛ぶ): 全部を InstancedMesh に
     const unit = boxGeometry({ pos: [0, 0, 0], size: [1, 1, 1], style: 'wood' }, 'crate');
     if (sim.breakables.length > 0) {
@@ -221,6 +234,9 @@ export class StageView {
     sim.movers.forEach((m, i) => {
       const mesh = this.moverMeshes[i];
       mesh.position.set(lerp(m.prev.x, m.pos.x, alpha), lerp(m.prev.y, m.pos.y, alpha), lerp(m.prev.z, m.pos.z, alpha));
+    });
+    sim.sweepers.forEach((s, i) => {
+      this.sweeperMeshes[i].position.set(lerp(s.prev.x, s.pos.x, alpha), lerp(s.prev.y, s.pos.y, alpha), lerp(s.prev.z, s.pos.z, alpha));
     });
     if (this.goal) {
       this.goal.rotation.y = this.t * 1.5;

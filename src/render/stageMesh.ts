@@ -92,6 +92,22 @@ function hazardGeometries(hz: HazardDef): THREE.BufferGeometry[] {
   const [cx, cy, cz] = hz.pos;
   const [sx, sy, sz] = hz.size;
   const baseY = cy - sy / 2;
+  if (hz.style === 'fire') {
+    // 炎の床: 焦げた土台 + 橙/黄の炎の円錐を 1m 格子に (位置から決まる決定的な高さ)
+    out.push(decorGeometry({ shape: 'box', pos: [cx, baseY + 0.08, cz], size: [sx, 0.16, sz], color: 0x5a1f14 }));
+    const nx = Math.max(1, Math.round(sx));
+    const nz = Math.max(1, Math.round(sz));
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) {
+        const x = cx - sx / 2 + (i + 0.5) * (sx / nx);
+        const z = cz - sz / 2 + (j + 0.5) * (sz / nz);
+        const k = (i * 7 + j * 13) % 5;
+        const h = 0.55 + k * 0.12;
+        out.push(decorGeometry({ shape: 'cone', pos: [x, baseY + 0.16 + h / 2, z], size: [0.34, h, 0.34], color: (i + j) % 2 === 0 ? 0xff7a1a : 0xffc13a }));
+      }
+    }
+    return out;
+  }
   if (hz.style === 'bumper') {
     out.push(decorGeometry({ shape: 'cylinder', pos: [cx, cy, cz], size: [Math.min(sx, sz) / 2, sy, 1], color: 0xff8a3d }));
     return out;

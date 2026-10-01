@@ -53,3 +53,68 @@ export async function validateStage(stage: StageDef): Promise<void> {
   expect(sim.hits).toBe(0);
   sim.dispose();
 }
+
+interface Aabb {
+  min: number[];
+  max: number[];
+}
+
+/** 箱を (回転した箱は長辺方向に 12 分割して) 外接 AABB の列にする。坂の AABB が大きくなりすぎるのを防ぐ。 */
+function boxAabbs(b: StageDef['boxes'][number]): Aabb[] {
+  const [rx, ry, rz] = b.rot ?? [0, 0, 0];
+  const rotated = rx !== 0 || ry !== 0 || rz !== 0;
+  const cx = Math.cos(rx);
+  const sx = Math.sin(rx);
+  const cy = Math.cos(ry);
+  const sy = Math.sin(ry);
+  const cz = Math.cos(rz);
+  const sz = Math.sin(rz);
+  // オイラー角 XYZ の回転行列 (three.js と同じ順序)
+  const m = [
+    [cy * cz, -cy * sz, sy],
+    [cx * sz + sx * sy * cz, cx * cz - sx * sy * sz, -sx * cy],
+    [sx * sz - cx * sy * cz, sx * cz + cx * sy * sz, cx * cy],
+  ];
+  const n = rotated ? 12 : 1;
+  // 分割する軸: 坂は rotZ なら x 方向に、rotX なら z 方向に長い
+  const axis = rz !== 0 ? 0 : rx !== 0 ? 2 : 0;
+  const out: Aabb[] = [];
+  for (let k = 0; k < n; k++) {
+    const half = [b.size[0] / 2, b.size[1] / 2, b.size[2] / 2];
+    const off = [0, 0, 0];
+    if (n > 1) {
+      const w = b.size[axis] / n;
+      off[axis] = -b.size[axis] / 2 + w * (k + 0.5);
+      half[axis] = w / 2;
+    }
+    const center = b.pos.map((v, i) => v + m[i][0] * off[0] + m[i][1] * off[1] + m[i][2] * off[2]);
+    const ext = m.map((row) => Math.abs(row[0]) * half[0] + Math.abs(row[1]) * half[1] + Math.abs(row[2]) * half[2]);
+    out.push({ min: center.map((v, i) => v - ext[i]), max: center.map((v, i) => v + ext[i]) });
+  }
+  return out;
+}
+
+/**
+ * 上下に重なる床の隙間チェック: 平面 (xz) で重なる 2 つの床が高さ方向に離れている (つながっていない) 時、
+ * その隙間は最大のキャラクター (2.4m) が頭をぶつけず通れる高さ (3.0m) 以上あること。
+ */
+export function checkVerticalClearance(stage: StageDef, minGap = 3.0): string[] {
+  const boxes = stage.boxes.map(boxAabbs);
+  const bad: string[] = [];
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      let worst = Infinity;
+      for (const a of boxes[i]) {
+        for (const b of boxes[j]) {
+          const ox = Math.min(a.max[0], b.max[0]) - Math.max(a.min[0], b.min[0]);
+          const oz = Math.min(a.max[2], b.max[2]) - Math.max(a.min[2], b.min[2]);
+          if (ox <= 0.05 || oz <= 0.05) continue;
+          const gap = Math.max(a.min[1] - b.max[1], b.min[1] - a.max[1]);
+          if (gap > 0.05) worst = Math.min(worst, gap);
+        }
+      }
+      if (worst < minGap) bad.push(`box${i} / box${j}: 平面で重なり、上下の隙間 ${worst.toFixed(2)}m < ${minGap}m`);
+    }
+  }
+  return bad;
+}

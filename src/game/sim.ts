@@ -4,7 +4,7 @@ import type { V3 } from '../core/math';
 import { FIXED_DT } from '../core/version';
 import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
-import type { BreakableDef, CrumbleDef, HazardDef, MoverDef, StageDef } from '../stages/types';
+import type { BreakableDef, CrumbleDef, HazardDef, MoverDef, StageDef, SweeperDef } from '../stages/types';
 import type { SimEvent } from './events';
 import type { PlayerParams } from './params';
 import { NO_ENV, PlayerController } from './player';
@@ -26,6 +26,12 @@ export interface BreakableRuntime {
   def: BreakableDef;
   collider: RAPIER.Collider;
   broken: boolean;
+}
+
+export interface SweeperRuntime {
+  def: SweeperDef;
+  pos: V3;
+  prev: V3;
 }
 
 export type CrumbleState = 'idle' | 'shake' | 'fallen';
@@ -57,6 +63,7 @@ export class GameSim {
   readonly movers: MoverRuntime[] = [];
   readonly breakables: BreakableRuntime[] = [];
   readonly crumbles: CrumbleRuntime[] = [];
+  readonly sweepers: SweeperRuntime[] = [];
   /** 経過シミュレーション時間 (秒)。ステップ数 × FIXED_DT。 */
   time = 0;
   stepCount = 0;
@@ -96,6 +103,10 @@ export class GameSim {
     this.buildMovers();
     this.buildBreakables();
     this.buildCrumbles();
+    for (const def of stage.sweepers ?? []) {
+      const p = moverPosition(def, 0);
+      this.sweepers.push({ def, pos: v3(p.x, p.y, p.z), prev: v3(p.x, p.y, p.z) });
+    }
     this.checkpoint = v3(stage.spawn[0], stage.spawn[1], stage.spawn[2]);
     this.player = new PlayerController(R, this.world, params, v3(0, 0, 0));
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, stage.spawnYaw ?? 0);
@@ -262,6 +273,17 @@ export class GameSim {
       m.body.setTranslation(np, false);
     }
 
+    // 動く危険物
+    for (const s of this.sweepers) {
+      s.prev.x = s.pos.x;
+      s.prev.y = s.pos.y;
+      s.prev.z = s.pos.z;
+      const np = moverPosition(s.def, nextTime);
+      s.pos.x = np.x;
+      s.pos.y = np.y;
+      s.pos.z = np.z;
+    }
+
     const player = this.player;
     // 風: プレイヤー位置の風速を環境へ (体重による効きの差は PlayerController 側)
     const wz = this.stage.winds;
@@ -323,11 +345,22 @@ export class GameSim {
 
   /** ダメージ床との接触判定 (プレイヤーのカプセルを AABB で近似)。 */
   private checkHazards(): void {
-    const hz = this.stage.hazards;
-    if (!hz || this.invuln > 0) return;
+    if (this.invuln > 0) return;
     const p = this.player;
     const r = p.params.radius;
     const hh = p.params.height / 2;
+    for (const s of this.sweepers) {
+      if (
+        Math.abs(p.pos.x - s.pos.x) <= s.def.size[0] / 2 + r &&
+        Math.abs(p.pos.y - s.pos.y) <= s.def.size[1] / 2 + hh &&
+        Math.abs(p.pos.z - s.pos.z) <= s.def.size[2] / 2 + r
+      ) {
+        this.hurt({ pos: [s.pos.x, s.pos.y, s.pos.z], damage: s.def.damage });
+        return;
+      }
+    }
+    const hz = this.stage.hazards;
+    if (!hz) return;
     for (const h of hz) {
       if (
         Math.abs(p.pos.x - h.pos[0]) <= h.size[0] / 2 + r &&
@@ -341,18 +374,21 @@ export class GameSim {
   }
 
   /** ダメージを受ける: DEFENSE で軽減、ノックバックは重いほど小さい。HP 0 で死亡 → 復活。 */
-  hurt(h: Pick<HazardDef, 'pos' | 'damage'>): void {
+  hurt(h: Pick<HazardDef, 'pos' | 'damage' | 'style'>): void {
     const p = this.player;
     const params = p.params;
     this.hp -= (h.damage ?? 1) * params.damageTaken;
     this.hits++;
     this.invuln = INVULN_TIME;
-    const dx = p.pos.x - h.pos[0];
-    const dz = p.pos.z - h.pos[2];
-    const len = Math.hypot(dx, dz) || 1;
-    const k = params.knockbackMul;
-    p.knockback((dx / len) * KNOCKBACK_H * k, KNOCKBACK_V * k, (dz / len) * KNOCKBACK_H * k);
-    p.stun();
+    // 炎の床は押し戻さない (走り抜けるのを邪魔しない。耐えられるかどうかだけが問われる)
+    if (h.style !== 'fire') {
+      const dx = p.pos.x - h.pos[0];
+      const dz = p.pos.z - h.pos[2];
+      const len = Math.hypot(dx, dz) || 1;
+      const k = params.knockbackMul;
+      p.knockback((dx / len) * KNOCKBACK_H * k, KNOCKBACK_V * k, (dz / len) * KNOCKBACK_H * k);
+      p.stun();
+    }
     this.events.push({ type: 'hurt', hp: Math.max(0, this.hp), maxHp: this.maxHp });
     if (this.hp <= 0) this.respawn('hazard');
   }
@@ -390,6 +426,26 @@ export class GameSim {
   /** 指定した風域が今から seconds 秒間ずっと弱いか (ボットの「風待ち」判定)。 */
   isCalmFor(zones: readonly string[], seconds: number): boolean {
     return calmFor(this.stage.winds ?? [], zones, this.time, seconds);
+  }
+
+  /**
+   * 領域 [min, max] (プレイヤーの体の大きさぶん広げて判定) に、今から seconds 秒間 動く危険物が入ってこないか。
+   * ボットが「振り子の隙を待つ」判断に使う。
+   */
+  sweepersClear(min: readonly number[], max: readonly number[], seconds: number): boolean {
+    if (this.sweepers.length === 0) return true;
+    const r = this.player.params.radius + 0.25;
+    const hh = this.player.params.height / 2;
+    for (let t = 0; t <= seconds; t += 0.05) {
+      for (const s of this.sweepers) {
+        const p = moverPosition(s.def, this.time + t);
+        const hx = s.def.size[0] / 2 + r;
+        const hy = s.def.size[1] / 2 + hh;
+        const hz = s.def.size[2] / 2 + r;
+        if (p.x + hx >= min[0] && p.x - hx <= max[0] && p.y + hy >= min[1] && p.y - hy <= max[1] && p.z + hz >= min[2] && p.z - hz <= max[2]) return false;
+      }
+    }
+    return true;
   }
 
   /** 水域 id の現在の水面の高さ。 */

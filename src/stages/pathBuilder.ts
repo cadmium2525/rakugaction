@@ -8,6 +8,7 @@ import type {
   HazardDef,
   MoverDef,
   SurfaceStyle,
+  SweeperDef,
   WaterDef,
   WaypointDef,
   WindDef,
@@ -47,6 +48,7 @@ export interface SharedLists {
   hazards: HazardDef[];
   breakables: BreakableDef[];
   crumbles: CrumbleDef[];
+  sweepers: SweeperDef[];
   decor: DecorDef[];
   winds: WindDef[];
   waters: WaterDef[];
@@ -64,6 +66,7 @@ export class PathBuilder {
   readonly hazards: HazardDef[];
   readonly breakables: BreakableDef[];
   readonly crumbles: CrumbleDef[];
+  readonly sweepers: SweeperDef[];
   readonly decor: DecorDef[];
   readonly winds: WindDef[];
   readonly waters: WaterDef[];
@@ -84,13 +87,14 @@ export class PathBuilder {
   ) {
     [this.x, this.y, this.z] = start;
     this.heading = heading;
-    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], crumbles: [], decor: [], winds: [], waters: [], counter: { n: 0 } };
+    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], crumbles: [], sweepers: [], decor: [], winds: [], waters: [], counter: { n: 0 } };
     this.boxes = this.shared.boxes;
     this.movers = this.shared.movers;
     this.checkpoints = this.shared.checkpoints;
     this.hazards = this.shared.hazards;
     this.breakables = this.shared.breakables;
     this.crumbles = this.shared.crumbles;
+    this.sweepers = this.shared.sweepers;
     this.decor = this.shared.decor;
     this.winds = this.shared.winds;
     this.waters = this.shared.waters;
@@ -102,6 +106,16 @@ export class PathBuilder {
    */
   branch(lateral: number, dy = 0): PathBuilder {
     return new PathBuilder(this.point(0, lateral, this.y + dy), this.heading, this.defaults, this.shared);
+  }
+
+  /**
+   * カーソルから 前方 a・右 l の位置に、同じ高さ + dy で、向きを変えた (turn) 別の経路を作る。ジオメトリは共有。
+   * 「今いる床の脇から横へ延びる近道」を作るのに使う。
+   */
+  branchAt(a: number, l: number, turn?: 'L' | 'R', dy = 0): PathBuilder {
+    const nb = new PathBuilder(this.point(a, l, this.y + dy), this.heading, this.defaults, this.shared);
+    if (turn) nb.turn(turn);
+    return nb;
   }
 
   /** カーソルを他の PathBuilder の位置へ移す (枝分かれの合流後)。 */
@@ -309,7 +323,7 @@ export class PathBuilder {
     return this;
   }
 
-  hazard(a: number, l: number, size: V3t, o: { damage?: number; style?: 'spikes' | 'bumper' } = {}): this {
+  hazard(a: number, l: number, size: V3t, o: { damage?: number; style?: 'spikes' | 'bumper' | 'fire' } = {}): this {
     this.hazards.push({
       id: this.nextId('hz'),
       pos: this.point(a, l, this.y + size[1] / 2),
@@ -318,6 +332,23 @@ export class PathBuilder {
       style: o.style ?? 'spikes',
     });
     return this;
+  }
+
+  /** 動く危険物: 前方 a の位置で、右 l0 → l1 を往復する (床の上に置く)。 */
+  sweeper(a: number, l0: number, l1: number, o: { size?: V3t; speed?: number; pause?: number; phase?: number; damage?: number } = {}): SweeperDef {
+    const size = o.size ?? [1.4, 1.2, 1.4];
+    const y = this.y + size[1] / 2;
+    const def: SweeperDef = {
+      id: this.nextId('sw'),
+      size,
+      points: [this.point(a, l0, y), this.point(a, l1, y)],
+      speed: o.speed ?? 3.2,
+      pause: o.pause ?? 0.3,
+      phase: o.phase,
+      damage: o.damage,
+    };
+    this.sweepers.push(def);
+    return def;
   }
 
   breakable(a: number, l: number, size: V3t, toughness: number, style: SurfaceStyle = 'wood'): BreakableDef {

@@ -28,6 +28,8 @@ export interface BotOptions {
 const DEFAULT_RADIUS = 1.0;
 /** ジャンプ用ウェイポイント: この距離まで近づいたら踏み切る (m) */
 const DEFAULT_JUMP_DIST = 0.45;
+/** 動く危険物の待機: 領域のこの距離 (m) 以内に入ったら、もう止まらず渡り切る */
+const COMMIT_MARGIN = 2.0;
 
 /**
  * ステージ攻略ボット。ルート (ウェイポイント列) を実プレイヤーと同じ入力 (SimInput) でたどる。
@@ -119,6 +121,18 @@ export class Bot {
       const mv = sim.movers.find((m) => m.def.id === wm.id);
       const near = mv && Math.hypot(mv.pos.x - wm.pos[0], mv.pos.z - wm.pos[2]) <= wm.r && Math.abs(mv.pos.y + mv.def.size[1] / 2 - wm.pos[1]) < 0.6;
       if (!near) return;
+    }
+    // 動く危険物待ち: 領域に入る前に、隙 (渡り切るまで危険物が来ない時) を待つ。領域の近く (2m 以内) に入ったら止まらない
+    const wc = wp.waitClear;
+    if (wc) {
+      const m = COMMIT_MARGIN;
+      const near = p.pos.x >= wc.min[0] - m && p.pos.x <= wc.max[0] + m && p.pos.z >= wc.min[2] - m && p.pos.z <= wc.max[2] + m;
+      if (!near) {
+        // 渡り切る時間 = 目標までの距離 ÷ (最高速度の 70%: 加速を見込む)。指定の最小値より短くはしない
+        const rest = Math.hypot(wp.pos[0] - p.pos.x, wp.pos[2] - p.pos.z);
+        const seconds = Math.max(wc.seconds, (rest - 0.5) / (p.params.maxSpeed * 0.7));
+        if (!sim.sweepersClear(wc.min, wc.max, seconds)) return;
+      }
     }
     // 水位待ち: 水面が必要な高さになるまで (水に浮かんだまま) 待つ
     const ww = wp.waitWater;
