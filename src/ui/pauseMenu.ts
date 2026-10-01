@@ -7,6 +7,8 @@ export interface PauseMenuOptions {
   /** ステージの最初からやり直す */
   onRestart(): void;
   onQuit(): void;
+  /** 「さいしょから」の表示名 (ステージの最初から / タイムアタックの最初から) */
+  restartLabel?: string;
   /** 「やめる」の表示名 (ハブへ戻る/タイムアタックをやめる 等) */
   quitLabel?: string;
 }
@@ -25,7 +27,7 @@ export class PauseMenu {
         h('div', { class: 'pause-title', text: 'ポーズ' }),
         h('button', { class: 'btn btn-primary btn-big', text: '▶ つづける', on: { click: () => opts.onResume() } }),
         h('button', { class: 'btn btn-ghost', text: '🚩 チェックポイントから', on: { click: () => opts.onCheckpoint() } }),
-        h('button', { class: 'btn btn-ghost', text: '↻ さいしょから', on: { click: () => opts.onRestart() } }),
+        h('button', { class: 'btn btn-ghost', text: opts.restartLabel ?? '↻ さいしょから', on: { click: () => opts.onRestart() } }),
         h('button', { class: 'btn btn-ghost', text: opts.quitLabel ?? '⌂ やめる', on: { click: () => opts.onQuit() } }),
       ),
     );

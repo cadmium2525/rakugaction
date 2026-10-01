@@ -555,3 +555,109 @@
   height: 100%;
   background: linear-gradient(90deg, #ffb300, #ff7a3d);
 }
+
+/* ---------- ALL STAGES タイムアタック ---------- */
+.ta-split,
+.ta-result {
+  max-height: 94vh;
+  overflow-y: auto;
+}
+.ta-rows,
+.ta-total {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 8px;
+}
+.ta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+.ta-l {
+  min-width: 52px;
+  text-align: right;
+  font-size: 11px;
+  color: #8a7c60;
+}
+.ta-v {
+  font: 800 17px/1.2 ui-monospace, Consolas, monospace;
+}
+.ta-big {
+  font: 900 24px/1.2 ui-monospace, Consolas, monospace;
+  color: var(--accent);
+}
+.ta-sub {
+  font-size: 11px;
+  color: #8a7c60;
+}
+.ta-delta {
+  font: 800 12px/1.2 ui-monospace, Consolas, monospace;
+  color: #8a7c60;
+}
+.ta-delta.good {
+  color: #1f9d55;
+}
+.ta-delta.bad {
+  color: #d64545;
+}
+.ta-next {
+  margin: 4px 0 10px;
+  font-size: 13px;
+  font-weight: 800;
+  color: #5a6a8a;
+}
+.ta-table {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 6px 0 4px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.ta-trow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ta-tname {
+  flex: 1;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 700;
+  color: #5a4a2c;
+}
+.ta-trow .ta-v {
+  font-size: 14px;
+}
+.ta-trow .ta-delta {
+  min-width: 46px;
+  text-align: right;
+}
+.ta-notice {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #ffe9e0;
+  color: #b0401f;
+  font-size: 11px;
+  font-weight: 700;
+}
+.ta-status {
+  min-height: 14px;
+  margin: 2px 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5a6a8a;
+}
+@media (max-height: 420px) {
+  .ta-table {
+    margin: 3px 0 2px;
+    padding: 4px 8px;
+  }
+  .ta-big {
+    font-size: 20px;
+  }
+}

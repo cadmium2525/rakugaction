@@ -38,6 +38,9 @@ export interface SessionDeps {
   onFinish(result: StageResult): void;
   onQuit(): void;
   quitLabel?: string;
+  restartLabel?: string;
+  /** 「さいしょから」を押した時の動作を差し替える (タイムアタックでは走り全体をやり直す) */
+  onRestart?: () => void;
   /** 部分タイムを HUD に出したい時 (タイムアタック) */
   subTime?: () => string | null;
   /** 時計 (テスト用) */
@@ -78,6 +81,8 @@ export class StageSession {
   private celebrateStep = 0;
   private disposed = false;
   private result: StageResult | null = null;
+  /** 操作できるようになった時点のシミュレーション時間 (秒)。simMs はここからの経過 */
+  private simAtPlay = 0;
   private goBannerShown = false;
   private windHintShown = false;
   private crumbleHintShown = false;
@@ -94,7 +99,8 @@ export class StageSession {
         this.scene.setPaused(false);
         this.scene.sim.respawn('manual');
       },
-      onRestart: () => void this.restart(),
+      onRestart: () => (deps.onRestart ? deps.onRestart() : void this.restart()),
+      restartLabel: deps.restartLabel,
       onQuit: () => deps.onQuit(),
       quitLabel: deps.quitLabel,
     });
@@ -146,6 +152,7 @@ export class StageSession {
     this.phase = 'playing';
     this.scene.inputOverride = this.botInput;
     this.input.reset();
+    this.simAtPlay = this.scene.sim.time;
     this.timer.start();
   }
 
@@ -216,7 +223,7 @@ export class StageSession {
     this.result = {
       stageId: this.deps.stage.id,
       timeMs,
-      simMs: Math.round(sim.time * 1000),
+      simMs: Math.round((sim.time - this.simAtPlay) * 1000),
       deaths: sim.deaths,
       falls: sim.falls,
       hits: sim.hits,

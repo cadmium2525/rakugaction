@@ -17,7 +17,11 @@ import { GameView } from '../render/gameView';
 import { detectDefaultQuality, isQuality } from '../render/quality';
 import type { Quality } from '../render/quality';
 import { RenderHost } from '../render/renderHost';
-import { stageExp } from '../progression/exp';
+import { allStagesExp, stageExp } from '../progression/exp';
+import { TimeAttackRun, compareWithBest } from '../timeattack/run';
+import type { Split, TimeAttackResult } from '../timeattack/run';
+import { SplitScreen, TimeAttackResultScreen } from '../ui/timeAttackScreens';
+import { formatTime } from '../timeattack/timer';
 import { STAT_KEYS } from '../character/stats';
 import type { CharacterStats, StatKey } from '../character/stats';
 import { applyLevel, levelBonus, summarizeLevelUp } from '../progression/level';
@@ -67,6 +71,13 @@ export class App {
   private debug: DebugPanel | null = null;
   private buildButtons: HTMLElement | null = null;
   private useTestBuild = false;
+  /** 進行中の ALL STAGES タイムアタック */
+  ta: TimeAttackRun | null = null;
+  /** 直近の ALL STAGES の結果 (ランキング送信/QA 用) */
+  lastTaResult: TimeAttackResult | null = null;
+  /** 開発/QA 用: タイムアタックのステージタイマーに使う時計を差し替える (非表示タブで高速に進める自動テスト用) */
+  devClock: (() => number) | null = null;
+  private parCache: Record<string, number | undefined> | null = null;
 
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
@@ -91,6 +102,7 @@ export class App {
 
     if (this.params.has('arena')) await this.startArena(this.params.get('build') ?? 'STANDARD');
     else if (this.params.has('stage') && this.devMode) await this.devStage(this.params.get('stage') || 'stage1');
+    else if (this.params.has('ta') && this.devMode) await this.devTimeAttack();
     else if (this.params.has('hub') && this.devMode) await this.devHub();
     else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') || 'normal');
     else if (this.params.has('editor')) this.showEditor();
@@ -118,6 +130,11 @@ export class App {
   private async devHub(): Promise<void> {
     if (!this.profile.selected) await this.loadDevDoodle('normal');
     await this.showHub();
+  }
+
+  private async devTimeAttack(): Promise<void> {
+    if (!this.profile.selected) await this.loadDevDoodle('normal');
+    await this.startTimeAttack();
   }
 
   private async devStage(id: string): Promise<void> {
@@ -249,6 +266,8 @@ export class App {
         statBonus: this.statBonusOf(rec),
         level: this.profile.progress,
         onPlayStage: (id) => void this.startStage(id),
+        onTimeAttack: () => void this.startTimeAttack(),
+        taBestMs: this.profile.allStagesBest?.totalMs ?? null,
         onDraw: () => this.showEditor(),
         onTitle: () => this.showTitle(),
       }),
@@ -318,6 +337,133 @@ export class App {
           void session.restart();
         },
         onHub: () => void this.showHub(),
+      }),
+    );
+  }
+
+  // ===== ALL STAGES TIME ATTACK =====
+
+  /** ステージ id → 想定タイム (秒)。記録の異常検出に使う。 */
+  private parSec(): Record<string, number | undefined> {
+    this.parCache ??= Object.fromEntries(STAGE_LIST.map((s) => [s.id, s.build().parTime]));
+    return this.parCache;
+  }
+
+  private stageLabel(id: string): { id: string; title: string; subtitle: string } {
+    const e = getStageEntry(id);
+    return { id, title: e?.title ?? id, subtitle: e?.subtitle ?? '' };
+  }
+
+  /** 最初のステージから走り直す (新しい走りを始める)。 */
+  async startTimeAttack(): Promise<void> {
+    if (!this.profile.selected) {
+      void this.showHub();
+      return;
+    }
+    this.ta = new TimeAttackRun(STAGE_LIST.map((s) => s.id));
+    await this.startTaStage();
+  }
+
+  /** 走りの次のステージを始める。 */
+  private async startTaStage(): Promise<void> {
+    const run = this.ta;
+    const rec = this.profile.selected;
+    const id = run?.currentStageId;
+    const entry = id ? getStageEntry(id) : undefined;
+    if (!run || !rec || !entry) {
+      void this.showHub();
+      return;
+    }
+    this.leaveGame();
+    this.setScreen(loadingScreen(`${entry.title}  よみこみ中…`));
+    const host = this.ensureHost();
+    const no = run.index + 1;
+    const count = run.stageIds.length;
+    let session: StageSession | null = null;
+    session = await StageSession.create({
+      host,
+      root: this.root,
+      viewEl: this.viewEl,
+      stage: entry.build(),
+      params: this.paramsOf(rec),
+      makeRig: this.makeRigOf(rec),
+      intro: `${entry.title}  ${no}/${count}`,
+      clock: this.devClock ?? undefined,
+      // HUD の 2 行目: ここまでの総タイム (このステージの経過を含む)
+      subTime: () => `ALL STAGES ${no}/${count}   TOTAL ${formatTime(run.totalMs + (session?.timer.elapsedMs ?? 0))}`,
+      onFinish: (r) => this.onTaStageFinished(r),
+      onQuit: () => {
+        this.ta = null;
+        void this.showHub();
+      },
+      quitLabel: '⌂ やめる (ここまでの記録は消えます)',
+      restartLabel: '↻ 最初のステージから',
+      onRestart: () => void this.startTimeAttack(),
+    });
+    this.session = session;
+    this.setScreen(null);
+    session.start();
+  }
+
+  private onTaStageFinished(r: StageResult): void {
+    const run = this.ta;
+    const session = this.session;
+    if (!run || !session) return;
+    const split: Split = { stageId: r.stageId, timeMs: r.timeMs, simMs: r.simMs, deaths: r.deaths, falls: r.falls, hits: r.hits };
+    if (!run.finishStage(split)) return;
+    // 通常のステージ記録 (ベスト) も更新する。EXP は走り全体の完走時にまとめて与える
+    this.profile.recordClear(r.stageId, r.timeMs);
+    session.hud.el.style.display = 'none';
+    session.setControlsVisible(false);
+    if (run.complete) {
+      this.showTaResult(run);
+      return;
+    }
+    const nextId = run.currentStageId;
+    const best = this.profile.allStagesBest;
+    this.setScreen(
+      new SplitScreen({
+        stage: this.stageLabel(r.stageId),
+        index: run.index,
+        count: run.stageIds.length,
+        timeMs: r.timeMs,
+        deltaMs: best && Number.isFinite(best.splitsMs[run.index - 1]) ? r.timeMs - best.splitsMs[run.index - 1] : null,
+        totalMs: run.totalMs,
+        next: this.stageLabel(nextId ?? r.stageId),
+        autoSeconds: 4,
+        onNext: () => void this.startTaStage(),
+      }),
+    );
+  }
+
+  /** 走りの結果: ベスト更新・EXP・結果画面。 */
+  private showTaResult(run: TimeAttackRun): void {
+    const result = run.result(this.parSec());
+    const cmp = compareWithBest(result, this.profile.allStagesBest);
+    if (cmp.newBest) this.profile.allStagesBest = { totalMs: result.totalMs, splitsMs: result.splits.map((s) => s.timeMs) };
+    // フラグ付きの走りは参考記録: EXP は与えない
+    const clean = result.flags.length === 0;
+    const gain = allStagesExp(this.profile.allStagesRuns === 0, cmp.newBest);
+    const before = this.profile.progress;
+    const lv = clean ? this.profile.addExp(gain.total) : { before: before.level, after: before.level, gained: 0 };
+    if (clean) this.profile.allStagesRuns++;
+    const after = this.profile.progress;
+    const levelUp = lv.after > lv.before ? summarizeLevelUp(lv.before, lv.after) : undefined;
+    this.lastTaResult = result;
+    this.setScreen(
+      new TimeAttackResultScreen({
+        stages: run.stageIds.map((id) => this.stageLabel(id)),
+        result,
+        deltaMs: cmp.deltaMs,
+        splitDeltas: cmp.splitDeltas,
+        newBest: cmp.newBest,
+        bestMs: this.profile.allStagesBest?.totalMs ?? null,
+        progress: clean ? { gain, before, after, levelUp } : undefined,
+        onRetry: () => void this.startTimeAttack(),
+        onHub: () => {
+          this.ta = null;
+          void this.showHub();
+        },
       }),
     );
   }

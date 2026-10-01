@@ -69,7 +69,7 @@ export class ResultScreen implements Screen {
 }
 
 /** EXP の内訳 + レベルのゲージ (ゲージは前の位置から今の位置まで伸びる)。レベルアップ時は増えた内容も出す。 */
-function progressBlock(p: ResultProgress): HTMLElement {
+export function progressBlock(p: ResultProgress): HTMLElement {
   const fill = h('div', { class: 'rs-exp-fill' });
   const startRatio = p.levelUp ? 0 : p.before.ratio;
   fill.style.width = `${Math.round(startRatio * 100)}%`;

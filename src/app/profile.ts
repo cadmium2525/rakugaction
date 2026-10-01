@@ -1,5 +1,6 @@
 import type { CharacterRecord } from '../character/record';
 import { MAX_LEVEL, expForLevel, levelFromExp } from '../progression/level';
+import type { TimeAttackBest } from '../timeattack/run';
 import type { LevelProgress } from '../progression/level';
 
 /** ステージ 1 つぶんの記録。 */
@@ -18,8 +19,10 @@ export class Profile {
   characters: CharacterRecord[] = [];
   selectedId: string | null = null;
   readonly stages: Record<string, StageRecord> = {};
-  /** ALL STAGES タイムアタックのベスト (ms)。 */
-  allStagesBestMs: number | null = null;
+  /** ALL STAGES タイムアタックのベスト (総タイムと各ステージのタイム)。 */
+  allStagesBest: TimeAttackBest | null = null;
+  /** ALL STAGES タイムアタックを完走した回数 */
+  allStagesRuns = 0;
   /** プレイヤーの累計 EXP (レベルはここから決まる。上限レベル以降も貯まる) */
   exp = 0;
 

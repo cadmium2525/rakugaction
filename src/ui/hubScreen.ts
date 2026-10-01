@@ -27,6 +27,8 @@ export interface HubOptions {
   onTitle(): void;
   /** ALL STAGES TIME ATTACK (未実装の間は undefined) */
   onTimeAttack?(): void;
+  /** ALL STAGES タイムアタックのベスト (ms)。なければ null */
+  taBestMs?: number | null;
   /** ランキング (未実装の間は undefined) */
   onRanking?(): void;
 }
@@ -73,7 +75,7 @@ export class HubScreen implements Screen {
       { class: 'hub-menu' },
       h('button', { class: 'btn btn-ghost', text: '✏️ あたらしく描く', on: { click: () => opts.onDraw() } }),
       opts.onTimeAttack
-        ? h('button', { class: `btn ${allCleared ? 'btn-primary' : 'btn-ghost'}`, text: allCleared ? '⏱ ALL STAGES TIME ATTACK' : '⏱ TIME ATTACK 🔒', attrs: allCleared ? {} : { disabled: '' }, on: { click: () => opts.onTimeAttack?.() } })
+        ? h('button', { class: `btn ${allCleared ? 'btn-primary' : 'btn-ghost'}`, text: allCleared ? `⏱ ALL STAGES TIME ATTACK${opts.taBestMs != null ? `  BEST ${formatTime(opts.taBestMs)}` : ''}` : '⏱ TIME ATTACK 🔒 (全ステージをクリア)', attrs: allCleared ? {} : { disabled: '' }, on: { click: () => opts.onTimeAttack?.() } })
         : null,
       opts.onRanking ? h('button', { class: 'btn btn-ghost', text: '🏆 ランキング', on: { click: () => opts.onRanking?.() } }) : null,
       h('button', { class: 'btn btn-ghost', text: '← タイトル', on: { click: () => opts.onTitle() } }),
