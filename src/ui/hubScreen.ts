@@ -1,6 +1,7 @@
 import type { Profile } from '../app/profile';
 import type { CharacterRig } from '../character/rig';
-import type { CharacterStats } from '../character/stats';
+import type { CharacterStats, StatKey } from '../character/stats';
+import type { LevelProgress } from '../progression/level';
 import type { RenderHost } from '../render/renderHost';
 import { ShowcaseView } from '../render/showcaseView';
 import type { StageEntry } from '../stages/registry';
@@ -15,7 +16,12 @@ export interface HubOptions {
   stages: readonly StageEntry[];
   rig: CharacterRig;
   name: string;
+  /** 表示する能力 (プレイヤーレベル補正後) */
   stats: CharacterStats;
+  /** 補正で増えた分 (能力カードに +N と表示) */
+  statBonus?: Partial<Record<StatKey, number>>;
+  /** プレイヤーのレベル/EXP の進み具合 */
+  level?: LevelProgress;
   onPlayStage(id: string): void;
   onDraw(): void;
   onTitle(): void;
@@ -43,7 +49,7 @@ export class HubScreen implements Screen {
     this.view.skipBirthInstant();
 
     const card = new StatCard();
-    card.setStats(opts.stats);
+    card.setStats(opts.stats, opts.statBonus);
     card.reveal();
 
     const list = h('div', { class: 'hub-stages' });
@@ -77,6 +83,7 @@ export class HubScreen implements Screen {
       'div',
       { class: 'screen screen-clear hub-screen' },
       h('div', { class: 'hub-name', text: opts.name }),
+      opts.level ? levelBadge(opts.level) : null,
       h('div', { class: 'hub-panel' }, h('div', { class: 'hub-title', text: 'ステージをえらぼう' }), list, card.el, menu),
     );
   }
@@ -110,4 +117,17 @@ export class HubScreen implements Screen {
     this.view.dispose();
     this.el.remove();
   }
+}
+
+/** プレイヤーレベル + 次のレベルまでのゲージ。 */
+function levelBadge(p: LevelProgress): HTMLElement {
+  const fill = h('div', { class: 'hub-lv-fill' });
+  fill.style.width = `${Math.round(p.ratio * 100)}%`;
+  return h(
+    'div',
+    { class: 'hub-level' },
+    h('b', { text: `Lv.${p.level}` }),
+    h('div', { class: 'hub-lv-bar' }, fill),
+    h('span', { text: p.toNext > 0 ? `あと ${p.toNext - p.into} EXP` : 'MAX' }),
+  );
 }

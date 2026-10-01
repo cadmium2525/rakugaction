@@ -499,6 +499,12 @@ body {
   font-weight: 900;
   text-align: right;
 }
+.sc-plus {
+  margin-left: 2px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #2f9e57;
+}
 @media (max-height: 420px) {
   .birth-card {
     gap: 5px;

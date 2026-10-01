@@ -88,13 +88,13 @@ function m(stat: number, lo = 0.4, hi = 2.4): number {
 }
 
 /**
- * 能力値 → 実パラメータ。
+ * 能力値 → 実パラメータ。extraHearts = プレイヤーレベルによる最大 HP の加算。
  * SPEED → 最高速度/加速、JUMP → ジャンプ力、WEIGHT → 慣性/風耐性/沈みやすさ。
  * 各倍率は小さな指数で圧縮して、能力値 (約 45〜222) の範囲でも
  *   最高速度 約 4.7〜10 m/s / ジャンプ初速 約 7.4〜14 m/s
  * に収める (ステージのギャップ幅は最も弱いビルドでも越えられる長さで設計するため)。
  */
-export function statsToParams(stats: CharacterStats, traits: CharacterTraits = DEFAULT_TRAITS): PlayerParams {
+export function statsToParams(stats: CharacterStats, traits: CharacterTraits = DEFAULT_TRAITS, extraHearts = 0): PlayerParams {
   const speed = m(stats.speed);
   const jump = m(stats.jump);
   const weight = m(stats.weight, 0.4, 2.8);
@@ -138,7 +138,8 @@ export function statsToParams(stats: CharacterStats, traits: CharacterTraits = D
     attackCooldown: clamp(0.4 * (1 + 0.45 * (reach - 1)), 0.28, 0.7),
     lungeSpeed: 6.5 * Math.pow(m(stats.power), 0.25),
     hitReach: radius + 0.65 * reach * size + 0.3,
-    maxHp: Math.max(1, Math.round(3 * Math.pow(m(stats.hp), 0.6))),
+    // 最大 HP (ハート)。能力値 + プレイヤーレベルのボーナス (Lv.10 / Lv.20 で +1)
+    maxHp: Math.max(1, Math.round(3 * Math.pow(m(stats.hp), 0.6))) + Math.max(0, Math.floor(Number.isFinite(extraHearts) ? extraHearts : 0)),
     damageTaken: 1 / Math.pow(m(stats.defense), 0.5),
     knockbackMul: 1 / Math.pow(weight, 0.5),
   };

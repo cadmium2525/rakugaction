@@ -467,3 +467,91 @@
 .hud-watertint.on {
   opacity: 1;
 }
+
+/* ---------- 結果画面: EXP / レベル ---------- */
+.rs-progress {
+  margin: 0 0 10px;
+  padding: 7px 10px 8px;
+  border-radius: 12px;
+  background: rgba(255, 122, 61, 0.1);
+}
+.rs-exp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rs-lv {
+  font-size: 15px;
+  color: var(--accent);
+}
+.rs-exp-bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+.rs-exp-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffb300, #ff7a3d);
+  transition: width 0.9s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+.rs-exp-gain {
+  font-size: 13px;
+  color: #3a7bd5;
+}
+.rs-exp-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  justify-content: center;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a7c60;
+}
+.rs-levelup {
+  margin-top: 5px;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: #fff3c7;
+  color: #b65a00;
+  animation: pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.rs-levelup b {
+  display: block;
+  font-size: 15px;
+}
+.rs-levelup small {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* ---------- ハブ: レベル ---------- */
+.hub-level {
+  position: absolute;
+  left: calc(var(--safe-left) + 16px);
+  bottom: calc(var(--safe-bottom) + 44px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+.hub-level b {
+  font-size: 18px;
+}
+.hub-lv-bar {
+  width: 110px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+.hub-lv-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #ffb300, #ff7a3d);
+}

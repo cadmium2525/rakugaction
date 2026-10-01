@@ -1,4 +1,6 @@
 import type { CharacterRecord } from '../character/record';
+import { MAX_LEVEL, expForLevel, levelFromExp } from '../progression/level';
+import type { LevelProgress } from '../progression/level';
 
 /** ステージ 1 つぶんの記録。 */
 export interface StageRecord {
@@ -18,6 +20,26 @@ export class Profile {
   readonly stages: Record<string, StageRecord> = {};
   /** ALL STAGES タイムアタックのベスト (ms)。 */
   allStagesBestMs: number | null = null;
+  /** プレイヤーの累計 EXP (レベルはここから決まる。上限レベル以降も貯まる) */
+  exp = 0;
+
+  /** 現在のレベルと進み具合。 */
+  get progress(): LevelProgress {
+    return levelFromExp(this.exp);
+  }
+
+  get level(): number {
+    return this.progress.level;
+  }
+
+  /** EXP を加える。負/NaN は無視。レベルの変化を返す。 */
+  addExp(amount: number): { before: number; after: number; gained: number } {
+    const before = this.level;
+    const gained = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
+    // 上限レベルを超えて貯めても数値が暴走しないよう、上限レベルの累計 EXP の 100 倍で頭打ち
+    this.exp = Math.min(this.exp + gained, expForLevel(MAX_LEVEL) * 100);
+    return { before, after: this.level, gained };
+  }
 
   stage(id: string): StageRecord {
     return (this.stages[id] ??= { cleared: false, bestMs: null, clears: 0 });

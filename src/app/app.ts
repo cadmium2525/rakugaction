@@ -17,6 +17,10 @@ import { GameView } from '../render/gameView';
 import { detectDefaultQuality, isQuality } from '../render/quality';
 import type { Quality } from '../render/quality';
 import { RenderHost } from '../render/renderHost';
+import { stageExp } from '../progression/exp';
+import { STAT_KEYS } from '../character/stats';
+import type { CharacterStats, StatKey } from '../character/stats';
+import { applyLevel, levelBonus, summarizeLevelUp } from '../progression/level';
 import { STAGE_LIST, getStageEntry } from '../stages/registry';
 import { TEST_ARENA } from '../stages/testArena';
 import { BirthScreen } from '../ui/birthScreen';
@@ -204,8 +208,21 @@ export class App {
 
   // ===== ハブ / ステージ =====
 
+  /** プレイヤーレベルの補正を掛けた、実際に遊ぶ時の能力。 */
+  private effectiveStats(rec: CharacterRecord): CharacterStats {
+    return applyLevel(rec.stats, this.profile.level);
+  }
+
   private paramsOf(rec: CharacterRecord): PlayerParams {
-    return statsToParams(rec.stats, rec.traits);
+    return statsToParams(this.effectiveStats(rec), rec.traits, levelBonus(this.profile.level).hearts);
+  }
+
+  /** レベル補正で増えた能力値 (能力カードの +N 表示用)。 */
+  private statBonusOf(rec: CharacterRecord): Partial<Record<StatKey, number>> {
+    const eff = this.effectiveStats(rec);
+    const out: Partial<Record<StatKey, number>> = {};
+    for (const k of STAT_KEYS) out[k] = eff[k] - rec.stats[k];
+    return out;
   }
 
   private makeRigOf(rec: CharacterRecord): () => CharacterRig {
@@ -228,7 +245,9 @@ export class App {
         stages: STAGE_LIST,
         rig: this.makeRigOf(rec)(),
         name: rec.name,
-        stats: rec.stats,
+        stats: this.effectiveStats(rec),
+        statBonus: this.statBonusOf(rec),
+        level: this.profile.progress,
         onPlayStage: (id) => void this.startStage(id),
         onDraw: () => this.showEditor(),
         onTitle: () => this.showTitle(),
@@ -268,7 +287,12 @@ export class App {
     const session = this.session;
     if (!entry || !session) return;
     const prevBest = this.profile.stage(stageId).bestMs;
-    const { newBest } = this.profile.recordClear(stageId, r.timeMs);
+    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs);
+    const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest });
+    const before = this.profile.progress;
+    const lv = this.profile.addExp(gain.total);
+    const after = this.profile.progress;
+    const levelUp = lv.after > lv.before ? summarizeLevelUp(lv.before, lv.after) : undefined;
     const next = STAGE_LIST.find((s) => s.order === entry.order + 1);
     session.hud.el.style.display = 'none';
     session.setControlsVisible(false);
@@ -281,12 +305,16 @@ export class App {
         rank: r.rank,
         deaths: r.deaths,
         hits: r.hits,
+        progress: { gain, before, after, levelUp },
         onNext: next ? () => void this.startStage(next.id) : undefined,
         nextLabel: next ? `${next.title} ▶` : undefined,
         onRetry: () => {
           this.setScreen(null);
           session.hud.el.style.display = '';
           session.setControlsVisible(true);
+          // レベルが上がっていたら、もういちど遊ぶ時から新しい能力で
+          const cur = this.profile.selected;
+          if (levelUp && cur) session.scene.sim.applyParams(this.paramsOf(cur));
           void session.restart();
         },
         onHub: () => void this.showHub(),

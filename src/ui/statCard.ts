@@ -28,7 +28,7 @@ export class StatCard {
   readonly el: HTMLElement;
   private readonly labelEl: HTMLElement;
   private readonly tagEl: HTMLElement;
-  private readonly rows = new Map<StatKey, { fill: HTMLElement; value: HTMLElement }>();
+  private readonly rows = new Map<StatKey, { fill: HTMLElement; value: HTMLElement; plus: HTMLElement }>();
 
   constructor() {
     this.labelEl = h('div', { class: 'sc-label' });
@@ -37,7 +37,8 @@ export class StatCard {
     for (const k of STAT_KEYS) {
       const meta = LABELS[k];
       const fill = h('div', { class: 'sc-fill', style: { background: meta.color } });
-      const value = h('div', { class: 'sc-val', text: '0' });
+      const plus = h('small', { class: 'sc-plus' });
+      const value = h('div', { class: 'sc-val' }, h('span', { text: '0' }), plus);
       bars.appendChild(
         h(
           'div',
@@ -47,19 +48,22 @@ export class StatCard {
           value,
         ),
       );
-      this.rows.set(k, { fill, value });
+      this.rows.set(k, { fill, value, plus });
     }
     this.el = h('div', { class: 'stat-card' }, this.labelEl, this.tagEl, bars);
   }
 
-  setStats(stats: CharacterStats): void {
+  /** stats = 表示する値 (レベル補正後でもよい)。bonus = そのうち補正で増えた分 (あれば +N と表示)。 */
+  setStats(stats: CharacterStats, bonus?: Partial<Record<StatKey, number>>): void {
     const b = describeBuild(stats);
     this.labelEl.textContent = b.label;
     this.tagEl.textContent = b.tagline;
     for (const k of STAT_KEYS) {
       const r = this.rows.get(k);
       if (!r) continue;
-      r.value.textContent = String(stats[k]);
+      (r.value.firstChild as HTMLElement).textContent = String(stats[k]);
+      const b = bonus?.[k] ?? 0;
+      r.plus.textContent = b > 0 ? `+${b}` : '';
       r.fill.style.setProperty('--w', `${Math.max(4, Math.min(100, (stats[k] / BAR_MAX) * 100))}%`);
     }
   }
