@@ -5,6 +5,7 @@ export type SimEvent =
   | { type: 'attack' }
   | { type: 'hurt'; hp: number; maxHp: number }
   | { type: 'break'; id: string }
+  | { type: 'crumble'; id: string; state: 'shake' | 'fall' | 'restore' }
   | { type: 'respawn'; reason: 'fall' | 'hazard' | 'manual' }
   | { type: 'checkpoint'; id: string }
   | { type: 'goal' };

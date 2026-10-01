@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lerp } from '../core/math';
-import type { GameSim } from '../game/sim';
+import type { CrumbleState, GameSim } from '../game/sim';
 import type { StageDef } from '../stages/types';
 import { toonMaterial } from './toon';
 import { boxGeometry, buildStaticStageGeometry } from './stageMesh';
@@ -29,6 +29,13 @@ export class StageView {
   private readonly tmpP = new THREE.Vector3();
   private static readonly MAX_DEBRIS = 96;
   private t = 0;
+  /** 崩れる床 (InstancedMesh 1 つ = 1 draw call) */
+  private crumbleInst: THREE.InstancedMesh | null = null;
+  private readonly crumbleIndex = new Map<string, number>();
+  private readonly crumblePrev: CrumbleState[] = [];
+  /** 戻った床の ぽんっ と出る演出の経過 (秒)。-1 = 演出なし */
+  private readonly crumblePop: number[] = [];
+  private readonly tmpC = new THREE.Color();
   private readonly windStreaks: WindStreaks | null = null;
   private readonly waterView: WaterView | null = null;
 
@@ -60,6 +67,21 @@ export class StageView {
       this.breakableInst.instanceMatrix.needsUpdate = true;
       this.breakableInst.frustumCulled = false;
       this.group.add(this.breakableInst);
+    }
+    // 崩れる床: 揺れる → 色づく (赤み) → 落ちる → 戻る、を毎フレーム sim の状態から作る
+    if (sim.crumbles.length > 0) {
+      const unit = boxGeometry({ pos: [0, 0, 0], size: [1, 1, 1], style: sim.crumbles[0].def.style ?? 'sand' }, 'crumble');
+      const inst = new THREE.InstancedMesh(unit, this.mat, sim.crumbles.length);
+      sim.crumbles.forEach((c, i) => {
+        this.crumbleIndex.set(c.def.id, i);
+        this.crumblePrev.push('idle');
+        this.crumblePop.push(-1);
+        inst.setColorAt(i, this.tmpC.setRGB(1, 1, 1));
+      });
+      inst.frustumCulled = false;
+      this.crumbleInst = inst;
+      this.group.add(inst);
+      this.updateCrumbles(sim, 0);
     }
     // 風の筋
     if (stage.winds && stage.winds.length > 0) {
@@ -108,6 +130,15 @@ export class StageView {
     }
   }
 
+  /** 崩れる床の状態変化: 落ちた瞬間に破片を飛ばす。 */
+  onCrumble(id: string, state: 'shake' | 'fall' | 'restore'): void {
+    if (state !== 'fall') return;
+    const i = this.crumbleIndex.get(id);
+    if (i === undefined) return;
+    const d = this.stage.crumbles?.[i];
+    if (d) this.burst(d.pos, d.size, 10);
+  }
+
   /** 箱が壊れた: 箱を消して破片を飛ばす。 */
   onBreak(id: string): void {
     const i = this.breakableIndex.get(id);
@@ -118,11 +149,15 @@ export class StageView {
     inst.setMatrixAt(i, this.tmpM);
     inst.instanceMatrix.needsUpdate = true;
     const d = this.breakableDefs[i];
-    for (let k = 0; k < 6 && this.debris.length < StageView.MAX_DEBRIS; k++) {
+    this.burst(d.pos, d.size, 6);
+  }
+
+  private burst(pos: readonly [number, number, number], size: readonly [number, number, number], n: number): void {
+    for (let k = 0; k < n && this.debris.length < StageView.MAX_DEBRIS; k++) {
       this.debris.push({
-        x: d.pos[0] + (Math.random() - 0.5) * d.size[0],
-        y: d.pos[1] + (Math.random() - 0.5) * d.size[1],
-        z: d.pos[2] + (Math.random() - 0.5) * d.size[2],
+        x: pos[0] + (Math.random() - 0.5) * size[0],
+        y: pos[1] + (Math.random() - 0.5) * size[1],
+        z: pos[2] + (Math.random() - 0.5) * size[2],
         vx: (Math.random() - 0.5) * 6,
         vy: 2 + Math.random() * 4,
         vz: (Math.random() - 0.5) * 6,
@@ -130,6 +165,50 @@ export class StageView {
         rx: Math.random() * 6,
       });
     }
+  }
+
+  private updateCrumbles(sim: GameSim, dt: number): void {
+    const inst = this.crumbleInst;
+    if (!inst) return;
+    sim.crumbles.forEach((c, i) => {
+      const d = c.def;
+      let ox = 0;
+      let oy = 0;
+      let oz = 0;
+      let rz = 0;
+      let sc = 1;
+      let tint = 0;
+      if (c.state === 'shake') {
+        // 立つほど激しく揺れ、赤みを帯びる (もうすぐ落ちる合図)
+        const k = Math.min(1, c.t / sim.crumbleDelay(d));
+        const a = 0.015 + 0.07 * k;
+        ox = Math.sin(this.t * 61 + i) * a;
+        oy = Math.sin(this.t * 53 + i * 2) * a * 0.5;
+        oz = Math.cos(this.t * 57 + i * 3) * a;
+        tint = k;
+      } else if (c.state === 'fallen') {
+        oy = -0.5 * 22 * c.t * c.t;
+        rz = c.t * 0.9 * (i % 2 ? 1 : -1);
+        sc = c.t > 1 ? Math.max(0, 1 - (c.t - 1) / 0.6) : 1;
+      }
+      if (this.crumblePrev[i] === 'fallen' && c.state === 'idle') this.crumblePop[i] = 0;
+      this.crumblePrev[i] = c.state;
+      if (this.crumblePop[i] >= 0) {
+        this.crumblePop[i] += dt;
+        const k = Math.min(1, this.crumblePop[i] / 0.3);
+        sc = 0.6 + 0.4 * k;
+        if (k >= 1) this.crumblePop[i] = -1;
+      }
+      this.tmpP.set(d.pos[0] + ox, d.pos[1] + oy, d.pos[2] + oz);
+      this.tmpE.set(0, 0, rz);
+      this.tmpQ.setFromEuler(this.tmpE);
+      this.tmpS.set(d.size[0] * sc, d.size[1] * sc, d.size[2] * sc);
+      this.tmpM.compose(this.tmpP, this.tmpQ, this.tmpS);
+      inst.setMatrixAt(i, this.tmpM);
+      inst.setColorAt(i, this.tmpC.setRGB(1, 1 - 0.38 * tint, 1 - 0.5 * tint));
+    });
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   }
 
   markCheckpoint(id: string): void {
@@ -148,6 +227,7 @@ export class StageView {
     }
     this.windStreaks?.update(sim.time);
     this.waterView?.update(sim.time);
+    this.updateCrumbles(sim, dt);
     // 破片の更新 (1 つの InstancedMesh にまとめて書き戻す)
     let n = 0;
     for (let i = this.debris.length - 1; i >= 0; i--) {
@@ -184,6 +264,8 @@ export class StageView {
     this.debrisInst.dispose();
     this.breakableInst?.geometry.dispose();
     this.breakableInst?.dispose();
+    this.crumbleInst?.geometry.dispose();
+    this.crumbleInst?.dispose();
     for (const m of this.moverMeshes) m.geometry.dispose();
     this.group.traverse((o) => {
       const m = o as THREE.Mesh;

@@ -1,6 +1,7 @@
 import { buildStage1 } from './stage1';
 import { buildStage2 } from './stage2';
 import { buildStage3 } from './stage3';
+import { buildStage4 } from './stage4';
 import type { StageDef } from './types';
 
 export interface StageEntry {
@@ -19,6 +20,7 @@ export const STAGE_LIST: readonly StageEntry[] = [
   { order: 1, id: 'stage1', title: 'STAGE 1', subtitle: '草原', emoji: '🌿', build: buildStage1 },
   { order: 2, id: 'stage2', title: 'STAGE 2', subtitle: '強風の谷', emoji: '🌪️', build: buildStage2 },
   { order: 3, id: 'stage3', title: 'STAGE 3', subtitle: '水没神殿', emoji: '🌊', build: buildStage3 },
+  { order: 4, id: 'stage4', title: 'STAGE 4', subtitle: '崩れる遺跡', emoji: '🏛️', build: buildStage4 },
 ];
 
 export function getStageEntry(id: string): StageEntry | undefined {

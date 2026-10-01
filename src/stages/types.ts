@@ -72,6 +72,21 @@ export interface BreakableDef {
   style?: SurfaceStyle;
 }
 
+/**
+ * 崩れる床。プレイヤーが上に立つと揺れ始め、delay 秒後に落ちる (重いほど速く崩れる: delay / √体重)。
+ * 落ちた床は respawn 秒後に元に戻る (プレイヤーが近くにいる間は戻らない)。
+ */
+export interface CrumbleDef {
+  id: string;
+  pos: V3t;
+  size: V3t;
+  style?: SurfaceStyle;
+  /** 乗ってから落ちるまでの秒数 (体重 100 = 標準のとき) */
+  delay: number;
+  /** 落ちてから元に戻るまでの秒数 (既定 4) */
+  respawn?: number;
+}
+
 /** 風が吹く領域 (AABB)。vel = 最大強度での風速 (m/s)。位置を直接押す (重いほど効きにくい)。 */
 export interface WindDef {
   id: string;
@@ -169,6 +184,7 @@ export interface StageDef {
   goal?: GoalDef;
   hazards?: readonly HazardDef[];
   breakables?: readonly BreakableDef[];
+  crumbles?: readonly CrumbleDef[];
   decor?: readonly DecorDef[];
   winds?: readonly WindDef[];
   waters?: readonly WaterDef[];

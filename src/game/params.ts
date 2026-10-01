@@ -29,6 +29,8 @@ export interface PlayerParams {
   jumpCutMul: number;
   coyoteTime: number;
   jumpBufferTime: number;
+  /** 体重の倍率 (1 = 標準)。崩れる床の崩れやすさなどに使う。 */
+  weight: number;
   /** 1 = 標準。風で受ける加速度に掛ける倍率 (重いほど小さい)。 */
   windResistance: number;
   /** 水中での沈みやすさ (1 = 標準、大きいほど沈む)。 */
@@ -118,6 +120,7 @@ export function statsToParams(stats: CharacterStats, traits: CharacterTraits = D
     jumpCutMul: BASE.jumpCutMul,
     coyoteTime: BASE.coyoteTime,
     jumpBufferTime: BASE.jumpBufferTime,
+    weight,
     // 風の効きやすさ。体重の 1.8 乗に反比例 (重い = 風に強い。軽い = 流されやすい)
     windResistance: 1 / Math.pow(weight, 1.8),
     density: Math.pow(weight, 0.9) / Math.pow(size, 0.6),

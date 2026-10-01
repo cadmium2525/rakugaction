@@ -2,6 +2,7 @@ import type {
   BoxDef,
   BreakableDef,
   CheckpointDef,
+  CrumbleDef,
   DecorDef,
   GoalDef,
   HazardDef,
@@ -45,6 +46,7 @@ export interface SharedLists {
   checkpoints: CheckpointDef[];
   hazards: HazardDef[];
   breakables: BreakableDef[];
+  crumbles: CrumbleDef[];
   decor: DecorDef[];
   winds: WindDef[];
   waters: WaterDef[];
@@ -61,6 +63,7 @@ export class PathBuilder {
   readonly checkpoints: CheckpointDef[];
   readonly hazards: HazardDef[];
   readonly breakables: BreakableDef[];
+  readonly crumbles: CrumbleDef[];
   readonly decor: DecorDef[];
   readonly winds: WindDef[];
   readonly waters: WaterDef[];
@@ -81,12 +84,13 @@ export class PathBuilder {
   ) {
     [this.x, this.y, this.z] = start;
     this.heading = heading;
-    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], decor: [], winds: [], waters: [], counter: { n: 0 } };
+    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], crumbles: [], decor: [], winds: [], waters: [], counter: { n: 0 } };
     this.boxes = this.shared.boxes;
     this.movers = this.shared.movers;
     this.checkpoints = this.shared.checkpoints;
     this.hazards = this.shared.hazards;
     this.breakables = this.shared.breakables;
+    this.crumbles = this.shared.crumbles;
     this.decor = this.shared.decor;
     this.winds = this.shared.winds;
     this.waters = this.shared.waters;
@@ -184,6 +188,39 @@ export class PathBuilder {
     }
     this.lastLateral = s.lateral;
     const end = this.point(len, s.lateral);
+    const [ex, ez] = this.at(len, 0);
+    this.x = ex;
+    this.z = ez;
+    if (!s.noWp) {
+      this.route.push({ pos: end });
+      this.lastAutoWp = this.route.length - 1;
+    }
+    return this;
+  }
+
+  /**
+   * 崩れる床 (flat と同じ置き方)。乗ってから delay 秒で落ち、respawn 秒後に戻る。
+   * 終端中心へのウェイポイントを自動追加 (次の gap() が踏み切り点に置き換える)。
+   */
+  crumble(len: number, o: SegmentOptions & { delay: number; respawn?: number }): this {
+    const s = this.opts(o);
+    const lat = s.lateral;
+    const [cx, cz] = this.at(len / 2, lat);
+    const alongX = this.heading === 'x+' || this.heading === 'x-';
+    this.crumbles.push({
+      id: this.nextId('cr'),
+      pos: [cx, this.y - s.thick / 2, cz],
+      size: alongX ? [len, s.thick, s.w] : [s.w, s.thick, len],
+      style: s.style,
+      delay: o.delay,
+      respawn: o.respawn,
+    });
+    if (this.pendingJump) {
+      this.pendingJump.land = this.point(len / 2, lat);
+      this.pendingJump = null;
+    }
+    this.lastLateral = lat;
+    const end = this.point(len, lat);
     const [ex, ez] = this.at(len, 0);
     this.x = ex;
     this.z = ez;

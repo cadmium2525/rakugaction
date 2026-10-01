@@ -80,6 +80,7 @@ export class StageSession {
   private result: StageResult | null = null;
   private goBannerShown = false;
   private windHintShown = false;
+  private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
   botInput: ((si: SimInput) => void) | null = null;
 
@@ -188,6 +189,12 @@ export class StageSession {
           break;
         case 'checkpoint':
           this.hud.toast('🚩 チェックポイント！');
+          break;
+        case 'crumble':
+          if (e.state === 'shake' && !this.crumbleHintShown && this.phase === 'playing') {
+            this.crumbleHintShown = true;
+            this.hud.toast('🏛 崩れる床！ とまると落ちるよ。重いほど早く崩れる', 3200);
+          }
           break;
         case 'break':
           this.hud.toast('バコーン！', 700);

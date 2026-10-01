@@ -4,7 +4,7 @@ import type { V3 } from '../core/math';
 import { FIXED_DT } from '../core/version';
 import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
-import type { BreakableDef, HazardDef, MoverDef, StageDef } from '../stages/types';
+import type { BreakableDef, CrumbleDef, HazardDef, MoverDef, StageDef } from '../stages/types';
 import type { SimEvent } from './events';
 import type { PlayerParams } from './params';
 import { NO_ENV, PlayerController } from './player';
@@ -28,6 +28,19 @@ export interface BreakableRuntime {
   broken: boolean;
 }
 
+export type CrumbleState = 'idle' | 'shake' | 'fallen';
+
+export interface CrumbleRuntime {
+  def: CrumbleDef;
+  collider: RAPIER.Collider;
+  state: CrumbleState;
+  /** 現在の状態になってからの経過 (秒) */
+  t: number;
+}
+
+/** 崩れる床の最小の戻り待ち: プレイヤーがこの範囲 (m) にいる間は戻さない */
+const CRUMBLE_CLEAR_MARGIN = 0.8;
+
 /** 被ダメージ後の無敵時間 (秒) */
 const INVULN_TIME = 1.1;
 /** ノックバックの基準速度 (m/s) */
@@ -43,6 +56,7 @@ export class GameSim {
   readonly player: PlayerController;
   readonly movers: MoverRuntime[] = [];
   readonly breakables: BreakableRuntime[] = [];
+  readonly crumbles: CrumbleRuntime[] = [];
   /** 経過シミュレーション時間 (秒)。ステップ数 × FIXED_DT。 */
   time = 0;
   stepCount = 0;
@@ -63,6 +77,7 @@ export class GameSim {
 
   private readonly events: SimEvent[] = [];
   private readonly moverByCollider = new Map<number, MoverRuntime>();
+  private readonly crumbleByCollider = new Map<number, CrumbleRuntime>();
   private readonly ray: RAPIER.Ray;
   private readonly staticColliders: RAPIER.Collider[] = [];
   /** 現在の攻撃で既に処理した対象 (同じ対象に多段ヒットさせない。複数の対象には当たる) */
@@ -80,6 +95,7 @@ export class GameSim {
     this.buildStatic();
     this.buildMovers();
     this.buildBreakables();
+    this.buildCrumbles();
     this.checkpoint = v3(stage.spawn[0], stage.spawn[1], stage.spawn[2]);
     this.player = new PlayerController(R, this.world, params, v3(0, 0, 0));
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, stage.spawnYaw ?? 0);
@@ -152,6 +168,69 @@ export class GameSim {
     }
   }
 
+  private buildCrumbles(): void {
+    const R = this.R;
+    for (const def of this.stage.crumbles ?? []) {
+      const collider = this.world.createCollider(
+        R.ColliderDesc.cuboid(def.size[0] / 2, def.size[1] / 2, def.size[2] / 2)
+          .setTranslation(def.pos[0], def.pos[1], def.pos[2])
+          .setFriction(0),
+      );
+      const rt: CrumbleRuntime = { def, collider, state: 'idle', t: 0 };
+      this.crumbles.push(rt);
+      this.crumbleByCollider.set(collider.handle, rt);
+    }
+  }
+
+  /** 崩れる床が落ちるまでの時間 (秒): 重いほど短い。 */
+  crumbleDelay(def: CrumbleDef): number {
+    return def.delay / Math.sqrt(this.player.params.weight);
+  }
+
+  /** 崩れる床の更新: 立った床が揺れ始め → 落ち → しばらくして戻る。 */
+  private updateCrumbles(dt: number): void {
+    if (this.crumbles.length === 0) return;
+    const p = this.player;
+    const under = p.standingCollider >= 0 ? this.crumbleByCollider.get(p.standingCollider) : undefined;
+    if (under && under.state === 'idle') {
+      under.state = 'shake';
+      under.t = 0;
+      this.events.push({ type: 'crumble', id: under.def.id, state: 'shake' });
+    }
+    for (const c of this.crumbles) {
+      if (c.state === 'idle') continue;
+      c.t += dt;
+      if (c.state === 'shake') {
+        if (c.t >= this.crumbleDelay(c.def)) {
+          c.state = 'fallen';
+          c.t = 0;
+          c.collider.setEnabled(false);
+          this.events.push({ type: 'crumble', id: c.def.id, state: 'fall' });
+        }
+      } else if (c.t >= (c.def.respawn ?? 4) && !this.playerNear(c.def)) {
+        this.restoreCrumble(c);
+      }
+    }
+  }
+
+  private playerNear(def: CrumbleDef): boolean {
+    const p = this.player;
+    const m = CRUMBLE_CLEAR_MARGIN + p.params.radius;
+    return (
+      Math.abs(p.pos.x - def.pos[0]) < def.size[0] / 2 + m &&
+      Math.abs(p.pos.z - def.pos[2]) < def.size[2] / 2 + m &&
+      p.pos.y + p.params.height / 2 > def.pos[1] - def.size[1] / 2 - 0.5 &&
+      p.pos.y - p.params.height / 2 < def.pos[1] + def.size[1] / 2 + 0.5
+    );
+  }
+
+  private restoreCrumble(c: CrumbleRuntime): void {
+    c.state = 'idle';
+    c.t = 0;
+    c.collider.setEnabled(true);
+    this.events.push({ type: 'crumble', id: c.def.id, state: 'restore' });
+  }
+
   /** 蓄積されたイベントを取り出して空にする。 */
   drainEvents(out: SimEvent[]): SimEvent[] {
     for (const e of this.events) out.push(e);
@@ -205,6 +284,7 @@ export class GameSim {
     this.stepCount++;
     this.invuln = Math.max(0, this.invuln - dt);
 
+    this.updateCrumbles(dt);
     this.checkTriggers();
     this.checkHazards();
     if (player.attacking) this.checkAttackHits();
@@ -326,6 +406,7 @@ export class GameSim {
   /** 死亡/落下/手動リトライ: 直近のチェックポイントから HP 満タンで復活。 */
   respawn(reason: 'fall' | 'hazard' | 'manual'): void {
     this.deaths++;
+    for (const c of this.crumbles) if (c.state !== 'idle') this.restoreCrumble(c);
     this.hp = this.maxHp;
     this.invuln = 1.0;
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, this.player.yaw);
