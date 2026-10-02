@@ -54,24 +54,27 @@ vec3 surfacePattern(vec3 col, vec3 wp, vec3 n, float dist, float style, float de
   vec2 p = top ? wp.xz : (abs(n.x) > abs(n.z) ? vec2(wp.z, wp.y) : vec2(wp.x, wp.y));
   float lum = 1.0;
   if (style < 1.5) {
-    /* 草 */
+    /* 草 (緑でない所 = 土の道・砂・岩には、葉や花ではなくつぶつぶを描く) */
+    float gr = clamp((col.g - col.r) * 5.0, 0.0, 1.0);
     if (top) {
       float n1 = vnoise(p * 0.4); float n2 = vnoise(p * 1.9);
       lum += 0.3 * (n1 - 0.5) + 0.1 * (n2 - 0.5);
+      lum -= (1.0 - gr) * (0.1 * (vnoise(p * 2.4) - 0.5) + 0.14 * step(0.92, h21(floor(p * 4.0))));
+
       vec2 q = p * 1.15; vec2 c = floor(q); vec2 f = fract(q);
       float r = h21(c + 11.0);
       if (r < 0.4) {
         vec2 o = vec2(0.25 + 0.5 * h21(c + 3.7), 0.15 + 0.35 * h21(c + 8.1));
         vec2 d = f - o;
         float s = min(min(segd(d, vec2(0.0), vec2(-0.13, 0.28)), segd(d, vec2(0.0), vec2(0.0, 0.34))), segd(d, vec2(0.0), vec2(0.13, 0.28)));
-        col = mix(col, col * vec3(0.5, 0.7, 0.45), smoothstep(0.05, 0.025, s) * detail);
+        col = mix(col, col * vec3(0.5, 0.7, 0.45), smoothstep(0.05, 0.025, s) * detail * gr);
       } else if (r > 0.95) {
         vec2 o = vec2(0.2 + 0.6 * h21(c + 5.3), 0.2 + 0.6 * h21(c + 9.9));
         float dd = length(f - o);
         float k = h21(c + 1.7);
         vec3 fc = k < 0.34 ? vec3(1.0, 0.97, 0.9) : (k < 0.67 ? vec3(1.0, 0.86, 0.25) : vec3(1.0, 0.6, 0.72));
-        col = mix(col, fc, smoothstep(0.13, 0.09, dd) * detail);
-        col = mix(col, vec3(1.0, 0.82, 0.2), smoothstep(0.045, 0.025, dd) * detail * step(0.34, k));
+        col = mix(col, fc, smoothstep(0.13, 0.09, dd) * detail * gr);
+        col = mix(col, vec3(1.0, 0.82, 0.2), smoothstep(0.045, 0.025, dd) * detail * gr * step(0.34, k));
       }
     } else {
       /* 土の断面: 地層のすじとつぶ */
@@ -169,7 +172,7 @@ float sfDist = length(vViewPosition);
 if (vStyle > 0.5) diffuseColor.rgb = surfacePattern(diffuseColor.rgb, vWPos, sfNormal, sfDist, vStyle, uDetail);`,
       );
   };
-  mat.customProgramCacheKey = () => `surface-pattern-v2-${enabled ? 'on' : 'off'}-${opts.local ? 'local' : 'world'}`;
+  mat.customProgramCacheKey = () => `surface-pattern-v3-${enabled ? 'on' : 'off'}-${opts.local ? 'local' : 'world'}`;
   mat.setDetail = (v: number) => {
     uniforms.uDetail.value = v;
     const on = v > 0.01;

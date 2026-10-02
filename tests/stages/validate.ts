@@ -2,6 +2,7 @@ import { expect } from 'vitest';
 import { getBuild } from '../../src/character/stats';
 import { statsToParams } from '../../src/game/params';
 import { GameSim } from '../../src/game/sim';
+import { terrainHeightAt } from '../../src/stages/terrain';
 import type { StageDef } from '../../src/stages/types';
 import { rapier } from '../helpers/headless';
 
@@ -23,7 +24,11 @@ export async function validateStage(stage: StageDef): Promise<void> {
   const R = await rapier();
   const b = getBuild('STANDARD');
   const sim = new GameSim(R, stage, statsToParams(b.stats, b.traits));
-  const groundBelow = (x: number, y: number, z: number): number | null => sim.raycast(x, y + 1, z, 0, -1, 0, 4);
+  // 真下へのレイ。高さフィールドの頂点/辺の真上ぴったりだとレイが外れることがある
+  // (箱の縁ぴったりの点は、少しずらしても床に当たるようにするため、まず真下 → だめなら両側へ少しずらす)
+  const rayDown = (x: number, y: number, z: number, maxDist: number): number | null =>
+    sim.raycast(x, y, z, 0, -1, 0, maxDist) ?? sim.raycast(x + 0.013, y, z + 0.017, 0, -1, 0, maxDist) ?? sim.raycast(x - 0.013, y, z - 0.017, 0, -1, 0, maxDist);
+  const groundBelow = (x: number, y: number, z: number): number | null => rayDown(x, y + 1, z, 4);
 
   // 開始位置・チェックポイント・ゴールの足元に地面がある
   expect(groundBelow(stage.spawn[0], stage.spawn[1], stage.spawn[2]), 'spawn ground').not.toBeNull();
@@ -57,7 +62,8 @@ export async function validateStage(stage: StageDef): Promise<void> {
     for (const p of pts) {
       expect(finite(p), `enemy ${e.id} の座標`).toBe(true);
       // 足元 (p[1]) の 0.1m 下〜 0.3m 上に床がある (跳ねる敵は地面の高さ = 経路の高さ)
-      const down = sim.raycast(p[0], p[1] + 0.3, p[2], 0, -1, 0, 0.7);
+      const footY = e.onTerrain && stage.terrain ? (terrainHeightAt(stage.terrain, p[0], p[2]) ?? p[1]) : p[1];
+      const down = rayDown(p[0], footY + 0.3, p[2], 0.7);
       expect(down, `enemy ${e.id} (${e.kind}) の足元 [${p.map((v) => v.toFixed(1)).join(', ')}] に床がない`).not.toBeNull();
     }
     const near = [stage.spawn, ...(stage.checkpoints ?? []).map((c) => c.pos)];
@@ -65,15 +71,24 @@ export async function validateStage(stage: StageDef): Promise<void> {
       for (const q of near) expect(Math.hypot(p[0] - q[0], p[2] - q[2]), `enemy ${e.id} がスタート/チェックポイントに近すぎる`).toBeGreaterThan(3);
     }
   }
+  // 集めるアイテム: id が重複せず、足元 (真下 3.5m 以内) に床があり、必要な数がアイテムの総数を超えない
+  const pickupIds = new Set<string>();
+  for (const k of stage.pickups ?? []) {
+    expect(pickupIds.has(k.id), `pickup id ${k.id} が重複`).toBe(false);
+    pickupIds.add(k.id);
+    expect(finite(k.pos), `pickup ${k.id} の座標`).toBe(true);
+    expect(rayDown(k.pos[0], k.pos[1], k.pos[2], 3.5), `pickup ${k.id} [${k.pos.map((v) => v.toFixed(1)).join(', ')}] の下に床がない`).not.toBeNull();
+  }
+  if (stage.objective) expect(stage.objective.required, '必要な数が総数より多い').toBeLessThanOrEqual(stage.pickups?.length ?? 0);
   // 危険物 (トゲ等) と動く危険物の経路: 底面の 0.4m 下〜 0.3m 上に床がある (坂の上で宙に浮かない)
   for (const hz of stage.hazards ?? []) {
     const bottom = hz.pos[1] - hz.size[1] / 2;
-    const down = sim.raycast(hz.pos[0], bottom + 0.3, hz.pos[2], 0, -1, 0, 0.7);
+    const down = rayDown(hz.pos[0], bottom + 0.3, hz.pos[2], 0.7);
     expect(down, `hazard ${hz.id} (${hz.style ?? 'spikes'}) [${hz.pos.map((v) => v.toFixed(1)).join(', ')}] が宙に浮いている`).not.toBeNull();
   }
   for (const sw of stage.sweepers ?? []) {
     for (const p of sw.points) {
-      const down = sim.raycast(p[0], p[1] - sw.size[1] / 2 + 0.3, p[2], 0, -1, 0, 0.7);
+      const down = rayDown(p[0], p[1] - sw.size[1] / 2 + 0.3, p[2], 0.7);
       expect(down, `sweeper ${sw.id} [${p.map((v) => v.toFixed(1)).join(', ')}] が宙に浮いている`).not.toBeNull();
     }
   }

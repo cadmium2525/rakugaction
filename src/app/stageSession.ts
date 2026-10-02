@@ -10,6 +10,7 @@ import type { RenderHost } from '../render/renderHost';
 import type { StageDef } from '../stages/types';
 import { StageTimer } from '../timeattack/timer';
 import { Hud } from '../ui/hud';
+import { Minimap } from '../ui/minimap';
 import { PauseMenu } from '../ui/pauseMenu';
 import { PlayScene } from './playScene';
 
@@ -85,6 +86,8 @@ export class StageSession {
   private view!: GameView;
   private input!: InputManager;
   private readonly menu: PauseMenu;
+  /** フィールド型ステージ (地形あり) のミニマップ */
+  private minimap: Minimap | null = null;
   private phaseTime = 0;
   private readonly zero: SimInput = emptyInput();
   private celebrateStep = 0;
@@ -133,6 +136,7 @@ export class StageSession {
       onFrame: (_sc, dt) => s.onFrame(dt),
       onPauseChange: (p) => s.onPauseChange(p),
     });
+    if (deps.stage.terrain) s.minimap = new Minimap(s.hud.el, deps.stage);
     s.syncHud();
     return s;
   }
@@ -193,6 +197,14 @@ export class StageSession {
   private syncHud(): void {
     const sim = this.scene.sim;
     this.hud.setHp(sim.hp, sim.maxHp);
+    this.syncPickups();
+  }
+
+  /** 集めたアイテムの表示 (クリア条件のあるステージだけ)。 */
+  private syncPickups(): void {
+    const sim = this.scene.sim;
+    const obj = this.deps.stage.objective;
+    this.hud.setPickups(obj ? { count: sim.pickupCount, required: obj.required, total: this.deps.stage.pickups?.length ?? 0, noun: obj.noun } : null);
   }
 
   private onEvents(events: readonly SimEvent[]): void {
@@ -213,6 +225,15 @@ export class StageSession {
           break;
         case 'heal':
           this.hud.setHp(e.hp, e.maxHp);
+          break;
+        case 'pickup': {
+          this.syncPickups();
+          const noun = this.deps.stage.objective?.noun ?? 'アイテム';
+          this.hud.toast(e.count >= e.required && e.required > 0 ? `★ ${noun} ${e.count}/${e.required} ／ ゴールが開きました` : `★ ${noun} ${e.count}/${e.required}`, e.count >= e.required ? 2400 : 1100);
+          break;
+        }
+        case 'goalLocked':
+          this.hud.toast(`ゴールを開くには ${this.deps.stage.objective?.noun ?? 'アイテム'} があと ${e.need} 個必要`, 2200);
           break;
         case 'crumble':
           if (e.state === 'shake' && !this.crumbleHintShown && this.phase === 'playing') {
@@ -307,6 +328,7 @@ export class StageSession {
     const sub = this.deps.subTime?.();
     if (sub !== undefined) this.hud.setSubTime(sub);
     this.updateWindHud();
+    this.minimap?.update(this.scene.sim, this.scene.camera.yaw);
     this.hud.setSwim(this.scene.sim.player.swimming, this.view.cameraUnderwater);
     if (this.scene.paused) return;
     this.phaseTime += dt;
@@ -335,6 +357,7 @@ export class StageSession {
 
   dispose(): void {
     this.disposed = true;
+    this.minimap?.dispose();
     this.hud.dispose();
     this.menu.dispose();
     this.scene.dispose();

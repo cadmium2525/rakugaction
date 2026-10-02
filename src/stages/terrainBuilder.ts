@@ -204,11 +204,24 @@ export class TerrainBuilder {
     return this;
   }
 
+  /** 頂点ごとに、地面の種類を (x, z, 高さ, 今の種類) から決める。null を返すと変えない。 */
+  paintIf(fn: (x: number, z: number, h: number, kind: PaintId) => PaintId | null): this {
+    const d = this.def;
+    for (let ix = 0; ix <= d.nx; ix++) {
+      for (let iz = 0; iz <= d.nz; iz++) {
+        const i = terrainIdx(d, ix, iz);
+        const k = fn(d.x0 + ix * d.cell, d.z0 + iz * d.cell, d.heights[i], d.paint[i] as PaintId);
+        if (k !== null) d.paint[i] = k;
+      }
+    }
+    return this;
+  }
+
   /**
-   * 傾きと高さで地面の種類を自動で決める (道などで塗った所は変えない)。
-   *   急な斜面 (法線の y < cos(rockSlope)) = 岩 / 水面の近く (waterLevel ± band) = 砂
+   * 傾きで地面の種類を自動で決める (道などで塗った所は変えない)。
+   *   急な斜面 (法線の y < cos(rockSlope)) = 岩。waterLevel を渡すと、水面の近く (± shoreBand) は砂 (範囲は shore で絞ること)
    */
-  autoPaint(o: { rockSlope?: number; waterLevel?: number; shoreBand?: number } = {}): this {
+  autoPaint(o: { rockSlope?: number; waterLevel?: number; shoreBand?: number; shore?: { cx: number; cz: number; r: number } } = {}): this {
     const d = this.def;
     const rockCos = Math.cos(o.rockSlope ?? 0.8);
     const n = { x: 0, y: 1, z: 0 };
@@ -220,7 +233,7 @@ export class TerrainBuilder {
         const z = d.z0 + iz * d.cell;
         terrainNormalAt(d, clamp(x, d.x0, d.x0 + d.nx * d.cell - 1e-6), clamp(z, d.z0, d.z0 + d.nz * d.cell - 1e-6), n);
         if (n.y < rockCos) d.paint[i] = PAINT.rock;
-        else if (o.waterLevel !== undefined && Math.abs(d.heights[i] - o.waterLevel) < (o.shoreBand ?? 0.7)) d.paint[i] = PAINT.sand;
+        else if (o.waterLevel !== undefined && Math.abs(d.heights[i] - o.waterLevel) < (o.shoreBand ?? 0.7) && (!o.shore || Math.hypot(x - o.shore.cx, z - o.shore.cz) < o.shore.r)) d.paint[i] = PAINT.sand;
       }
     }
     return this;

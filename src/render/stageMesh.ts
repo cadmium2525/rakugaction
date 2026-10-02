@@ -171,16 +171,47 @@ function hazardGeometries(hz: HazardDef): THREE.BufferGeometry[] {
   return out;
 }
 
-/** ステージ静的ジオメトリを 1 つのメッシュ (1 draw call) に統合する。 */
-export function buildStaticStageGeometry(stage: StageDef): THREE.BufferGeometry {
-  const geos: THREE.BufferGeometry[] = [];
-  stage.boxes.forEach((b, i) => geos.push(boxGeometry(b, `${stage.id}:b${i}`)));
-  (stage.cylinders ?? []).forEach((c, i) => geos.push(cylinderGeometry(c, `${stage.id}:c${i}`)));
-  for (const d of stage.decor ?? []) geos.push(decorGeometry(d));
-  for (const hz of stage.hazards ?? []) geos.push(...hazardGeometries(hz));
-  if (geos.length === 0) return new THREE.BufferGeometry();
-  // 全ジオメトリが index 付き・同一属性なのでそのまま統合できる
-  const merged = mergeGeometries(geos, false);
-  for (const g of geos) g.dispose();
-  return merged;
+/** 静的な描画の 1 かたまり (空間で区切った小さなメッシュ)。見えている所だけ描くため、チャンクごとにカリングする。 */
+export interface StaticChunk {
+  geometry: THREE.BufferGeometry;
+  /** 境界球の中心 (x, z) と半径 */
+  cx: number;
+  cz: number;
+  radius: number;
+  /** 'extra' = 画質が低い時は描かない飾り / 'far' = 遠景 (距離で消さない) */
+  layer?: 'base' | 'extra' | 'far';
+}
+
+/** 装飾・箱をまとめる空間の区切り (m) */
+const CHUNK_SIZE = 96;
+
+/**
+ * ステージ静的ジオメトリ (箱・円柱・装飾・トゲ) を、空間 (xz) の区画ごとに統合する。
+ * 区画ごとに 1 メッシュ = 見えない区画は描かない。広いフィールドで全部を毎フレーム描かないための仕組み。
+ * 飾りの extra は別の区画 (低画質で消せる)、far は全部で 1 メッシュ。
+ */
+export function buildStaticStageChunks(stage: StageDef, size = CHUNK_SIZE): StaticChunk[] {
+  const buckets = new Map<string, { layer: 'base' | 'extra' | 'far'; geos: THREE.BufferGeometry[] }>();
+  const add = (g: THREE.BufferGeometry, layer: 'base' | 'extra' | 'far'): void => {
+    g.computeBoundingBox();
+    g.boundingBox!.getCenter(_p);
+    const key = layer === 'far' ? 'far' : `${layer}:${Math.floor(_p.x / size)},${Math.floor(_p.z / size)}`;
+    const b = buckets.get(key);
+    if (b) b.geos.push(g);
+    else buckets.set(key, { layer, geos: [g] });
+  };
+  stage.boxes.forEach((b, i) => add(boxGeometry(b, `${stage.id}:b${i}`), 'base'));
+  (stage.cylinders ?? []).forEach((c, i) => add(cylinderGeometry(c, `${stage.id}:c${i}`), 'base'));
+  for (const d of stage.decor ?? []) add(decorGeometry(d), d.far ? 'far' : d.extra ? 'extra' : 'base');
+  for (const hz of stage.hazards ?? []) for (const g of hazardGeometries(hz)) add(g, 'base');
+  const chunks: StaticChunk[] = [];
+  for (const { layer, geos } of buckets.values()) {
+    // 全ジオメトリが index 付き・同一属性なのでそのまま統合できる
+    const merged = mergeGeometries(geos, false);
+    for (const g of geos) g.dispose();
+    merged.computeBoundingSphere();
+    const s = merged.boundingSphere!;
+    chunks.push({ geometry: merged, cx: s.center.x, cz: s.center.z, radius: s.radius, layer });
+  }
+  return chunks;
 }

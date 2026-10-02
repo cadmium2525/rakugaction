@@ -22,6 +22,8 @@ export class Hud {
   private readonly windArrow: HTMLElement;
   private readonly swimEl: HTMLElement;
   private readonly waterTint: HTMLElement;
+  private readonly pickupEl: HTMLElement;
+  private lastPickup = '';
 
   constructor(parent: HTMLElement, onPause: () => void) {
     this.hearts = h('div', { class: 'hud-hearts' });
@@ -42,7 +44,8 @@ export class Hud {
     this.windEl = h('div', { class: 'hud-wind' }, this.windArrow, h('span', { text: '風' }));
     this.swimEl = h('div', { class: 'hud-swim' }, h('span', { text: 'JUMP: 浮上' }), h('span', { text: 'ACTION: 潜水' }));
     this.waterTint = h('div', { class: 'hud-watertint' });
-    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.hintEl, this.toastEl, this.fade);
+    this.pickupEl = h('div', { class: 'hud-pickups' });
+    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.pickupEl, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.hintEl, this.toastEl, this.fade);
     parent.appendChild(this.el);
   }
 
@@ -64,6 +67,36 @@ export class Hud {
       const n = nodes[i] as HTMLElement;
       n.style.setProperty('--fill', `${Math.round(fill * 100)}%`);
       n.classList.toggle('empty', fill <= 0);
+    }
+  }
+
+  /**
+   * 集めたアイテムの数。null で非表示。required = ゴールを開くのに必要な数 / total = ステージにある総数。
+   * 必要な数に届くと色が変わる (以降は「ゴールへ」の合図)。
+   */
+  setPickups(info: { count: number; required: number; total: number; noun: string } | null): void {
+    if (!info) {
+      this.pickupEl.classList.remove('on');
+      this.lastPickup = '';
+      return;
+    }
+    const key = `${info.count}/${info.required}/${info.total}`;
+    if (key === this.lastPickup) return;
+    const grew = this.lastPickup !== '' && !this.lastPickup.startsWith(`${info.count}/`);
+    this.lastPickup = key;
+    const done = info.count >= info.required;
+    this.pickupEl.classList.add('on');
+    this.pickupEl.classList.toggle('done', done);
+    this.pickupEl.replaceChildren(
+      h('span', { class: 'hud-pickups-star', text: '★' }),
+      h('span', { class: 'hud-pickups-num', text: `${info.count} / ${info.required}` }),
+      h('span', { class: 'hud-pickups-sub', text: done ? 'ゴールへ' : `全 ${info.total} 個` }),
+    );
+    if (grew) {
+      // 増えた瞬間に弾ませる (アニメーションを再生し直す)
+      this.pickupEl.classList.remove('pop');
+      void this.pickupEl.offsetWidth;
+      this.pickupEl.classList.add('pop');
     }
   }
 

@@ -3,18 +3,33 @@ import { lerp } from '../core/math';
 import type { CrumbleState, GameSim } from '../game/sim';
 import type { StageDef } from '../stages/types';
 import { EnemyView } from './enemyView';
+import { PickupView } from './pickupView';
 import { SignView } from './signView';
 import { createSurfaceMaterial } from './surfaceMaterial';
 import type { SurfaceMaterial } from './surfaceMaterial';
 import { toonMaterial } from './toon';
-import { boxGeometry, buildStaticStageGeometry } from './stageMesh';
+import { boxGeometry, buildStaticStageChunks } from './stageMesh';
+import type { StaticChunk } from './stageMesh';
+import { buildTerrainChunks } from './terrainMesh';
 import { WaterView } from './waterView';
 import { WindStreaks } from './windStreaks';
 
 /** ステージの描画オブジェクト。静的部分は統合メッシュ、動く物だけ個別メッシュ。 */
 export class StageView {
   readonly group = new THREE.Group();
-  private readonly staticMesh: THREE.Mesh;
+  /** 静的な部分 (地形・箱・装飾) を空間で区切ったメッシュ。遠くの区画は描かない */
+  private readonly chunks: { mesh: THREE.Mesh; cx: number; cz: number; radius: number; layer: 'base' | 'extra' | 'far' }[] = [];
+  /** 画質が低い時は飾り (extra) を描かない */
+  private showExtra = true;
+  /** この距離より遠い区画は描かない (霧で見えなくなる距離 + 余裕) */
+  private readonly cullDist: number;
+  private readonly pickupView: PickupView | null = null;
+  private goalRing: THREE.Mesh | null = null;
+  private goalRingMat: THREE.MeshBasicMaterial | null = null;
+  private goalBeamMat: THREE.MeshBasicMaterial | null = null;
+  /** 直前に見せていたゴールの状態 (null = まだ決めていない)。開いた瞬間に脈打たせる */
+  private goalShownOpen: boolean | null = null;
+  private goalPulse = 0;
   private readonly moverMeshes: THREE.Mesh[] = [];
   /** 動く危険物 (赤い鉄球/ブロック) */
   private readonly sweeperMeshes: THREE.Mesh[] = [];
@@ -50,9 +65,17 @@ export class StageView {
   private readonly signView: SignView | null = null;
 
   constructor(readonly stage: StageDef, sim: GameSim) {
-    this.staticMesh = new THREE.Mesh(buildStaticStageGeometry(stage), this.mat);
-    this.staticMesh.matrixAutoUpdate = false;
-    this.group.add(this.staticMesh);
+    this.cullDist = stage.theme.fogFar + 24;
+    const addChunks = (list: StaticChunk[]): void => {
+      for (const c of list) {
+        const mesh = new THREE.Mesh(c.geometry, this.mat);
+        mesh.matrixAutoUpdate = false;
+        this.chunks.push({ mesh, cx: c.cx, cz: c.cz, radius: c.radius, layer: c.layer ?? 'base' });
+        this.group.add(mesh);
+      }
+    };
+    if (stage.terrain) addChunks(buildTerrainChunks(stage.terrain));
+    addChunks(buildStaticStageChunks(stage));
 
     for (const m of sim.movers) {
       const g = boxGeometry({ pos: [0, 0, 0], size: m.def.size, style: m.def.style ?? 'wood' }, m.def.id);
@@ -119,6 +142,11 @@ export class StageView {
       this.signView = new SignView(stage.signs);
       this.group.add(this.signView.group);
     }
+    // 集めるアイテム
+    if (stage.pickups && stage.pickups.length > 0) {
+      this.pickupView = new PickupView(stage.pickups);
+      this.group.add(this.pickupView.group);
+    }
     // 敵
     if (sim.enemies.length > 0) {
       this.enemyView = new EnemyView(sim);
@@ -149,11 +177,12 @@ export class StageView {
       const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd23f });
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.position.y = 1.2;
-      const beam = new THREE.Mesh(
-        new THREE.CylinderGeometry(1.2, 1.2, 14, 16, 1, true),
-        new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide }),
-      );
+      const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 14, 16, 1, true), beamMat);
       beam.position.y = 7;
+      this.goalRing = ring;
+      this.goalRingMat = ringMat;
+      this.goalBeamMat = beamMat;
       g.add(ring, beam);
       g.position.set(stage.goal.pos[0], stage.goal.pos[1] - stage.goal.size[1] / 2, stage.goal.pos[2]);
       this.goal = g;
@@ -163,6 +192,7 @@ export class StageView {
 
   /** 表面の模様の強さ (画質で切り替える) */
   setDetail(v: number): void {
+    this.showExtra = v > 0.5;
     this.mat.setDetail(v);
     this.moverMat.setDetail(v);
   }
@@ -187,6 +217,28 @@ export class StageView {
     inst.instanceMatrix.needsUpdate = true;
     const d = this.breakableDefs[i];
     this.burst(d.pos, d.size, 6);
+  }
+
+  /** アイテムを取った: 星が弾ける。 */
+  onPickup(id: string): void {
+    this.pickupView?.onPickup(id);
+  }
+
+  /** ゴールの見た目: 条件を満たすまでは灰色で細い光 / 開いたら金色に脈打つ。 */
+  private updateGoal(sim: GameSim, dt: number): void {
+    if (!this.goal || !this.goalRingMat || !this.goalBeamMat || !this.goalRing) return;
+    const open = sim.goalOpen;
+    if (open !== this.goalShownOpen) {
+      if (this.goalShownOpen === false && open) this.goalPulse = 0.8;
+      this.goalShownOpen = open;
+      this.goalRingMat.color.setHex(open ? 0xffd23f : 0x7b8494);
+      this.goalBeamMat.color.setHex(open ? 0xfff2a8 : 0xb9c2d3);
+      this.goalBeamMat.opacity = open ? 0.28 : 0.1;
+    }
+    if (this.goalPulse > 0) {
+      this.goalPulse = Math.max(0, this.goalPulse - dt);
+      this.goalRing.scale.setScalar(1 + 0.7 * Math.sin(Math.PI * (1 - this.goalPulse / 0.8)));
+    } else this.goalRing.scale.setScalar(1);
   }
 
   /** 敵を倒した / 攻撃がはね返された: 煙と星を出す。 */
@@ -269,7 +321,16 @@ export class StageView {
     });
     if (this.goal) {
       this.goal.rotation.y = this.t * 1.5;
+      this.updateGoal(sim, dt);
     }
+    // 遠くの区画は描かない
+    const px = sim.player.pos.x;
+    const pz = sim.player.pos.z;
+    for (const c of this.chunks) {
+      if (c.layer === 'far') continue;
+      c.mesh.visible = (c.layer !== 'extra' || this.showExtra) && Math.hypot(c.cx - px, c.cz - pz) - c.radius < this.cullDist;
+    }
+    this.pickupView?.update(sim, dt);
     this.windStreaks?.update(sim.time);
     this.waterView?.update(sim.time);
     this.enemyView?.update(sim, alpha, dt);
@@ -303,7 +364,8 @@ export class StageView {
   }
 
   dispose(): void {
-    this.staticMesh.geometry.dispose();
+    for (const c of this.chunks) c.mesh.geometry.dispose();
+    this.pickupView?.dispose();
     this.mat.dispose();
     this.moverMat.dispose();
     this.windStreaks?.dispose();
@@ -319,7 +381,7 @@ export class StageView {
     for (const m of this.moverMeshes) m.geometry.dispose();
     this.group.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh && m !== this.staticMesh && !this.moverMeshes.includes(m) && m.material !== this.mat && !(m as THREE.InstancedMesh).isInstancedMesh) {
+      if (m.isMesh && !this.chunks.some((c) => c.mesh === m) && !this.moverMeshes.includes(m) && m.material !== this.mat && !(m as THREE.InstancedMesh).isInstancedMesh && !this.pickupView?.group.children.includes(m)) {
         m.geometry.dispose();
         (m.material as THREE.Material).dispose();
       }

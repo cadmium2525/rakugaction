@@ -63,16 +63,18 @@ describe('全ステージ通しのバランス', () => {
     }
   });
 
-  it('攻撃力・防御力が活きる: STANDARD (攻撃力は標準) は S1 と S4 で木箱の近道を使い、壊せない JUMP より速い', () => {
-    expect(table.stage1.STANDARD).toBeLessThan(table.stage1.JUMP);
+  it('特化が活きる: S1 は高く跳べる SPEED/JUMP が浮島の階段 (近道) で速い。S4 は力持ちが木箱で、S5 は HEAVY が炎の近道で速い', () => {
+    // S1 (フィールド型) は広いので足の速さが効く。SPEED/JUMP は浮島の階段ルートで、同じ速さの標準より有利になる
+    expect(table.stage1.JUMP / table.stage1.SPEED, 'S1: JUMP vs SPEED').toBeLessThan(1.4);
+    expect(table.stage1.SPEED).toBeLessThan(table.stage1.STANDARD);
     expect(table.stage4.POWER).toBeLessThan(table.stage4.HEAVY + 6); // 力持ちは重量型と互角以上 (S4 の木箱)
     expect(table.stage5.HEAVY).toBeLessThan(table.stage5.EXTREME); // 炎に耐える HEAVY の近道
   });
 
-  it('合計タイムの最速と最遅の差は 1.55 倍未満。標準ビルドは最速の 1.25 倍以内', () => {
+  it('合計タイムの最速と最遅の差は 1.65 倍未満 (S1 が広いフィールドで足の速さが効くぶん、以前の 1.55 より少し緩い)。標準ビルドは最速の 1.25 倍以内', () => {
     const totals = ALL_BUILDS.map((b) => total(table, b));
     const detail = ALL_BUILDS.map((b) => `${b}=${total(table, b).toFixed(0)}`).join(' ');
-    expect(Math.max(...totals) / Math.min(...totals), detail).toBeLessThan(1.55);
+    expect(Math.max(...totals) / Math.min(...totals), detail).toBeLessThan(1.65);
     expect(total(table, 'STANDARD') / Math.min(...totals), detail).toBeLessThan(1.25);
   });
 });

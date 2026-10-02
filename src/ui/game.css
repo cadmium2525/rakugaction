@@ -34,6 +34,72 @@
   color: #ff4d6d;
   clip-path: inset(0 calc(100% - var(--fill)) 0 0);
 }
+.minimap {
+  position: absolute;
+  top: calc(var(--safe-top) + 62px);
+  right: calc(var(--safe-right) + 12px);
+  width: clamp(84px, 24vh, 132px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  pointer-events: none;
+  background: rgba(30, 44, 70, 0.25);
+}
+.minimap-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.hud-pickups {
+  position: absolute;
+  top: calc(var(--safe-top) + 42px);
+  left: calc(var(--safe-left) + 12px);
+  display: none;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 14px;
+  background: rgba(20, 24, 40, 0.55);
+  color: #fff;
+  font-weight: 800;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+  transform-origin: left center;
+}
+.hud-pickups.on {
+  display: flex;
+}
+.hud-pickups-star {
+  color: #ffcf33;
+  font-size: 18px;
+}
+.hud-pickups-num {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.hud-pickups-sub {
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.hud-pickups.done {
+  background: rgba(190, 130, 10, 0.75);
+}
+.hud-pickups.pop {
+  animation: pickup-pop 0.45s ease-out;
+}
+@keyframes pickup-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
 .hud-center {
   position: absolute;
   top: calc(var(--safe-top) + 8px);

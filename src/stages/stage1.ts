@@ -1,178 +1,383 @@
 import { Rng } from '../core/rng';
-import { crateBypass } from './crateBypass';
-import { PathBuilder } from './pathBuilder';
-import { RouteSet } from './routes';
-import { addMeadow } from './meadow';
-import type { StageDef } from './types';
+import { farScenery, scatterMeadow } from './fieldDecor';
+import type { KeepOut } from './fieldDecor';
+import { FieldKit } from './fieldKit';
+import { house, islet, PALETTE, windmill, hay, rock, roundTree } from './decorKit';
+import { PAINT } from './terrain';
+import { TerrainBuilder } from './terrainBuilder';
+import type { StageDef, WaypointDef } from './types';
 
 /**
- * STAGE 1: 草原 (はじまりの原っぱ)。基本操作を学ぶ。
- *   A: 緩い丘 + ACTION で壊す木箱の壁
- *   A': 木箱の抜け道。攻撃力が標準以上のビルドは木箱の壁を壊して直進 (近道 'rock')、壊せないビルドは大回り
- *   B: せせらぎの飛び石 (ジャンプ)
- *   C: 階段状の丘 + 動く橋。高速/高ジャンプ型は橋を使わず 6.4m のギャップを跳び越える近道あり
- *   D: スパイク地帯の長い坂 → ゴール
- * 本道のギャップは 2.4m 以下・段差 1.1m 以下 (最も弱いビルドでも越えられる)。
+ * STAGE 1: はじまりの草原 (フィールド型)。
+ *
+ * 浮島の草原を自由に歩き回って、ラクガキ星 (全 8 個) のうち 5 個を集めると、北のゴールが開く。
+ *   ★ 風車の丘 (中央)        誰でも
+ *   ★ 池の中の小島           誰でも (飛び石 / 泳ぎ)
+ *   ★ ピョンタの花畑 (南東)   誰でも
+ *   ★ 崖の上 (南西)          誰でも (らせんの道)
+ *   ★ チェイサーの広場 (西)   誰でも (チェイサーを倒すか、かわす)
+ *   ★ トゲ畑の先 (北)        誰でも (すき間をぬう)
+ *   ★ 木箱の遺跡 (北西)      攻撃力が標準以上のビルドだけ (木箱の壁を壊す)
+ *   ★ 浮島の階段 (北東)      高く・遠くへ跳べるビルドだけ
+ * 8 個のうち どの 5 個を どの順で回るか が、タイムアタックの攻略になる。
+ * 座標: x = 東, z = 北 (スタートから北へ進む)。単位 m。
  */
-export function buildStage1(): StageDef {
-  const b = new PathBuilder([0, 0, 0], 'z+', { w: 7, thick: 1.4, style: 'grass' });
-  const rs = new RouteSet();
 
-  // ---- A: はじまりの原っぱ ----
-  // スタート地点の後ろにも床を延ばす (カメラが崖の外に出ないように)
-  b.plate(-16, 0, -5, 5, b.y, 1.4, 'grass');
-  // 看板 (操作と、これから出会う物の案内)
-  b.sign(5, -3.4, ['出発'], { icon: 'arrow', hint: ['{move} で移動 ／ {jump} でジャンプ', '正面の光の輪 (ゴール) を目指そう'] });
-  b.sign(10, 3.4, ['プルン'], { icon: 'action', hint: ['プルン: 踏みつけるか {action} で倒せる', '触れるとダメージを受ける'] });
-  b.flat(22, { w: 9 });
-  // はじめての敵: プルン (ふんづけ / ACTION で倒せる)。原っぱを左右に歩いている
-  b.enemy('blob', -9, -3.5, 3.5, { speed: 1.6 });
-  b.enemy('blob', -4, 3.5, -3.5, { speed: 1.6, phase: 1.1 });
-  b.ramp(14, 2.2);
-  b.flat(8);
-  b.ramp(14, -2.2);
-  b.flat(10);
-  // 丘をおりた所に ピョンタ (ジャンプで跳ねている。着地を待って通るか、ふんづける)
-  b.enemy('hopper', -5, -3, 3, { speed: 2.2 });
-  b.sign(-1.5, 3.0, ['木箱'], { icon: 'action', hint: ['{action} で木箱を壊せる', '攻撃力が足りない場合は、右の大回りの道へ'] });
-  // 木箱の壁 (ACTION チュートリアル): 床の上に、木箱 3x2 の壁 + 左右/頭上の石でふさぐ (迂回・飛び越え不可)
-  const before = b.point(1.3);
-  const after = b.point(5.8);
-  // 通路の高さは 3.3m (最も大きいビルド = 2.4m でも通れる)。その上は石でふさぐ
-  for (const l of [-1.1, 0, 1.1]) {
-    for (let row = 0; row < 3; row++) {
-      b.breakable(3, l, [1.1, 1.1, 1.1], 0.6).pos = b.point(3, l, b.y + 0.55 + row * 1.1);
+/** 島の中心 */
+const ISLAND = { x: 0, z: 6, r: 112 };
+
+function buildTerrain() {
+  const tb = new TerrainBuilder({ x0: -132, z0: -132, x1: 132, z1: 138 }, 2, 0);
+  // ゆるやかな起伏
+  tb.noise(2.4, 40, 11, 3).noise(0.45, 8, 12, 2);
+  // スタートの原っぱ (平ら)
+  tb.plateau(0, -80, 20, 0, 16);
+  // 風車の丘 (中央): 大きな丘の上を広い台地にする
+  tb.hill(0, 2, 30, 30, 9.6).plateau(0, 2, 13, 9.6, 10);
+  // 池 (東): まわりを少し高い台地 (0.5m) にそろえてから、くぼませる。中央に小島
+  tb.plateau(58, -22, 30, 0.5, 16).bowl(58, -22, 22, 18, 4.8).hill(60, -22, 7, 7, 4.7).plateau(60, -22, 3, 0.25, 3.5);
+  // 遺跡の台地 (北西): 高さ 3.0 の平らな台地
+  tb.plateau(-54, 46, 16, 3.0, 12);
+  // トゲ畑の台地 (北): 高さ 2.4。奥に小さなこぶ (星)
+  tb.plateau(18, 50, 16, 2.4, 12).hill(18, 70, 7, 7, 2.2);
+  // 浮島の階段の足元: 岩の丘 (北東)。上は平ら
+  tb.hill(62, 34, 15, 15, 6.0).plateau(62, 34, 4.5, 6.0, 6);
+  // 広場 (西): 平ら
+  tb.plateau(-62, -14, 15, 0.4, 12);
+  // 南東の花畑: 平ら
+  tb.plateau(32, -62, 17, 0, 12);
+  // 崖の丘 (南西): らせんの道で登る
+  tb.hill(-58, -64, 22, 22, 13).plateau(-58, -64, 4, 13, 5);
+  // ゴールの台地 (北)
+  tb.plateau(0, 90, 10, 3.0, 9);
+
+  // ---- 道 (土の道: 高さをなだらかにそろえる) ----
+  const W = 3.6;
+  const road = (pts: [number, number][], w = W): void => void tb.path(pts, w, 4.5);
+  road([[0, -96], [0, -80], [2, -64], [-2, -48], [0, -34], [-6, -26], [-10, -14], [-10, 0], [-6, 8]]); // スタート → 風車の丘
+  road([[2, -64], [14, -64], [27, -62]]); // → 花畑
+  road([[-2, -48], [-14, -52], [-28, -56], [-34, -60]]); // → 崖の丘のふもと
+  road([[8, 2], [22, -4], [36, -14], [42.5, -22]]); // → 池
+  road([[-8, 0], [-22, -4], [-38, -8], [-48, -12]]); // → 広場
+  road([[-6, 8], [-18, 18], [-30, 26], [-42, 30], [-54, 32]]); // → 遺跡
+  road([[6, 10], [12, 24], [16, 36], [18, 42]]); // → トゲ畑
+  road([[18, 62], [18, 70], [12, 80], [4, 86], [0, 88]]); // → ゴール
+  road([[14, 28], [30, 32], [46, 34], [58, 34]]); // → 浮島の階段
+  // 崖の丘のらせんの道 (ふもと → 頂上)
+  road(
+    [[-34, -60], [-40, -48], [-56, -44], [-72, -52], [-76, -68], [-62, -80], [-46, -76], [-42, -66], [-50, -58], [-58, -62]],
+    4.2,
+  );
+
+  // 島の外側を崖にして雲海へ落とす
+  tb.island(ISLAND.x, ISLAND.z, ISLAND.r, [
+    { k: 3, amp: 0.05, phase: 0.4 },
+    { k: 5, amp: 0.03, phase: 2.1 },
+    { k: 2, amp: 0.04, phase: 4.0 },
+  ], 7, -40);
+
+  // 地面の種類: 急な所は岩、池のふちは砂、特定の場所は色を変える
+  tb.paintDisk(62, 34, 9, PAINT.rock);
+  tb.paintDisk(-58, -64, 5, PAINT.rock);
+  tb.autoPaint({ rockSlope: 0.72, waterLevel: -0.4, shoreBand: 0.8, shore: { cx: 58, cz: -22, r: 26 } });
+  return tb.build();
+}
+
+export function buildStage1(): StageDef {
+  const terrain = buildTerrain();
+  const k = new FieldKit(terrain);
+  const rng = new Rng(2025);
+  const keep: KeepOut[] = [];
+  const keepOut = (x: number, z: number, r: number): void => void keep.push({ x, z, r });
+
+  // ===== スタートの原っぱ =====
+  keepOut(0, -80, 7);
+  k.sign(5, -86, 0, ['出発'], {
+    icon: 'star',
+    hint: ['{move} で移動 ／ {jump} でジャンプ', 'ラクガキ星を 5 個集めると、北のゴールが開く (全 8 個)'],
+  });
+  k.sign(-6, -62, 0.4, ['プルン'], { icon: 'action', hint: ['プルン: 踏みつけるか {action} で倒せる', '触れるとダメージを受ける'] });
+  k.enemy('blob', -8, -78, 8, -76, { speed: 1.6 });
+  k.enemy('blob', 8, -70, -8, -68, { speed: 1.5, phase: 1.1 });
+  k.enemy('blob', 6, -52, -6, -50, { speed: 1.6, phase: 0.6 });
+
+  // ===== 風車の丘 (中央) =====
+  const hubY = k.g(0, 2);
+  windmill(k.push, 0, hubY, -3, Math.PI);
+  k.cyl(0, hubY + 2.75, -3, 1.6, 5.5, 'brick');
+  house(k.push, 7.5, hubY, 6, -0.7, PALETTE.roof);
+  k.box([7.5, hubY + 1.1, 6], [3.6, 2.2, 3.0], 'wood', [0, -0.7, 0]);
+  hay(k.push, 4, hubY, 8, 0.3);
+  hay(k.push, 5.4, hubY, 9.2, 1.2);
+  roundTree(k.push, rng, -7, hubY, 6, 1.1);
+  roundTree(k.push, rng, -9.5, hubY, 3, 0.9);
+  keepOut(0, 2, 15);
+  k.star('風車の丘', 3.6, -7.2); // 風車の前
+  k.checkpoint('cp0', 0, -32);
+  k.checkpoint('cp1', 4, 12);
+  k.enemy('blob', -9, 8, -9, -6, { speed: 1.4, phase: 0.3 });
+  k.enemy('hopper', -4, 14, -12, 14, { speed: 2.0, phase: 0.2 });
+  k.sign(-4, -24, 3.0, ['風車の丘'], { icon: 'star', hint: ['ラクガキ星は光の柱が目印', '右上のミニマップにも位置が出る'] });
+
+  // ===== 南東: ピョンタの花畑 =====
+  keepOut(32, -62, 17);
+  k.checkpoint('cp2', 15, -63);
+  k.star('ピョンタの花畑', 32, -62);
+  k.enemy('hopper', 24, -57, 40, -57, { speed: 2.4, phase: 0.1 });
+  k.enemy('hopper', 40, -67, 24, -67, { speed: 2.4, phase: 0.8 });
+  k.enemy('hopper', 32, -52, 32, -72, { speed: 2.0, phase: 1.5 });
+  k.sign(20, -69, -0.5, ['ピョンタ'], { icon: 'jump', hint: ['ピョンタ: 跳ねながら動く。着地を待って通るか、踏みつけよう'] });
+  for (let i = 0; i < 26; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const r = rng.range(2, 15);
+    const x = 32 + Math.cos(a) * r;
+    const z = -62 + Math.sin(a) * r;
+    if (Math.hypot(x - 32, z + 62) < 2.5) continue;
+    for (let j = 0; j < 7; j++) {
+      const px = x + rng.range(-1.2, 1.2);
+      const pz = z + rng.range(-1.2, 1.2);
+      k.push({ shape: 'blade', pos: [px, k.g(px, pz) + 0.25, pz], size: [0.035, 0.5, 0.035], color: PALETTE.stem });
+      k.push({ shape: 'sphere', pos: [px, k.g(px, pz) + 0.53, pz], size: [rng.range(0.1, 0.15), 1, 1], color: rng.pick(PALETTE.petals), seg: 5 });
     }
   }
-  b.plate(2.2, 3.8, -7, -1.65, b.y + 6, 6, 'stone');
-  b.plate(2.2, 3.8, 1.65, 7, b.y + 6, 6, 'stone');
-  b.plate(2.2, 3.8, -1.65, 1.65, b.y + 6, 2.7, 'stone');
-  b.flat(12, { w: 9, noWp: true });
-  b.route.push({ pos: before, radius: 0.7, action: true });
-  b.route.push({ pos: after, radius: 1.2 });
-  b.flat(6, { w: 8 });
-  b.sign(-2.5, 3.2, ['トゲマル'], { icon: 'warn', tone: 'warn', hint: ['トゲマル: 上から踏むとダメージ', '倒せるのは攻撃力の高いキャラの {action} だけ'] });
-  b.checkpoint('cp0');
-  rs.common(b.takeRoute());
 
-  // ---- A': 木箱の抜け道 (攻撃力のあるビルドの近道。壊せない SPEED/JUMP などは大回り) ----
-  const bp = crateBypass(b, { corridor: 14, detour: 20, pHalf: 4, qHalf: 4, qDepth: 8 });
-  rs.fork({ main: [...bp.outer, bp.join], rock: [...bp.shortcut, bp.join] });
-  // 抜け道の通路 (木箱の壁のむこう) にトゲマル: 壊せるビルド (= 攻撃力が標準以上) だけがここに来る。ACTION でたおせる
-  b.enemy('spiky', -14, -2, 2, { speed: 2 });
-  // 合流の台 (どちらの道でも通る): プルン
-  b.enemy('blob', -4, -3, 3, { speed: 1.7, phase: 0.7 });
+  // ===== 南西: 崖の丘 (らせんの道) =====
+  keepOut(-58, -64, 24);
+  k.checkpoint('cp3', -36, -58);
+  k.star('崖の上', -58, -64);
+  k.enemy('spiky', -40, -52, -44, -46, { speed: 1.8, pause: 0.4 });
+  k.sign(-31, -52, 2.0, ['崖の丘'], { icon: 'arrow', hint: ['らせんの道を登った頂上に、星がある'] });
 
-  // ---- B: せせらぎの飛び石 ----
-  b.flat(6, { w: 6 });
-  b.sign(-2, -2.4, ['飛び石'], { icon: 'jump', hint: ['{jump} で飛び移る', '押し続けるほど高く跳べる'] });
-  // 飛び石は左右にずれて見えるが、幅 4.2m でレーンが重なる (ジャンプは中央の直線上で届く)
-  const lat = [1.2, -1.2, 1.2, -1.2, 1.2, -1.2];
-  for (let i = 0; i < lat.length; i++) {
-    b.gap(2.2, 0, { lat: 0 });
-    b.flat(4.5, { w: 4.2, lateral: lat[i], style: 'stone', thick: 1.2 });
+  // ===== 東: 池 =====
+  keepOut(58, -22, 26);
+  k.checkpoint('cp4', 39, -21);
+  k.water('pond', 30, -50, 88, 6, -0.4, 8);
+  k.star('池の小島', 60, -22);
+  // 飛び石 (水面すれすれ。2.2m ずつ離れている)
+  for (const x of [45.5, 50.7, 55.9]) k.slab(x, -22, 3, 3, -0.05, 0.8, 'stone');
+  k.sign(38, -26, 1.2, ['飛び石'], { icon: 'jump', hint: ['{jump} で飛び石を渡って、小島の星へ', '水に落ちても泳げる (軽いほど浮きやすい)'] });
+  k.enemy('blob', 38, -14, 38, -4, { speed: 1.4 });
+
+  // ===== 西: チェイサーの広場 =====
+  keepOut(-62, -14, 16);
+  k.checkpoint('cp5', -47, -11);
+  k.star('チェイサーの広場', -62, -14);
+  k.enemy('chaser', -56, -10, -56, -10, { speed: 3.3, aggro: 8.5, leash: { min: [-77, 0, -29], max: [-47, 0, 1] } });
+  const ringStones = 9;
+  for (let i = 0; i < ringStones; i++) {
+    const a = (i / ringStones) * Math.PI * 2 + 0.3;
+    const x = -62 + Math.cos(a) * 14;
+    const z = -14 + Math.sin(a) * 14;
+    k.wall(x, z, 1.2, 1.2, 1.1 + (i % 3) * 0.5, 'stone');
   }
-  b.gap(2.2, 0, { lat: 0 });
-  b.flat(8, { w: 8 });
-  b.enemy('hopper', -4, -2.5, 2.5, { speed: 2, phase: 0.4 });
-  b.checkpoint('cp1');
+  k.sign(-44, -16, -1.4, ['要注意'], { icon: 'warn', tone: 'warn', hint: ['広場にチェイサーがいる。近づくと追いかけてくる', '踏みつけるか {action} で倒すか、走ってかわそう'] });
 
-  // ---- C: 階段状の丘 + 動く橋 ----
-  b.gap(1.8, 1.0);
-  b.flat(6, { w: 7 });
-  b.sign(-3, -2.9, ['トゲマル'], { icon: 'warn', tone: 'warn', hint: ['トゲマルが足場の左半分を往復している', '右側を回り込んで避けよう'] });
-  b.gap(1.8, 1.0);
-  b.flat(6, { w: 7 });
-  // 避ける敵: トゲマルが足場の左半分を往復する (右側 1.7m 以上は常に安全)。攻撃力が足りないキャラ (SPEED/JUMP) はここを避けて通る。
-  // ジャンプの着地目標と、通るレーンを右側 (lateral +2.3) に寄せる。攻撃力が高いキャラは近づいてきたら ACTION で倒してもよい
-  b.enemy('spiky', -3, -3.1, 0.3, { speed: 2.0, pause: 0.5 });
-  const landJump = [...b.route].reverse().find((w) => w.jump);
-  if (landJump) landJump.land = b.point(-3.2, 2.3);
-  const stairEnd = b.route.pop();
-  b.wp({ radius: 0.9 }, -3, 2.3);
-  if (stairEnd) b.route.push(stairEnd);
-  b.gap(1.8, 1.0);
-  b.flat(6, { w: 7 });
-  b.gap(1.8, -1.0);
-  // 広い台地: 左レーンに動く橋 (本道)、右レーンに 6.4m のギャップ (高速/高ジャンプ型の近道)
-  b.flat(12, { w: 20, lateral: 0 });
-  // 台の端の中央のウェイポイントは本道 (橋) だけが通る (近道は台の中を斜めに助走して端から跳ぶ。端で止まると助走が足りない)
-  const platformEndWp = b.route.pop();
-  rs.common(b.takeRoute());
-  const platformEnd = b.point(0);
-  const gapLen = 6.4;
-  // ギャップの床 (左右の端に並べて、中央〜左に動く橋、右は何もない)
-  b.moverBridge(gapLen, { size: 4.5, w: 5, speed: 3.4, pause: 1.0, lateral: -5 });
-  const bridge = platformEndWp ? [platformEndWp, ...b.takeRoute()] : b.takeRoute();
-  // 近道 (dash): 右レーン (lateral +5) で 6.4m を跳び越える (高速/高ジャンプ型だけが成功する)
-  rs.fork({
-    main: bridge,
-    dash: [
-      { pos: [platformEnd[0] - 5, platformEnd[1], platformEnd[2] - 0.2], radius: 1.0 },
-      { pos: [platformEnd[0] - 5, platformEnd[1], platformEnd[2] - 0.2], jump: true, jumpDist: 0.35 },
-    ],
-  });
-  b.flat(12, { w: 20 });
-  b.checkpoint('cp2');
+  // ===== 北西: 木箱の遺跡 =====
+  keepOut(-54, 46, 17);
+  k.checkpoint('cp6', -50, 29);
+  ruins(k);
+  k.sign(-46, 27, 3.0, ['木箱'], { icon: 'action', hint: ['{action} で木箱を壊せる', '攻撃力が標準以上のキャラだけが、壊して遺跡の星に届く'] });
 
-  // ---- D: スパイク地帯の長い坂 ----
-  b.flat(6, { w: 8 });
-  b.ramp(30, 6, { w: 9 });
-  // 坂の両脇にスパイク (中央は安全)。坂の勾配に合わせて高さを床に合わせる
-  for (let i = 0; i < 4; i++) {
-    b.hazard(-26 + i * 7, 3.3, [1.8, 0.7, 2.2], { slope: 6 / 30 });
-    b.hazard(-22 + i * 7, -3.3, [1.8, 0.7, 2.2], { slope: 6 / 30 });
+  // ===== 北: トゲ畑 =====
+  keepOut(18, 52, 20);
+  k.checkpoint('cp7', 18, 38);
+  spikeField(k, rng);
+  k.star('トゲ畑の先', 18, 70);
+  k.sign(14, 40, 0.5, ['トゲ'], { icon: 'warn', tone: 'warn', hint: ['トゲの床は触れるとダメージ', 'すき間を縫って進むか、ジャンプで飛び越えよう'] });
+
+  // ===== 北東: 浮島の階段 =====
+  keepOut(62, 38, 22);
+  k.checkpoint('cp8', 56, 26);
+  floatingSteps(k);
+  k.sign(52, 30, -1.2, ['浮島'], { icon: 'jump', hint: ['浮島を渡った先に星がある', '高く・遠くへ跳べるキャラ向け'] });
+
+  // ===== 北: ゴール =====
+  k.checkpoint('cp9', 5, 78);
+  keepOut(0, 90, 14);
+  const goalY = k.g(0, 90);
+  // ゴールの門 (飾り)
+  for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, goalY + 2.2, 90], size: [0.9, 4.4, 0.9], color: 0xe6e0d2, style: 'stone' });
+  k.push({ shape: 'box', pos: [0, goalY + 4.6, 90], size: [9.6, 0.9, 1.1], color: 0xd9573f });
+  k.sign(6, 80, 3.4, ['ゴール'], { icon: 'star', hint: ['ラクガキ星を 5 個集めると、ゴールが開く'] });
+
+  // ===== 景色 =====
+  scatterMeadow(k, rng, { area: { cx: ISLAND.x, cz: ISLAND.z, radius: ISLAND.r - 4 }, keepOut: keep });
+  farScenery(k, rng, ISLAND.x, ISLAND.z);
+  // 雲の足場がある小島 (景色)
+  for (let i = 0; i < 6; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = rng.range(135, 175);
+    const x = Math.cos(a) * d;
+    const z = ISLAND.z + Math.sin(a) * d;
+    islet(k.push, rng, x, rng.range(-6, 4), z, rng.range(4, 7));
+    rock(k.push, rng, x + 1, 0, z, 0.8);
   }
-  b.flat(10, { w: 9 });
-  b.enemy('blob', -7, 3, -3, { speed: 1.8 });
-  b.checkpoint('cp3');
-  b.ramp(18, -4, { w: 8 });
-  b.flat(8, { w: 8 });
-  b.gap(2.4);
-  b.flat(6, { w: 7 });
-  b.gap(2.4, 1.0);
-  b.flat(6, { w: 7 });
-  b.sign(-2.5, 2.6, ['要注意'], { icon: 'warn', tone: 'warn', hint: ['この先に、追いかけてくる敵がいる', '踏みつけるか {action} で倒そう'] });
-  b.gap(2.4, 1.0);
-  b.flat(14, { w: 12 });
-  // ゴール前の広場: チェイサー (近づくと追いかけてくる。広場の外へは出ない)
-  // 入口の穴から 8m 以上奥に待機し、入口から 2.5m の範囲には出てこない (着地した瞬間に襲われて、後ろの穴に落ちる事故を防ぐ)
-  b.enemy('chaser', -5, 0, 0, { speed: 3.4, aggro: 8, leash: { a0: -11.5, a1: -1.5, l0: -5.5, l1: 5.5 } });
-  b.goalHere([6, 5, 6]);
-  rs.common(b.takeRoute());
-  const routes = rs.build();
 
-  // 景色: コースの形に合わせて小道具・小島・雲海・丘を置く (固定シード)
-  addMeadow(b, routes, new Rng(11), [0, 0, 1]);
+  const routes = buildRoutes(k);
 
   return {
     id: 'stage1',
     name: 'STAGE 1  草原',
-    tagline: '走って、跳んで、敵を踏みつけてゴールへ',
+    tagline: 'ラクガキ星を 5 個集めて、北のゴールへ',
     theme: {
       skyTop: 0x4aa3ff,
       skyBottom: 0xd6efff,
       fog: 0xd6efff,
-      fogNear: 50,
-      fogFar: 180,
+      fogNear: 70,
+      fogFar: 220,
       sun: 0xffffff,
       ambient: 0xbfd8ff,
-      // 進行方向 (+z) のやや左、地平線の少し上: 走っていると視界の上の方に入る
       skySun: { dir: [-25, 14, 60], color: 0xffe9b8 },
     },
-    spawn: [0, 0, 1],
-    killY: -14,
-    boxes: b.boxes,
-    movers: b.movers,
-    checkpoints: b.checkpoints,
-    goal: b.goal ?? undefined,
-    hazards: b.hazards,
-    breakables: b.breakables,
-    enemies: b.enemies,
-    decor: b.decor,
-    signs: b.signs,
+    spawn: k.at(0, -80),
+    killY: -30,
+    boxes: k.boxes,
+    cylinders: k.cylinders,
+    terrain,
+    movers: k.movers,
+    checkpoints: k.checkpoints,
+    goal: { pos: k.at(0, 90, 3), size: [5, 6, 5] },
+    pickups: k.pickups,
+    objective: { kind: 'collect', required: 5, noun: 'ラクガキ星' },
+    hazards: k.hazards,
+    breakables: k.breakables,
+    enemies: k.enemies,
+    decor: k.decor,
+    signs: k.signs,
+    waters: k.waters,
     ambient: { motes: { count: 70, color: 0xfff6b0, size: 0.1 }, petals: { count: 26, color: 0xffb3c8 }, butterflies: 7 },
     routes,
-    parTime: 70,
+    parTime: 120,
   };
+}
+
+/** 木箱の遺跡: 石の壁で囲まれた中庭。南の門が木箱の壁でふさがれている。中にトゲマルが 2 体。 */
+function ruins(k: FieldKit): void {
+  const cx = -54;
+  const cz = 46;
+  const half = 11;
+  const gz = cz - half; // 南の壁の z
+  const gate = 3.3; // 門の幅
+  // 南の壁 (門をあけて左右に)
+  const sideW = half - gate / 2;
+  k.wall(cx - gate / 2 - sideW / 2, gz, sideW, 1.6, 5);
+  k.wall(cx + gate / 2 + sideW / 2, gz, sideW, 1.6, 5);
+  // 門の上の石 (木箱の上は通れない)
+  const gy = k.g(cx, gz);
+  k.box([cx, gy + 4.2, gz], [gate + 0.3, 1.6, 1.6], 'stone');
+  // 木箱の壁 (3 列 × 3 段 = 3.3m)
+  k.crateWall(cx, gz, 3, 3, 0.95);
+  // 東西北の壁
+  k.wall(cx - half, cz, 1.6, half * 2, 5);
+  k.wall(cx + half, cz, 1.6, half * 2, 5);
+  k.wall(cx, cz + half, half * 2, 1.6, 5);
+  // 中庭
+  k.star('木箱の遺跡', cx, cz + 2);
+  k.enemy('spiky', cx - 6, cz - 2, cx + 6, cz - 2, { speed: 2.0, pause: 0.4 });
+  k.enemy('spiky', cx + 6, cz + 6, cx - 6, cz + 6, { speed: 1.9, pause: 0.4, phase: 1.2 });
+  // 飾りの柱
+  for (const [px, pz] of [[-6, 4], [6, 4], [-6, 9], [6, 9]] as const) {
+    k.push({ shape: 'cylinder', pos: [cx + px, k.g(cx + px, cz + pz) + 1.1, cz + pz], size: [0.55, 2.2, 1], color: 0xd8d2c4, style: 'stone', seg: 8 });
+  }
+}
+
+/** トゲ畑の配置 (ボットのルートも同じ値でレーンを通る) */
+const SPIKES = { cx: 18, rows: 5, z0: 42, dz: 4.4, slots: 8, dx: 3.4, laneHalf: 2.7 };
+/** r 行目のレーンの中心 x (トゲのないすき間) */
+const spikeLane = (r: number): number => SPIKES.cx + 4.0 * Math.sin(r * 1.1 + 0.4);
+
+/** トゲ畑: 平らな台地に、すき間 (レーン) をぬうようにトゲの床が散らばる。レーンの外も、トゲのない所は通れる。 */
+function spikeField(k: FieldKit, rng: Rng): void {
+  const { cx, rows, z0, dz, slots, dx, laneHalf } = SPIKES;
+  const x0 = cx - ((slots - 1) * dx) / 2;
+  for (let r = 0; r < rows; r++) {
+    for (let s = 0; s < slots; s++) {
+      const x = x0 + s * dx;
+      if (Math.abs(x - spikeLane(r)) < laneHalf) continue;
+      if (!rng.chance(0.78)) continue;
+      k.hazard(x, z0 + r * dz, 2.4, 2.0, 0.7);
+    }
+  }
+}
+
+/** 浮島の階段: 岩の丘の上から、距離 4.6m・高さ +1.4m ずつの小島が 3 つ。 */
+function floatingSteps(k: FieldKit): void {
+  const topY = k.g(62, 34);
+  const gap = 4.6;
+  const rise = 1.4;
+  const size = 4;
+  let z = 34 + 4.5; // 岩の丘の上の台地の北端
+  let y = topY;
+  const top: { x: number; y: number; z: number }[] = [];
+  for (let i = 0; i < 3; i++) {
+    z += gap + size / 2;
+    y += rise;
+    k.slab(62, z, size, size, y, 1.2, 'grass');
+    // 浮いて見せる飾りの岩
+    k.push({ shape: 'cone', pos: [62, y - 1.2 - 1.4, z], size: [size * 0.45, 2.8, size * 0.45], rot: [Math.PI, 0.3 * i, 0], color: 0x8a6a4c, seg: 7 });
+    top.push({ x: 62, y, z });
+    z += size / 2;
+  }
+  const last = top[top.length - 1];
+  k.star('浮島の階段', last.x, last.z, 1.35, last.y + 1.35);
+}
+
+/** ボット用ルート。名前ごとに「どの 5 個を どの順で回るか」が違う。 */
+function buildRoutes(k: FieldKit): Record<string, WaypointDef[]> {
+  const W = (x: number, z: number, radius = 2.0): WaypointDef => k.wp(x, z, { radius });
+  /** 星の位置 (半径を小さく: 確実に取る) */
+  const S = (x: number, z: number): WaypointDef => k.wp(x, z, { radius: 1.0 });
+  const STONE = -0.05;
+  const jumpAt = (x: number, z: number, y: number, landX: number, landY: number): WaypointDef => ({ pos: [x, y, z], jump: true, jumpDist: 0.4, land: [landX, landY, z] });
+
+  // ---- 区間 ----
+  const start = [W(0, -72), W(2, -64)];
+  const toC = [W(14, -64), W(27, -62), S(32, -62)];
+  // 花畑 → 池の岸 → 飛び石 → 小島
+  const toPond = [W(38, -42, 3), W(40.5, -24, 1.5), W(41.6, -22, 0.8)];
+  const stonesOut = [
+    jumpAt(42.1, -22, k.g(42.1, -22), 45.5, STONE),
+    jumpAt(46.7, -22, STONE, 50.7, STONE),
+    jumpAt(51.9, -22, STONE, 55.9, STONE),
+    S(60, -22),
+  ];
+  const stonesBack = [
+    jumpAt(55.0, -22, STONE, 50.7, STONE),
+    jumpAt(49.6, -22, STONE, 45.5, STONE),
+    jumpAt(44.4, -22, STONE, 41.5, k.g(41.5, -22)),
+  ];
+  // 池 → 風車の丘
+  const toHub = [W(36, -14), W(22, -4), W(10, 2, 1.5), S(3.6, -7.2)];
+  // 風車の丘 → チェイサーの広場 (往復)
+  const hubToPlaza = [W(2, 2), W(-8, 0), W(-22, -4), W(-38, -8), W(-48, -12), S(-62, -14)];
+  const plazaToHub = [W(-48, -12), W(-38, -8), W(-22, -4), W(-8, 0)];
+  // 風車の丘 → トゲ畑の入口
+  const hubToSpikes = [W(2, 2), W(4, 12), W(12, 24), W(16, 36), W(spikeLane(0), SPIKES.z0 - 3)];
+  const lanes: WaypointDef[] = [];
+  for (let r = 0; r < SPIKES.rows; r++) lanes.push(k.wp(spikeLane(r), SPIKES.z0 + r * SPIKES.dz, { radius: 1.3 }));
+  const spikesToGoal = [...lanes, W(18, 64), S(18, 70), W(12, 80), W(4, 86), k.wp(0, 90, { radius: 1.5 })];
+  // 風車の丘 → 木箱の遺跡 (往復)
+  const hubToRuins = [W(2, 2), W(-6, 8), W(-18, 18), W(-30, 26), W(-42, 30), W(-54, 31.5, 1.0)];
+  const crate: WaypointDef[] = [k.wp(-54, 33.3, { radius: 0.7, action: true }), W(-54, 38, 1.2), S(-54, 48), W(-54, 38, 1.2), W(-54, 31, 1.5)];
+  const ruinsToSpikes = [W(-30, 36), W(0, 36, 3), W(14, 37), W(spikeLane(0), SPIKES.z0 - 3)];
+  // 風車の丘 → 浮島の階段 (跳べるビルド)
+  const hubToSteps = [W(2, 2), W(4, 12), W(14, 28), W(30, 32), W(46, 34), W(58, 34), W(62, 36.5, 1.0)];
+  const topY = k.g(62, 34);
+  const stepZ = (i: number): number => 45.1 + 8.6 * i;
+  const steps: WaypointDef[] = [];
+  for (let i = 0; i < 3; i++) {
+    const fromZ = i === 0 ? 38.2 : stepZ(i - 1) + 1.8;
+    const fromY = topY + 1.4 * i;
+    steps.push({ pos: [62, fromY, fromZ], jump: true, jumpDist: 0.4, land: [62, topY + 1.4 * (i + 1), stepZ(i)] });
+  }
+  steps.push(k.wp(62, stepZ(2), { radius: 1.0 }));
+  steps[steps.length - 1].pos = [62, topY + 4.2, stepZ(2)];
+  // 浮島の最上段から西へ飛び降り、トゲ畑の北側を回って星 (18,70) へ (トゲ畑は通らない)
+  const stepsToStar = [k.wp(55, stepZ(2), { radius: 3 }), W(40, 68, 3), W(28, 70, 2), S(18, 70), W(12, 80), W(4, 86), k.wp(0, 90, { radius: 1.5 })];
+
+  const common = [...start, ...toC, ...toPond, ...stonesOut, ...stonesBack, ...toHub];
+  const main = [...common, ...hubToPlaza, ...plazaToHub, ...hubToSpikes, ...spikesToGoal];
+  const power = [...common, ...hubToRuins, ...crate, ...ruinsToSpikes, ...spikesToGoal];
+  const jump = [...common, ...hubToSteps, ...steps, ...stepsToStar];
+  return { main, power, jump };
 }
