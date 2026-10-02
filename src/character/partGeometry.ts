@@ -1,174 +1,388 @@
 import * as THREE from 'three';
-import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
-import { clamp } from '../core/math';
 import type { PartKey } from '../drawing/model';
-import { buildSimplePolygon, signedArea, traceLoops } from './contour';
-import type { Pt } from './contour';
 import type { CleanedPart } from './cleanPart';
 
 export interface PartGeometryResult {
   geometry: THREE.BufferGeometry;
-  /** 押し出し + ベベルを含む総厚み (m) */
+  /** 前後の厚み (m) */
   thickness: number;
+  /** 輪郭のループ数 (概数) / 輪郭の頂点数 */
   contours: number;
   contourPoints: number;
-  /** 凸包などへフォールバックした輪郭の数 */
+  /** 異常な形で最終手段 (円板) に切り替えた回数 */
   fallbacks: number;
   triangles: number;
 }
 
-/** パーツ種別ごとの厚みの係数 (最小寸法に対する比)。手足は細いので丸く、胴/頭は平たく。 */
-const DEPTH_K: Record<PartKey, number> = {
-  body: 0.4,
-  head: 0.5,
-  armLeft: 0.8,
-  armRight: 0.8,
-  legLeft: 0.8,
-  legRight: 0.8,
+/**
+ * パーツごとの膨らませ具合 (1 = 基準)。基準では、細い手足の断面はほぼ真円、丸い塊は少しつぶれた球になる。
+ * 胴体はやや平たく、頭はふっくら、翼などは薄く。
+ */
+const PUFF: Record<PartKey, number> = {
+  body: 0.9,
+  head: 1.05,
+  armLeft: 1,
+  armRight: 1,
+  legLeft: 1,
+  legRight: 1,
 };
 
-/** 側面/ベベルの色を取る「輪郭線から内側へのずらし量」(キャンバス幅比)。黒い縁取りの色ではなく塗りの色を側面に使うため。 */
-const SIDE_INSET = 0.07;
-
-/** 1 パーツの三角形数の目標 (モバイルの描画負荷を抑える)。超えたら輪郭を粗くして作り直す。 */
-const TRIANGLE_BUDGET = 3200;
-/** 輪郭の細かさの段階 (細かい → 粗い) */
-const DETAIL_LEVELS: { eps: number; maxPoints: number; maxContours: number; bevelSegments: number }[] = [
-  { eps: 0.9, maxPoints: 96, maxContours: 16, bevelSegments: 3 },
-  { eps: 1.8, maxPoints: 64, maxContours: 10, bevelSegments: 2 },
-  { eps: 3.2, maxPoints: 40, maxContours: 6, bevelSegments: 2 },
-  { eps: 6, maxPoints: 24, maxContours: 4, bevelSegments: 1 },
-];
-/** これより小さい輪郭 (px²) は無視 (ゴミ) */
-const MIN_LOOP_AREA = 12;
+/** 内側の格子点の数の目安 (多いほど滑らかで重い)。前後 2 面で三角形はこの約 4 倍。 */
+const CELL_BUDGET = 520;
+/** 側面の色を取る「輪郭から内側へのずらし量」(キャンバス幅比)。輪郭の黒い線ではなく塗りの色を側面に使うため。 */
+const SIDE_INSET = 0.012;
+/** 内側の格子点の数の上限 (これを超えるなら格子を粗くする) */
+const MAX_CELLS = 760;
+/** 細い部分でも断面の幅にこれだけの格子が入るように、格子の大きさに上限を付ける */
+const MIN_CELLS_ACROSS = 3.2;
+/** 高さ z = K × √h (h = ポアソン方程式 ∇²h = −2 の解)。細い帯の断面は K = 1 でちょうど半円になる。 */
+const K = 1.15;
+/** SOR の加速係数と、収束の判定 */
+const OMEGA = 1.8;
+const TOL = 2e-3;
+/** 境界までの距離 (格子の単位) の下限。小さすぎると係数が暴れる。 */
+const MIN_THETA = 0.1;
 
 /**
- * 整形済みシルエットから押し出し形状を作る。
- * @param ax,ay  パーツ画像内のアンカー (ラスタのピクセル座標, 角基準)。ジオメトリの原点になる。
+ * 整形済みシルエットを、前後に丸く「膨らませた」立体にする (平らな板を奥へ押し出すのではなく、
+ * 紙風船のように、太い所ほど厚く・縁へ向かって丸く細くなる)。
+ *
+ *  1. 格子上でシルエットの被覆率を求める (箱型の平均。0.5 の等高線が輪郭)
+ *  2. 輪郭の内側で ∇²h = −2 (h = 0 は輪郭) を解く = ポアソン膨らませ。高さ z = K·√h。
+ *     帯なら断面は円、塊なら球に近い丸みになり、厚みは局所の太さに比例する (どんな絵でも破綻しない)
+ *  3. マーチングスクエアで、輪郭の内側を滑らかな三角形メッシュにする。輪郭の頂点は等高線上 (z = 0) で、前面と背面が共有する
+ *  4. 背面は前面の鏡像。UV は前面からの平面投影 (輪郭の線の色が縁にそのまま出る)
+ *
+ * @param ax,ay  パーツ画像内のアンカー (ラスタのピクセル座標)。ジオメトリの原点になる。
  * @param scale  キャンバス幅 1.0 あたりのメートル数 (u → m)
  */
 export function buildPartGeometry(key: PartKey, part: CleanedPart, ax: number, ay: number, scale: number): PartGeometryResult {
-  const loops = traceLoops(part.mask, part.res)
-    .map((l) => ({ l, a: Math.abs(signedArea(l)) }))
-    .filter((x) => x.a >= MIN_LOOP_AREA)
-    .sort((p, q) => q.a - p.a)
-    .map((x) => x.l);
-  let result: PartGeometryResult | null = null;
-  for (const level of DETAIL_LEVELS) {
-    result?.geometry.dispose();
-    result = buildWithDetail(key, part, loops, ax, ay, scale, level);
-    if (result.triangles <= TRIANGLE_BUDGET) break;
-  }
-  return result as PartGeometryResult;
-}
-
-function buildWithDetail(
-  key: PartKey,
-  part: CleanedPart,
-  loops: Pt[][],
-  ax: number,
-  ay: number,
-  scale: number,
-  level: (typeof DETAIL_LEVELS)[number],
-): PartGeometryResult {
   const res = part.res;
-  const shapes: THREE.Shape[] = [];
+  const mask = part.mask;
+  // ---- 外接矩形 ----
+  let x0 = res;
+  let y0 = res;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      if (!mask[y * res + x]) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) return fallbackDisc(scale);
+  const bw = x1 - x0 + 1;
+  const bh = y1 - y0 + 1;
+  const longSide = Math.max(bw, bh);
+
+  // ---- 格子の大きさ (px) ----
+  const area = Math.max(1, part.area);
+  const halfWidth = Math.max(1.5, part.halfWidth);
+  const lo = Math.max(1.5, longSide / 110);
+  const hi = Math.max(lo, (2 * halfWidth) / MIN_CELLS_ACROSS);
+  let g = Math.max(lo, Math.sqrt(area / CELL_BUDGET));
+  if (g > hi) {
+    // 細い部分が粗くなりすぎるので格子を細かくする。ただし、格子点の数が MAX_CELLS を超えない範囲で (くねくねした絵で三角形が爆発しないように)
+    const fine = Math.max(lo, hi);
+    g = area / (fine * fine) <= MAX_CELLS ? fine : Math.sqrt(area / MAX_CELLS);
+  }
+  const gx0 = x0 - g * 1.5;
+  const gy0 = y0 - g * 1.5;
+  const nx = Math.ceil((bw + 3 * g) / g) + 1;
+  const ny = Math.ceil((bh + 3 * g) / g) + 1;
+
+  // ---- 被覆率 (積分画像で箱型の平均) ----
+  const sat = new Uint32Array((res + 1) * (res + 1));
+  for (let y = 0; y < res; y++) {
+    let row = 0;
+    for (let x = 0; x < res; x++) {
+      row += mask[y * res + x];
+      sat[(y + 1) * (res + 1) + x + 1] = sat[y * (res + 1) + x + 1] + row;
+    }
+  }
+  const boxSum = (xa: number, ya: number, xb: number, yb: number): number => {
+    const ax0 = Math.max(0, Math.min(res, xa));
+    const ay0 = Math.max(0, Math.min(res, ya));
+    const bx0 = Math.max(0, Math.min(res, xb));
+    const by0 = Math.max(0, Math.min(res, yb));
+    return sat[by0 * (res + 1) + bx0] - sat[ay0 * (res + 1) + bx0] - sat[by0 * (res + 1) + ax0] + sat[ay0 * (res + 1) + ax0];
+  };
+  const win = 0.7 * g;
+  const f = new Float32Array(nx * ny);
+  for (let j = 0; j < ny; j++) {
+    const py = gy0 + j * g;
+    const ya = Math.floor(py - win);
+    const yb = Math.ceil(py + win);
+    for (let i = 0; i < nx; i++) {
+      const px = gx0 + i * g;
+      const xa = Math.floor(px - win);
+      const xb = Math.ceil(px + win);
+      f[j * nx + i] = boxSum(xa, ya, xb, yb) / Math.max(1, (xb - xa) * (yb - ya));
+    }
+  }
+  const inside = (i: number, j: number): boolean => i >= 0 && j >= 0 && i < nx && j < ny && f[j * nx + i] >= 0.5;
+
+  // ---- 内側の頂点に番号を付けて、ポアソン方程式を解く ----
+  const idx = new Int32Array(nx * ny).fill(-1);
+  const gi: number[] = [];
+  const gj: number[] = [];
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      if (inside(i, j)) {
+        idx[j * nx + i] = gi.length;
+        gi.push(i);
+        gj.push(j);
+      }
+    }
+  }
+  const nIn = gi.length;
+  if (nIn < 3) return fallbackDisc(scale);
+  const nbL = new Int32Array(nIn);
+  const nbR = new Int32Array(nIn);
+  const nbU = new Int32Array(nIn);
+  const nbD = new Int32Array(nIn);
+  const cL = new Float32Array(nIn);
+  const cR = new Float32Array(nIn);
+  const cU = new Float32Array(nIn);
+  const cD = new Float32Array(nIn);
+  const den = new Float32Array(nIn);
+  // 輪郭までの距離 (格子の単位): 隣が外なら、被覆率の線形補間で求めた等高線までの距離
+  const distTo = (i: number, j: number, di: number, dj: number): { nb: number; d: number } => {
+    const ni = i + di;
+    const nj = j + dj;
+    if (inside(ni, nj)) return { nb: idx[nj * nx + ni], d: 1 };
+    const fp = f[j * nx + i];
+    const fq = ni >= 0 && nj >= 0 && ni < nx && nj < ny ? f[nj * nx + ni] : 0;
+    const t = fp - fq > 1e-6 ? (fp - 0.5) / (fp - fq) : 0.5;
+    return { nb: -1, d: Math.min(1, Math.max(MIN_THETA, t)) };
+  };
+  for (let v = 0; v < nIn; v++) {
+    const i = gi[v];
+    const j = gj[v];
+    const L = distTo(i, j, -1, 0);
+    const R = distTo(i, j, 1, 0);
+    const U = distTo(i, j, 0, -1);
+    const D = distTo(i, j, 0, 1);
+    nbL[v] = L.nb;
+    nbR[v] = R.nb;
+    nbU[v] = U.nb;
+    nbD[v] = D.nb;
+    cL[v] = 2 / (L.d * (L.d + R.d));
+    cR[v] = 2 / (R.d * (L.d + R.d));
+    cU[v] = 2 / (U.d * (U.d + D.d));
+    cD[v] = 2 / (D.d * (U.d + D.d));
+    den[v] = 2 / (L.d * R.d) + 2 / (U.d * D.d);
+  }
+  const h = new Float32Array(nIn).fill(1);
+  const maxIter = 8 * (nx + ny) + 80;
+  for (let it = 0; it < maxIter; it++) {
+    let delta = 0;
+    for (let v = 0; v < nIn; v++) {
+      const sum = (nbL[v] >= 0 ? cL[v] * h[nbL[v]] : 0) + (nbR[v] >= 0 ? cR[v] * h[nbR[v]] : 0) + (nbU[v] >= 0 ? cU[v] * h[nbU[v]] : 0) + (nbD[v] >= 0 ? cD[v] * h[nbD[v]] : 0);
+      const next = (sum + 2) / den[v];
+      const d = OMEGA * (next - h[v]);
+      h[v] += d;
+      if (h[v] < 0) h[v] = 0;
+      const ad = Math.abs(d);
+      if (ad > delta) delta = ad;
+    }
+    if (delta < TOL) break;
+  }
+
+  // ---- メッシュ: 前面の頂点 [0, nIn) / 輪郭の頂点 / 背面の頂点 / 多角形の重心 (前後) ----
+  const puff = K * PUFF[key];
+  const px: number[] = []; // 格子の単位ではなく、画像の px 座標
+  const py: number[] = [];
+  const pz: number[] = []; // 格子の単位 (後で px に直す)
+  const shade: number[] = [];
+  for (let v = 0; v < nIn; v++) {
+    px.push(gx0 + gi[v] * g);
+    py.push(gy0 + gj[v] * g);
+    pz.push(puff * Math.sqrt(h[v]));
+    shade.push(1);
+  }
+  // 輪郭の頂点 (等高線上の点。z = 0。前後で共有)
+  const eh = new Int32Array(nx * ny).fill(-1); // (i,j)-(i+1,j)
+  const ev = new Int32Array(nx * ny).fill(-1); // (i,j)-(i,j+1)
+  const crossing = (i0: number, j0: number, i1: number, j1: number): number => {
+    const horizontal = j0 === j1;
+    const ci = Math.min(i0, i1);
+    const cj = Math.min(j0, j1);
+    const table = horizontal ? eh : ev;
+    const k = cj * nx + ci;
+    if (table[k] >= 0) return table[k];
+    // 内側の端点 (被覆率 >= 0.5) から外側の端点へ向かう割合 t で、等高線の位置を求める
+    const aIn = f[j0 * nx + i0] >= 0.5;
+    const [ii, jj, oi, oj] = aIn ? [i0, j0, i1, j1] : [i1, j1, i0, j0];
+    const fi = f[jj * nx + ii];
+    const fo = f[oj * nx + oi];
+    const t = fi - fo > 1e-6 ? (fi - 0.5) / (fi - fo) : 0.5;
+    // 内側の頂点にぴったり重ならないように (重なると面積 0 の三角形になり、面に穴があく)
+    const tt = Math.min(1, Math.max(0.03, t));
+    const id = px.length;
+    px.push(gx0 + (ii + (oi - ii) * tt) * g);
+    py.push(gy0 + (jj + (oj - jj) * tt) * g);
+    pz.push(0);
+    shade.push(0.9);
+    table[k] = id;
+    return id;
+  };
+  const tris: number[] = []; // 前面の三角形 (頂点番号は前面/輪郭/前面の重心)
+  const addPolygon = (poly: number[]): void => {
+    if (poly.length < 3) return;
+    if (poly.length === 6) {
+      // 重心から扇形に (くびれのある多角形でも崩れない)
+      let cx = 0;
+      let cy = 0;
+      let cz = 0;
+      for (const p of poly) {
+        cx += px[p];
+        cy += py[p];
+        cz += pz[p];
+      }
+      const id = px.length;
+      px.push(cx / 6);
+      py.push(cy / 6);
+      pz.push(cz / 6);
+      shade.push(1);
+      for (let k = 0; k < 6; k++) tris.push(id, poly[k], poly[(k + 1) % 6]);
+      return;
+    }
+    for (let k = 1; k + 1 < poly.length; k++) tris.push(poly[0], poly[k], poly[k + 1]);
+  };
   let contourPoints = 0;
-  let fallbacks = 0;
-  const toWorld = (px: number, py: number): THREE.Vector2 => new THREE.Vector2(((px - ax) / res) * scale, (-(py - ay) / res) * scale);
-
-  for (const loop of loops.slice(0, level.maxContours)) {
-    const poly = buildSimplePolygon(loop, { smoothPasses: 4, eps: level.eps, maxPoints: level.maxPoints });
-    if (!poly) continue;
-    if (poly.fallback === 2) fallbacks++;
-    const pts = poly.points.map((p) => toWorld(p.x, p.y));
-    shapes.push(new THREE.Shape(pts));
-    contourPoints += pts.length;
-  }
-
-  if (shapes.length === 0) {
-    // 最終手段: 小さな円板 (マスクが輪郭を持たない異常ケース。通常は起こらない)
-    const r = 0.05 * scale;
-    const pts: THREE.Vector2[] = [];
-    for (let i = 0; i < 16; i++) pts.push(new THREE.Vector2(Math.cos((i / 16) * Math.PI * 2) * r, Math.sin((i / 16) * Math.PI * 2) * r));
-    shapes.push(new THREE.Shape(pts));
-    contourPoints += pts.length;
-    fallbacks++;
-  }
-
-  // 寸法 (m)
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  for (const s of shapes) {
-    for (const p of s.getPoints()) {
-      minX = Math.min(minX, p.x);
-      maxX = Math.max(maxX, p.x);
-      minY = Math.min(minY, p.y);
-      maxY = Math.max(maxY, p.y);
+  for (let j = 0; j + 1 < ny; j++) {
+    for (let i = 0; i + 1 < nx; i++) {
+      const ci = [i, i + 1, i + 1, i];
+      const cj = [j, j, j + 1, j + 1];
+      const ins = [0, 1, 2, 3].map((k) => inside(ci[k], cj[k]));
+      const n = ins.filter(Boolean).length;
+      if (n === 0) continue;
+      const vid = (k: number): number => idx[cj[k] * nx + ci[k]];
+      if (n === 4) {
+        tris.push(vid(0), vid(1), vid(2), vid(0), vid(2), vid(3));
+        continue;
+      }
+      const edge = (k: number): number => crossing(ci[k], cj[k], ci[(k + 1) % 4], cj[(k + 1) % 4]);
+      const saddle = n === 2 && ins[0] === ins[2];
+      if (saddle) {
+        const centre = (f[cj[0] * nx + ci[0]] + f[cj[1] * nx + ci[1]] + f[cj[2] * nx + ci[2]] + f[cj[3] * nx + ci[3]]) / 4;
+        if (centre < 0.5) {
+          // 斜めの 2 つの角は別々の小さな三角形
+          for (let k = 0; k < 4; k++) if (ins[k]) tris.push(vid(k), edge(k), edge((k + 3) % 4));
+          continue;
+        }
+      }
+      const poly: number[] = [];
+      for (let k = 0; k < 4; k++) {
+        if (ins[k]) poly.push(vid(k));
+        if (ins[k] !== ins[(k + 1) % 4]) poly.push(edge(k));
+      }
+      addPolygon(poly);
     }
   }
-  const minDim = Math.max(1e-3, Math.min(maxX - minX, maxY - minY));
-  const halfWidth = (part.halfWidth / res) * scale;
-  const depth = clamp(DEPTH_K[key] * minDim, 0.05 * scale, 0.3 * scale);
-  const bevel = clamp(Math.min(0.45 * depth, 0.4 * halfWidth), 0.004 * scale, 0.06 * scale);
+  for (const c of eh) if (c >= 0) contourPoints++;
+  for (const c of ev) if (c >= 0) contourPoints++;
 
-  let geo: THREE.BufferGeometry = new THREE.ExtrudeGeometry(shapes, {
-    depth,
-    bevelEnabled: true,
-    bevelThickness: bevel,
-    bevelSize: bevel,
-    bevelOffset: -bevel,
-    bevelSegments: level.bevelSegments,
-    steps: 1,
-    curveSegments: 1,
-  });
-  const thickness = depth + bevel * 2;
-  // z 方向に中心を合わせる (押し出しは z=-bevelThickness..depth+bevelThickness)
-  geo.translate(0, 0, -depth / 2);
-  geo.deleteAttribute('uv');
-  // なめらかな陰影 (ベベル部は滑らかに、前面/側面の境目は折り目として残す)
-  geo = toCreasedNormals(geo, Math.PI / 4.2);
-
-  // UV: 前面からの平面投影。u = px/res, v = 1 - py/res
-  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
-  const nor = geo.getAttribute('normal') as THREE.BufferAttribute;
-  const n = pos.count;
-  const uv = new Float32Array(n * 2);
-  const col = new Float32Array(n * 3);
-  // 側面ほど内側 (塗りの色) をサンプルする。前面 (|nz|=1) は正確な平面投影のまま。
-  const insetW = Math.min(SIDE_INSET, 0.8 * (part.inscribedRadius / res)) * scale;
-  for (let i = 0; i < n; i++) {
-    let wx = pos.getX(i);
-    let wy = pos.getY(i);
-    const nx = nor.getX(i);
-    const ny = nor.getY(i);
-    const nxy = Math.hypot(nx, ny);
-    if (nxy > 1e-4) {
-      const k = (1 - Math.pow(Math.abs(nor.getZ(i)), 3)) * insetW;
-      wx -= (nx / nxy) * k;
-      wy -= (ny / nxy) * k;
+  // ---- 背面: 前面の頂点 (輪郭以外) を複製して z を反転 ----
+  const nFront = px.length; // 前面 + 輪郭 + 前面の重心
+  const isEdge = new Uint8Array(nFront);
+  for (const t of eh) if (t >= 0) isEdge[t] = 1;
+  for (const t of ev) if (t >= 0) isEdge[t] = 1;
+  const backOf = new Int32Array(nFront);
+  for (let v = 0; v < nFront; v++) {
+    if (isEdge[v]) {
+      backOf[v] = v;
+      continue;
     }
-    const px = (wx / scale) * res + ax;
-    const py = ay - (wy / scale) * res;
-    uv[i * 2] = px / res;
-    uv[i * 2 + 1] = 1 - py / res;
-    // 背面は少し暗くして、裏から見ても表裏が分かるように
-    const back = nor.getZ(i) < -0.3 ? 0.78 : 1;
-    col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = back;
+    backOf[v] = px.length;
+    px.push(px[v]);
+    py.push(py[v]);
+    pz.push(-pz[v]);
+    shade.push(0.8);
   }
+
+  // ---- 単位を m に直し、向きをそろえて三角形を作る ----
+  const toX = (p: number): number => ((p - ax) / res) * scale;
+  const toY = (p: number): number => (-(p - ay) / res) * scale;
+  const toZ = (zc: number): number => ((zc * g) / res) * scale;
+  const nv = px.length;
+  const pos = new Float32Array(nv * 3);
+  const uv = new Float32Array(nv * 2);
+  const col = new Float32Array(nv * 3);
+  let zmax = 0;
+  for (let v = 0; v < nv; v++) {
+    pos[v * 3] = toX(px[v]);
+    pos[v * 3 + 1] = toY(py[v]);
+    const z = toZ(pz[v]);
+    pos[v * 3 + 2] = z;
+    if (Math.abs(z) > zmax) zmax = Math.abs(z);
+    uv[v * 2] = px[v] / res;
+    uv[v * 2 + 1] = 1 - py[v] / res;
+    col[v * 3] = col[v * 3 + 1] = col[v * 3 + 2] = shade[v];
+  }
+  const indices: number[] = [];
+  const area2 = (a: number, b: number, c: number): number =>
+    (pos[b * 3] - pos[a * 3]) * (pos[c * 3 + 1] - pos[a * 3 + 1]) - (pos[c * 3] - pos[a * 3]) * (pos[b * 3 + 1] - pos[a * 3 + 1]);
+  for (let t = 0; t < tris.length; t += 3) {
+    const a = tris[t];
+    const b = tris[t + 1];
+    const c = tris[t + 2];
+    const s = area2(a, b, c);
+    if (Math.abs(s) < 1e-18) continue;
+    // 前面: 手前 (+z) から見て反時計回り
+    if (s > 0) indices.push(a, b, c);
+    else indices.push(a, c, b);
+    const ba = backOf[a];
+    const bb = backOf[b];
+    const bc = backOf[c];
+    // 背面: 奥 (−z) から見て反時計回り = 前面の逆回り
+    if (s > 0) indices.push(ba, bc, bb);
+    else indices.push(ba, bb, bc);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  // 縁の側面 (法線が横向きの所) は、輪郭の線の色ではなく、少し内側の塗りの色を取る (前面は正確な平面投影のまま)
+  const nor = geo.getAttribute('normal') as THREE.BufferAttribute;
+  const insetPx = Math.min(SIDE_INSET * res, 0.8 * part.inscribedRadius);
+  for (let v = 0; v < nv; v++) {
+    const nxv = nor.getX(v);
+    const nyv = nor.getY(v);
+    const nxy = Math.hypot(nxv, nyv);
+    if (nxy < 1e-4) continue;
+    const k = (1 - Math.pow(Math.abs(nor.getZ(v)), 3)) * insetPx;
+    uv[v * 2] = (px[v] - (nxv / nxy) * k) / res;
+    uv[v * 2 + 1] = 1 - (py[v] + (nyv / nxy) * k) / res;
+  }
+  (geo.getAttribute('uv') as THREE.BufferAttribute).needsUpdate = true;
   geo.computeBoundingBox();
   geo.computeBoundingSphere();
-
   return {
     geometry: geo,
-    thickness,
-    contours: shapes.length,
+    thickness: Math.max(0.01, 2 * zmax),
+    contours: 1,
     contourPoints,
-    fallbacks,
-    triangles: n / 3,
+    fallbacks: 0,
+    triangles: indices.length / 3,
   };
+}
+
+/** 異常な形 (マスクが空に近い) の最終手段: 小さな球。 */
+function fallbackDisc(scale: number): PartGeometryResult {
+  const r = 0.05 * scale;
+  const geo = new THREE.SphereGeometry(r, 12, 8);
+  const n = geo.getAttribute('position').count;
+  const col = new Float32Array(n * 3).fill(1);
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const uv = new Float32Array(n * 2).fill(0.5);
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return { geometry: geo, thickness: 2 * r, contours: 1, contourPoints: 12, fallbacks: 1, triangles: (geo.getIndex()?.count ?? 0) / 3 };
 }
