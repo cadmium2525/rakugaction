@@ -988,8 +988,20 @@
   }
 }
 
-/* ---------- ハブ: 横向きスマホ (高さ 420px 以下) では 1 画面に収める ---------- */
-@media (max-height: 420px) and (orientation: landscape) {
+/* ---------- ハブ: 横向きで高さが足りない時は 1 画面に収める (2 段階) ---------- */
+/* 高さ 740px 以下: 標準のレイアウトは内容が約 720px 必要なので、能力カードをキャラクターの横 (左上) に出して縦を節約する */
+@media (max-height: 740px) and (orientation: landscape) {
+  .hub-panel .stat-card {
+    position: fixed;
+    left: calc(var(--safe-left) + 10px);
+    top: calc(var(--safe-top) + 10px);
+    width: min(166px, 24vw);
+    z-index: 2;
+  }
+}
+/* 高さ 560px 以下 (iPhone Pro Max の横向き 932×430 を含む): ステージカードを 1 行・メニューを 3 列にして詰める。
+   上の段の内容 (約 513px + 余白) がちょうど収まる高さ (≈ 540px) より上は標準のカード表示に戻る */
+@media (max-height: 560px) and (orientation: landscape) {
   .hub-panel {
     gap: 5px;
     padding: 6px 8px;
@@ -1031,14 +1043,6 @@
   }
   .stage-card .sc-clear {
     font-size: 14px;
-  }
-  /* 能力カードはキャラクターの横 (左上) に出す: パネルの外へ */
-  .hub-panel .stat-card {
-    position: fixed;
-    left: calc(var(--safe-left) + 10px);
-    top: calc(var(--safe-top) + 10px);
-    width: min(166px, 24vw);
-    z-index: 2;
   }
   .hub-menu {
     grid-template-columns: 1fr 1fr 1fr;
