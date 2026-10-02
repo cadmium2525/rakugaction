@@ -7,6 +7,12 @@
       "runtimeArgs": ["run", "dev"],
       "port": 5173,
       "autoPort": true
+    },
+    {
+      "name": "pages-sim",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/serve-subpath.mjs"],
+      "port": 8099
     }
   ]
 }

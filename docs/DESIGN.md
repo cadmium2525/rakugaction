@@ -64,8 +64,8 @@ src/
   ui/                       画面 (title/editor/birth/hub/result/ranking/settings), HUD, CSS
   app/                      App, 画面遷移
 tests/                      Vitest (ロジック + ヘッドレス物理 + ボット攻略)
-tools/                      QA/バランス計測スクリプト
-docs/                       DESIGN / PROGRESS / QA / RANKING
+scripts/                    確認用スクリプト (GitHub Pages 風のサブパス配信 `npm run preview:pages`)
+docs/                       DESIGN / PROGRESS / RANKING (+ 最終整備の README.md はルート)
 firebase/firestore.rules    ランキング用セキュリティルール
 .github/workflows/deploy.yml
 ```
