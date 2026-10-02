@@ -104,7 +104,9 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
         expect(r.contours).toBeGreaterThan(0);
       }
       expect(report.totalTriangles).toBeLessThan(20000);
-      expect(report.drawCalls).toBe(6);
+      expect(report.meshes).toBe(6);
+      expect(report.drawCalls).toBeGreaterThanOrEqual(6);
+      expect(report.drawCalls).toBeLessThanOrEqual(12);
       // 全ジオメトリが有限
       rig.root.updateMatrixWorld(true);
       let meshes = 0;
@@ -113,9 +115,12 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
         if (!m.isMesh) return;
         meshes++;
         expect(allAttributesFinite(m.geometry), `${m.name} attributes finite`).toBe(true);
-        const map = (m.material as THREE.MeshToonMaterial).map as THREE.DataTexture;
-        expect(map.image.width).toBe(TEX_RES);
-        expect(map.image.data!.length).toBe(TEX_RES * TEX_RES * 4);
+        // 正面の絵のパーツは [前面, 背面] の 2 材質のことがある
+        for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+          const map = (mat as THREE.MeshToonMaterial).map as THREE.DataTexture;
+          expect(map.image.width).toBe(TEX_RES);
+          expect(map.image.data!.length).toBe(TEX_RES * TEX_RES * 4);
+        }
       });
       expect(meshes).toBe(6);
       // 実際の利用と同じく Animator を付けた状態 (待機ポーズ: 長すぎる腕は外へ開く) で全体寸法を見る

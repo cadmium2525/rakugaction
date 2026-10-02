@@ -40,6 +40,9 @@ export interface BuildReport {
   /** スロットの id → 生成の記録 */
   parts: Record<string, PartReport>;
   totalTriangles: number;
+  /** メッシュの数 (置かれたパーツの数) */
+  meshes: number;
+  /** 描画呼び出しの数 (背中側に別の絵を持つパーツは 2 回) */
   drawCalls: number;
   ms: number;
 }
@@ -106,7 +109,7 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
 
   // ---- スロットごとにジオメトリとマテリアル (ペアの左右で共有) ----
   const geos = new Map<string, PartGeometryResult>();
-  const mats = new Map<string, THREE.MeshToonMaterial>();
+  const mats = new Map<string, THREE.MeshToonMaterial | THREE.MeshToonMaterial[]>();
   const reports: Record<string, PartReport> = {};
   let totalTris = 0;
   for (const prep of prepared) {
@@ -115,7 +118,11 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     // レイアウトはダウンサンプル座標なので、フル解像度の座標へ
     const g = buildPartGeometry(prep.slot.kind, prep.cleaned, first.ax * LAYOUT_FACTOR, first.ay * LAYOUT_FACTOR, S);
     geos.set(prep.slot.id, g);
-    mats.set(prep.slot.id, characterMaterial({ map: textureFromRgba(prep.cleaned.texture, TEX_RES), vertexColors: true }, rimOf(prep.cleaned.outline)));
+    const rim = rimOf(prep.cleaned.outline);
+    const frontMat = characterMaterial({ map: textureFromRgba(prep.cleaned.texture, TEX_RES), vertexColors: true }, rim);
+    const backPic = prep.cleaned.backTexture;
+    // 正面の絵のパーツは、背中側に顔などの描き込みを出さない (後ろ姿が、こちらを向いたまま後ろ歩きして見える)。[前面, 背面]
+    mats.set(prep.slot.id, backPic ? [frontMat, characterMaterial({ map: textureFromRgba(backPic, TEX_RES), vertexColors: true }, rim)] : frontMat);
     totalTris += g.triangles;
     reports[prep.slot.id] = {
       usedDefault: prep.usedDefault,
@@ -235,7 +242,8 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
   const report: BuildReport = {
     parts: reports,
     totalTriangles: totalTris,
-    drawCalls: L.placed.length,
+    meshes: L.placed.length,
+    drawCalls: L.placed.reduce((n, p) => n + (Array.isArray(mats.get(p.slotId)) ? 2 : 1), 0),
     ms: performance.now() - t0,
   };
   return { rig: character, layout, prepared, body, color, analysis, report };

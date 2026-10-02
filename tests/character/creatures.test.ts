@@ -44,7 +44,7 @@ describe('自由なパーツ構成: 四足・多腕・翼・多足・混成', ()
       const expected = data.parts.reduce((n, p) => n + (p.pair ? 2 : 1), 0);
       expect(layout.placed.length).toBe(expected);
       expect(rig.parts.length).toBe(expected - 1); // 胴体以外
-      expect(report.drawCalls).toBe(expected);
+      expect(report.meshes).toBe(expected);
       for (const p of rig.parts) expect(rig.body.getObjectByName(p.pivot.name), p.pivot.name).toBeTruthy();
       expect(report.totalTriangles).toBeLessThan(3000 * expected + 500);
       const b = vertexBounds(rig.root);

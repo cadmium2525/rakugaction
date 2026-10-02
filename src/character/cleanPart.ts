@@ -1,4 +1,5 @@
 import type { DrawingRaster } from '../drawing/raster';
+import { buildBackTexture } from './backTexture';
 import { COLOR_CLASSES, classifyColor, emptyWeights } from './colorClass';
 import type { ColorWeights } from './colorClass';
 import { dilate, distanceSquared, fillHoles, maxInscribedRadius, medianHalfWidth, removeSpecks } from './maskOps';
@@ -37,6 +38,11 @@ export interface CleanedPart {
   halfWidth: number;
   /** 輪郭の線の色 (0..255)。テクスチャの縁の帯は内側の塗りの色に置き換えてあり、縁の線はこの色で材質が引く */
   outline: [number, number, number];
+  /**
+   * 背中側のテクスチャ (顔などの細かい描き込みを消したもの)。正面の絵のパーツだけ (opts.back)。
+   * 消す物が無ければ null (前と同じ絵を使う)。
+   */
+  backTexture: Uint8ClampedArray | null;
 }
 
 /** 実際に描かれたピクセルを色分類して集計する (同じ色は結果を再利用)。 */
@@ -78,7 +84,7 @@ function count(m: Uint8Array): number {
  *  4. テクスチャを作る: 線/塗りの色、囲まれた未塗り部分は紙色、膨らませた部分は近傍色でにじませる
  * 入力のマスクが空の場合は呼び出し側で既定形状に差し替えること。
  */
-export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean } = {}): CleanedPart {
+export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean; back?: boolean } = {}): CleanedPart {
   const res = raster.res;
   const src = raster.mask();
   const rawArea = count(src);
@@ -95,6 +101,7 @@ export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean } = {
 
   const texture = opts.texture === false ? new Uint8ClampedArray(0) : buildTexture(raster, src, base, res, dilateRadius);
   const outline = opts.texture === false ? DEFAULT_OUTLINE : stripOutline(texture, mask, res);
+  const backTexture = opts.texture === false || !opts.back ? null : buildBackTexture(texture, mask, res, TEX_RES);
   const { inkPixels, colorWeights } = measureInk(raster, src);
   return {
     res,
@@ -111,6 +118,7 @@ export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean } = {
     inscribedRadius: rIn + dilateRadius,
     halfWidth,
     outline,
+    backTexture,
   };
 }
 

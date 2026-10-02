@@ -34,7 +34,7 @@ export function prepareSlots(drawing: DrawingData, opts: { rasterRes?: number; t
       raster = rasterize(slot.flip ? mirrorOps(def) : def, opts.rasterRes);
       usedDefault = true;
     }
-    return { slot, cleaned: cleanPart(raster, { texture: opts.texture !== false }), usedDefault };
+    return { slot, cleaned: cleanPart(raster, { texture: opts.texture !== false, back: slot.view === 'front' }), usedDefault };
   });
 }
 

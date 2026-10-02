@@ -399,6 +399,18 @@ export function chimeraDoodle(): DrawingData {
   return d;
 }
 
+/** 顔つきの人型 (正面): 頭に目と口、胴体にボタン。背中側に顔が出ないことの確認用 */
+export function facedDoodle(): DrawingData {
+  const eye = (cx: number): DrawOp[] => shape(INK, circle(cx, 0.44, 0.045, 24), [cx, 0.44]);
+  const mouth = pen(INK, 0.025, [0.38, 0.62, 0.44, 0.68, 0.5, 0.7, 0.56, 0.68, 0.62, 0.62]);
+  return fromTemplate('human', {
+    body: [...shape('#e53935', roundRectPts(0.25, 0.12, 0.75, 0.88, 0.12), [0.5, 0.2]), ...shape('#ffffff', circle(0.5, 0.45, 0.05, 24), [0.5, 0.45])],
+    head: [...shape('#fdd835', circle(0.5, 0.5, 0.3), [0.5, 0.3]), ...eye(0.4), ...eye(0.6), mouth],
+    arms: shape('#fdd835', roundRectPts(0.4, 0.1, 0.6, 0.8, 0.08), [0.5, 0.4]),
+    legs: shape('#1e63d6', roundRectPts(0.38, 0.1, 0.62, 0.88, 0.08), [0.5, 0.5]),
+  });
+}
+
 /** 新しいパーツ構成のキャラクター一覧 (自動テスト用)。 */
 export function creatureDoodles(): NamedDoodle[] {
   return [
@@ -407,6 +419,7 @@ export function creatureDoodles(): NamedDoodle[] {
     { name: 'bird', data: birdDoodle() },
     { name: 'insect', data: insectDoodle() },
     { name: 'chimera', data: chimeraDoodle() },
+    { name: 'faced', data: facedDoodle() },
     { name: 'bodyOnlySide', data: fromTemplate('free', { body: shape('#e53935', ellipse(0.5, 0.5, 0.4, 0.3), [0.5, 0.5]) }) },
     { name: 'allDefaults(quadruped)', data: fromTemplate('quadruped', {}) },
     { name: 'allDefaults(insect)', data: fromTemplate('insect', {}) },

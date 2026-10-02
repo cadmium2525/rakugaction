@@ -323,7 +323,9 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
     uv[v * 2 + 1] = 1 - py[v] / res;
     col[v * 3] = col[v * 3 + 1] = col[v * 3 + 2] = shade[v];
   }
-  const indices: number[] = [];
+  // 前面の三角形 (材質 0) と背面の三角形 (材質 1) を分けて並べる。背面だけ別のテクスチャ (顔を消した絵) にできる
+  const frontIdx: number[] = [];
+  const backIdx: number[] = [];
   const area2 = (a: number, b: number, c: number): number =>
     (pos[b * 3] - pos[a * 3]) * (pos[c * 3 + 1] - pos[a * 3 + 1]) - (pos[c * 3] - pos[a * 3]) * (pos[b * 3 + 1] - pos[a * 3 + 1]);
   for (let t = 0; t < tris.length; t += 3) {
@@ -333,21 +335,25 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
     const s = area2(a, b, c);
     if (Math.abs(s) < 1e-18) continue;
     // 前面: 手前 (+z) から見て反時計回り
-    if (s > 0) indices.push(a, b, c);
-    else indices.push(a, c, b);
+    if (s > 0) frontIdx.push(a, b, c);
+    else frontIdx.push(a, c, b);
     const ba = backOf[a];
     const bb = backOf[b];
     const bc = backOf[c];
     // 背面: 奥 (−z) から見て反時計回り = 前面の逆回り
-    if (s > 0) indices.push(ba, bc, bb);
-    else indices.push(ba, bb, bc);
+    if (s > 0) backIdx.push(ba, bc, bb);
+    else backIdx.push(ba, bb, bc);
   }
+  const indices = frontIdx.concat(backIdx);
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setIndex(indices);
+  // 材質が 1 つの時は無視される (全体を 1 回で描く)。材質が 2 つ (前・背中) の時だけ使われる
+  geo.addGroup(0, frontIdx.length, 0);
+  geo.addGroup(frontIdx.length, backIdx.length, 1);
   geo.computeVertexNormals();
   geo.computeBoundingBox();
   geo.computeBoundingSphere();

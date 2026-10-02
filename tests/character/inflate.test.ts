@@ -32,6 +32,7 @@ function partOf(fn: (x: number, y: number) => boolean): CleanedPart {
     inscribedRadius: 40,
     halfWidth: 40,
     outline: [32, 33, 36],
+    backTexture: null,
   };
 }
 
