@@ -291,7 +291,8 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   const isEdge = new Uint8Array(nFront);
   for (const t of eh) if (t >= 0) isEdge[t] = 1;
   for (const t of ev) if (t >= 0) isEdge[t] = 1;
-  smoothContour(px, py, tris, isEdge, g * 0.35);
+  const ring = contourNeighbors(tris, isEdge);
+  smoothContour(px, py, ring, g * 0.35);
   const backOf = new Int32Array(nFront);
   for (let v = 0; v < nFront; v++) {
     if (isEdge[v]) {
@@ -357,6 +358,7 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   geo.addGroup(frontIdx.length, backIdx.length, 1);
   geo.computeVertexNormals();
   smoothNormals(geo, 2);
+  setContourNormals(geo, ring);
   geo.computeBoundingBox();
   geo.computeBoundingSphere();
   return {
@@ -369,13 +371,8 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   };
 }
 
-/**
- * 輪郭の頂点 (等高線の上の点) を、輪郭に沿って少しならす (面内の位置だけ。前面と背面が共有しているので、水密のまま)。
- * マーチングスクエアの輪郭は格子の辺の上にしか頂点が置けず、階段状の細かいぎざぎざになる。横向きのパーツを前後から見ると、
- * 中心線の縁がはしご状の点線に見えるので、2 回 (縮まらない Taubin の λ|μ) ならす。動かす量は最大 maxMove (格子の 0.35 マス) まで。
- */
-function smoothContour(px: number[], py: number[], tris: number[], isEdge: Uint8Array, maxMove: number): void {
-  // 輪郭の線分 = 三角形の中の、輪郭の頂点 2 つの組 (多角形の隣り合う 2 頂点)
+/** 輪郭の隣り合う頂点: 三角形の中の、輪郭の頂点 2 つの組 (多角形の隣り合う 2 頂点 = 輪郭の線分)。 */
+function contourNeighbors(tris: number[], isEdge: Uint8Array): Map<number, number[]> {
   const next = new Map<number, number[]>();
   const link = (a: number, b: number): void => {
     for (const [p, q] of [[a, b], [b, a]] as const) {
@@ -389,6 +386,41 @@ function smoothContour(px: number[], py: number[], tris: number[], isEdge: Uint8
     for (let k = 0; k < 3; k++) if (tris[t + k] < isEdge.length && isEdge[tris[t + k]]) r.push(tris[t + k]);
     if (r.length === 2) link(r[0], r[1]);
   }
+  return next;
+}
+
+/**
+ * 輪郭の頂点の法線を、輪郭の接線から決める (面内で外向き・z = 0)。隣り合う面の法線を平均するだけだと、
+ * 大きさのふぞろいな三角形のせいで向きがばらつき、縁を暗くするシェーダーで前後から見た時の縫い目が点線になる。
+ */
+function setContourNormals(geo: THREE.BufferGeometry, next: Map<number, number[]>): void {
+  const pos = geo.getAttribute('position');
+  const nrm = geo.getAttribute('normal');
+  for (const [v, list] of next) {
+    if (list.length !== 2) continue;
+    const [a, b] = list;
+    const tx = pos.getX(b) - pos.getX(a);
+    const ty = pos.getY(b) - pos.getY(a);
+    const len = Math.hypot(tx, ty);
+    if (len < 1e-9) continue;
+    let nx = ty / len;
+    let ny = -tx / len;
+    // 今の法線 (面から求めたもの) の面内の向きに合わせて、外向きにする
+    if (nx * nrm.getX(v) + ny * nrm.getY(v) < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    nrm.setXYZ(v, nx, ny, 0);
+  }
+  nrm.needsUpdate = true;
+}
+
+/**
+ * 輪郭の頂点 (等高線の上の点) を、輪郭に沿って少しならす (面内の位置だけ。前面と背面が共有しているので、水密のまま)。
+ * マーチングスクエアの輪郭は格子の辺の上にしか頂点が置けず、階段状の細かいぎざぎざになる。横向きのパーツを前後から見ると、
+ * 中心線の縁がはしご状の点線に見えるので、2 回 (縮まらない Taubin の λ|μ) ならす。動かす量は最大 maxMove (格子の 0.35 マス) まで。
+ */
+function smoothContour(px: number[], py: number[], next: Map<number, number[]>, maxMove: number): void {
   const ids = [...next.entries()].filter(([, l]) => l.length === 2).map(([v]) => v);
   if (ids.length < 6) return;
   const ox = new Map<number, number>();
