@@ -56,4 +56,28 @@ describe('輪郭の線の除去 (縁を暗くするシェーダーが引くの�
     const withHair = darkInside([...blob(head, 0.045, [0.5, 0.6]), ...hair]);
     expect(withHair.dark / withHair.total, '黒髪').toBeGreaterThan(0.04);
   });
+
+  it('シルエットのすぐ外側 (にじませた部分) にも、輪郭の線の色が残らない (縁で補間されて黒い線が混ざるのを防ぐ)', () => {
+    for (const ops of [blob(circle(0.5, 0.5, 0.3), 0.08, [0.5, 0.5]), blob(ellipse(0.5, 0.5, 0.42, 0.26), 0.14, [0.5, 0.5])]) {
+      const c = cleanPart(rasterize(ops, RASTER_RES));
+      const f = Math.round(c.res / TEX_RES);
+      const inside = (x: number, y: number): boolean => {
+        for (let dy = 0; dy < f; dy++) for (let dx = 0; dx < f; dx++) if (c.mask[(y * f + dy) * c.res + x * f + dx]) return true;
+        return false;
+      };
+      let dark = 0;
+      for (let y = 2; y < TEX_RES - 2; y++) {
+        for (let x = 2; x < TEX_RES - 2; x++) {
+          if (inside(x, y)) continue;
+          // 内側に隣り合う (すぐ外側 1〜2 画素) 画素だけを見る
+          let near = false;
+          for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) if (inside(x + dx, y + dy)) near = true;
+          if (!near) continue;
+          const i = (y * TEX_RES + x) * 4;
+          if (c.texture[i] < 90 && c.texture[i + 1] < 90 && c.texture[i + 2] < 90) dark++;
+        }
+      }
+      expect(dark).toBe(0);
+    }
+  });
 });

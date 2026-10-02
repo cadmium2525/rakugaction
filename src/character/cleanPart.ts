@@ -101,6 +101,7 @@ export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean; back
 
   const texture = opts.texture === false ? new Uint8ClampedArray(0) : buildTexture(raster, src, base, res, dilateRadius);
   const outline = opts.texture === false ? DEFAULT_OUTLINE : stripOutline(texture, mask, res);
+  if (opts.texture !== false) bleedOutside(texture, mask, res);
   const backTexture = opts.texture === false || !opts.back ? null : buildBackTexture(texture, mask, res, TEX_RES);
   const { inkPixels, colorWeights } = measureInk(raster, src);
   return {
@@ -222,6 +223,60 @@ function buildTexture(raster: DrawingRaster, srcMask: Uint8Array, shape: Uint8Ar
     out[i * 4 + 3] = 255;
   }
   return out;
+}
+
+/**
+ * シルエットの外側 (にじませた部分) の色を、輪郭の線を消した後の内側の色から作り直す。
+ * 最初のにじみは、輪郭の線 (黒) を消す前の色から広げているので、外側が黒いまま残り、ジオメトリの縁 (輪郭の頂点はシルエットの境界の上) で
+ * バイリニア補間されて、縁に黒い細い線が混ざる。横向きのパーツを前後から見ると、縫い目が点線に見えていた。
+ */
+function bleedOutside(tex: Uint8ClampedArray, mask: Uint8Array, res: number): void {
+  const tr = TEX_RES;
+  const factor = Math.max(1, Math.round(res / tr));
+  const have = new Uint8Array(tr * tr);
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      if (mask[y * res + x]) have[Math.min(tr - 1, Math.floor(y / factor)) * tr + Math.min(tr - 1, Math.floor(x / factor))] = 1;
+    }
+  }
+  const next = new Uint8Array(tr * tr);
+  for (let step = 0; step < 10; step++) {
+    next.set(have);
+    let changed = false;
+    for (let y = 0; y < tr; y++) {
+      for (let x = 0; x < tr; x++) {
+        const i = y * tr + x;
+        if (have[i]) continue;
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          const ny = y + dy;
+          if (ny < 0 || ny >= tr) continue;
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            if (nx < 0 || nx >= tr) continue;
+            const j = ny * tr + nx;
+            if (!have[j]) continue;
+            r += tex[j * 4];
+            g += tex[j * 4 + 1];
+            b += tex[j * 4 + 2];
+            n++;
+          }
+        }
+        if (n > 0) {
+          tex[i * 4] = r / n;
+          tex[i * 4 + 1] = g / n;
+          tex[i * 4 + 2] = b / n;
+          next[i] = 1;
+          changed = true;
+        }
+      }
+    }
+    have.set(next);
+    if (!changed) break;
+  }
 }
 
 /** 輪郭の線の色が分からない時 (線が無い・細すぎる) の既定: 墨色。 */
