@@ -4,7 +4,7 @@ import { RouteSet } from './routes';
 import type { StageDef, WindDef } from './types';
 
 /** 横風の強さ (m/s)。体重で効き方が変わる: 軽い = 流されやすい / 重い = 風に強い。 */
-const CROSSWIND = 12.5;
+const CROSSWIND = 14.0;
 /** 風が止む (lull) 時間を短くすると、軽いビルドの待ち時間が増える。 */
 const GUST: NonNullable<WindDef['gust']> = { period: 6, on: 4.0, ramp: 0.35 };
 

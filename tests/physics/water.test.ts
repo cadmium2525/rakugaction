@@ -110,6 +110,38 @@ describe('泳ぎ', () => {
     expect(std).toBeLessThan(paramsFor('STANDARD').maxSpeed * 0.8);
   });
 
+  it('水底歩行: 水底に立っている間は泳ぐより速く歩ける (重い体ほど速い)。軽い/中性の体は今までどおり泳ぐ', async () => {
+    const onFloor = async (id: string, input: () => Record<string, unknown>): Promise<{ speed: number; walking: boolean; swimming: boolean }> => {
+      const sim = await makeSim(pool(), id);
+      sim.player.placeFeet(0, -5.9, -10);
+      run(sim, 150); // 底に落ち着く (ほぼ中性の体はゆっくり沈む)
+      run(sim, 90, input);
+      return { speed: sim.player.horizontalSpeed, walking: sim.player.bottomWalking, swimming: sim.player.swimming };
+    };
+    const walkers: Record<string, number> = {};
+    for (const id of ['HEAVY', 'EXTREME']) {
+      const p = paramsFor(id);
+      const walk = await onFloor(id, () => ({ moveX: 1 }));
+      walkers[id] = walk.speed;
+      expect(walk.swimming, id).toBe(true); // 水中ではある
+      expect(walk.walking, id).toBe(true);
+      expect(walk.speed, id).toBeGreaterThan(p.swimSpeed + 0.3); // 泳ぐより明らかに速い
+      expect(walk.speed, id).toBeLessThanOrEqual(p.maxSpeed * 0.8 + 0.2); // 地上より遅い (最大 80%)
+      // JUMP を押して浮こうとしている間は歩かず泳ぎ (泳ぎ速度に収まる)
+      const swim = await onFloor(id, () => ({ moveX: 1, jumpHeld: true }));
+      expect(swim.walking, id).toBe(false);
+      expect(swim.speed, id).toBeLessThanOrEqual(p.swimSpeed + 0.3);
+    }
+    // 重いほど歩きの効果が大きい (密度 1.22 の EXTREME は 1.01 の HEAVY より、泳ぎに対する歩きの比が大きい)
+    expect(walkers.EXTREME / paramsFor('EXTREME').swimSpeed).toBeGreaterThan(walkers.HEAVY / paramsFor('HEAVY').swimSpeed);
+    // 軽い SPEED・中性の STANDARD は泳ぎの方が速いので、水底に立っていても泳ぎ速度 (歩きにならない)
+    for (const id of ['SPEED', 'STANDARD']) {
+      const r = await onFloor(id, () => ({ moveX: 1, actionHeld: true }));
+      expect(r.walking, id).toBe(false);
+      expect(r.speed, id).toBeLessThanOrEqual(paramsFor(id).swimSpeed + 0.3);
+    }
+  });
+
   it('水中でも壁に沿って進め、水面の外 (陸) に出ると通常移動に戻る', async () => {
     const sim = await makeSim(pool(), 'STANDARD');
     sim.player.placeFeet(0, -3, 0);

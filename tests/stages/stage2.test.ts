@@ -36,10 +36,11 @@ describe('STAGE 2 強風の谷', () => {
     expect(fast.get('SPEED')!.time).toBeLessThan(main.get('SPEED')!.time - 2);
   }, 300_000);
 
-  it('STAGE 2 は風に強い (体重の重い) ビルドが有利: HEAVY/EXTREME/POWER/JUMP は STANDARD より 15% 以上、SPEED より 8% 以上速い', () => {
-    for (const heavy of ['HEAVY', 'EXTREME', 'POWER', 'JUMP']) {
-      expect(best(heavy), `${heavy} vs STANDARD`).toBeLessThan(best('STANDARD') * 0.85);
-      expect(best(heavy), `${heavy} vs SPEED`).toBeLessThan(best('SPEED') * 0.92);
+  it('STAGE 2 は風に強い (体重が十分重い) ビルドが有利: HEAVY/EXTREME は風に抗って待たずに渡れ、他より明らかに速い', () => {
+    // 体重 130 以上 (HEAVY/EXTREME) は風を押し切れる。体重 108〜110 (JUMP/POWER) や標準以下は押し切れず、風の止み間を待つ
+    for (const heavy of ['HEAVY', 'EXTREME']) {
+      for (const other of ['STANDARD', 'JUMP', 'POWER']) expect(best(heavy), `${heavy} vs ${other}`).toBeLessThan(best(other) * 0.8);
+      expect(best(heavy), `${heavy} vs SPEED`).toBeLessThan(best('SPEED') * 0.9);
     }
   });
 

@@ -1,3 +1,4 @@
+import { WATER_JUMP_DEPTH } from './player';
 import { emptyInput } from '../input/types';
 import type { SimInput } from '../input/types';
 import type { WaypointDef } from '../stages/types';
@@ -149,7 +150,9 @@ export class Bot {
     // 到着判定
     if (wp.jump) {
       const jd = wp.jumpDist ?? DEFAULT_JUMP_DIST;
-      if ((p.grounded || p.swimming) && dist <= jd + p.horizontalSpeed * 0.04) {
+      // 水中では、体が水面近くまで上がってから跳ぶ (深い所の JUMP は浮上の泳ぎになり、水から跳び出せない)
+      const canJump = p.grounded || (p.swimming && p.submerge < WATER_JUMP_DEPTH - 0.04);
+      if (canJump && dist <= jd + p.horizontalSpeed * 0.04) {
         out.jumpPressed = true;
         out.jumpHeld = true;
         this.holdJump = true;

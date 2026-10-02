@@ -32,13 +32,21 @@ const GROUND_WIND_FACTOR = 0.55;
 /** この割合以上浸かると泳ぎ (胸まで) */
 const SWIM_DEPTH = 0.5;
 /** 水面近く (これ未満の浸かり方) でジャンプすると水から跳び出せる */
-const WATER_JUMP_DEPTH = 0.92;
+export const WATER_JUMP_DEPTH = 0.92;
 const WATER_JUMP_MUL = 0.95;
 /** 浮力の係数 (m/s²): (1 - 密度) × この値 */
 const BUOYANCY = 16;
 /** 泳ぎの掻き (m/s²) と最大上下速度 (m/s)、水の抵抗 */
 const SWIM_STROKE = 15;
 const SWIM_VMAX = 4.2;
+/**
+ * 水底歩行: 水底に立っている間 (JUMP で浮こうとしていない時) は、泳ぐ代わりに歩ける。
+ * 歩く速さは地上の最高速度の 45%〜80% で、体が重い (密度が高い) ほど速い (密度 0.9 → 45%、1.2 以上 → 80%)。
+ * 実際の上限は「泳ぎ」と「歩き」の速い方 → 軽い体は今までどおり泳ぎ、重い体は水底を歩く方が速い (連続的で、境目の崖がない)。
+ */
+const BOTTOM_WALK_MIN = 0.45;
+const BOTTOM_WALK_MAX = 0.8;
+const BOTTOM_WALK_ACCEL = 0.7;
 const WATER_VDRAG = 3.2;
 const WATER_DRAG = 7;
 /** 被ダメージ直後に操作を受け付けない時間 (秒)。 */
@@ -87,6 +95,8 @@ export class PlayerController {
   stunTimer = 0;
   /** 水中 (胸まで浸かっている) か / 体のどれだけが水に浸かっているか (0..1) */
   swimming = false;
+  /** 水底を歩いている (沈む体が水底に立っている) */
+  bottomWalking = false;
   submerge = 0;
 
   private coyote = 0;
@@ -223,8 +233,12 @@ export class PlayerController {
     this.swimming = swimming;
     // 浅瀬 (膝〜腰) では少し遅くなる。深いと泳ぎ速度 (体が小さいほど速い)。
     const wade = 1 - 0.3 * Math.min(1, sub / SWIM_DEPTH);
-    const maxSp = swimming ? p.swimSpeed : p.maxSpeed * wade;
-    const accel = swimming ? p.swimAccel : this.grounded ? p.accel : p.airAccel;
+    // 水底歩行: 沈む体 (重い) が水底に立っている間 (JUMP で浮こうとしていない時) は、泳ぐより速く歩ける。軽い体は浮くので泳ぐ
+    const bottomSp = p.maxSpeed * (BOTTOM_WALK_MIN + (BOTTOM_WALK_MAX - BOTTOM_WALK_MIN) * clamp((p.density - 0.9) / 0.3, 0, 1));
+    const bottomWalk = swimming && this.grounded && !input.jumpHeld && bottomSp > p.swimSpeed;
+    this.bottomWalking = bottomWalk;
+    const maxSp = bottomWalk ? bottomSp : swimming ? p.swimSpeed : p.maxSpeed * wade;
+    const accel = bottomWalk ? p.accel * BOTTOM_WALK_ACCEL : swimming ? p.swimAccel : this.grounded ? p.accel : p.airAccel;
     const tx = ix * maxSp;
     const tz = iz * maxSp;
     if (il > 0.01) {
@@ -244,7 +258,7 @@ export class PlayerController {
       const maxTurn = p.turnRate * dt;
       this.yaw = wrapPi(this.yaw + clamp(dy, -maxTurn, maxTurn));
     } else {
-      const decel = (swimming ? WATER_DRAG : this.grounded ? p.friction : p.airDrag) * dt;
+      const decel = (bottomWalk ? p.friction : swimming ? WATER_DRAG : this.grounded ? p.friction : p.airDrag) * dt;
       const sp = this.horizontalSpeed;
       if (sp > 0) {
         const ns = Math.max(0, sp - decel);

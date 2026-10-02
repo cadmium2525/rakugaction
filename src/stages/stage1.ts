@@ -1,11 +1,14 @@
 import { Rng } from '../core/rng';
+import { crateBypass } from './crateBypass';
 import { PathBuilder } from './pathBuilder';
-import type { StageDef, WaypointDef } from './types';
+import { RouteSet } from './routes';
 import { addScenery } from './scenery';
+import type { StageDef } from './types';
 
 /**
  * STAGE 1: 草原 (はじまりの原っぱ)。基本操作を学ぶ。
  *   A: 緩い丘 + ACTION で壊す木箱の壁
+ *   A': 木箱の抜け道。攻撃力が標準以上のビルドは木箱の壁を壊して直進 (近道 'rock')、壊せないビルドは大回り
  *   B: せせらぎの飛び石 (ジャンプ)
  *   C: 階段状の丘 + 動く橋。高速/高ジャンプ型は橋を使わず 6.4m のギャップを跳び越える近道あり
  *   D: スパイク地帯の長い坂 → ゴール
@@ -13,6 +16,7 @@ import { addScenery } from './scenery';
  */
 export function buildStage1(): StageDef {
   const b = new PathBuilder([0, 0, 0], 'z+', { w: 7, thick: 1.4, style: 'grass' });
+  const rs = new RouteSet();
 
   // ---- A: はじまりの原っぱ ----
   // スタート地点の後ろにも床を延ばす (カメラが崖の外に出ないように)
@@ -39,6 +43,11 @@ export function buildStage1(): StageDef {
   b.route.push({ pos: after, radius: 1.2 });
   b.flat(6, { w: 8 });
   b.checkpoint('cp0');
+  rs.common(b.takeRoute());
+
+  // ---- A': 木箱の抜け道 (攻撃力のあるビルドの近道。壊せない SPEED/JUMP などは大回り) ----
+  const bp = crateBypass(b, { corridor: 14, detour: 20, pHalf: 4, qHalf: 4, qDepth: 8 });
+  rs.fork({ main: [...bp.outer, bp.join], rock: [...bp.shortcut, bp.join] });
 
   // ---- B: せせらぎの飛び石 ----
   b.flat(6, { w: 6 });
@@ -62,11 +71,22 @@ export function buildStage1(): StageDef {
   b.gap(1.8, -1.0);
   // 広い台地: 左レーンに動く橋 (本道)、右レーンに 6.4m のギャップ (高速/高ジャンプ型の近道)
   b.flat(12, { w: 20, lateral: 0 });
-  const mainBefore = b.route.slice();
+  // 台の端の中央のウェイポイントは本道 (橋) だけが通る (近道は台の中を斜めに助走して端から跳ぶ。端で止まると助走が足りない)
+  const platformEndWp = b.route.pop();
+  rs.common(b.takeRoute());
+  const platformEnd = b.point(0);
   const gapLen = 6.4;
   // ギャップの床 (左右の端に並べて、中央〜左に動く橋、右は何もない)
   b.moverBridge(gapLen, { size: 4.5, w: 5, speed: 3.4, pause: 1.0, lateral: -5 });
-  const afterBridgeIdx = b.route.length;
+  const bridge = platformEndWp ? [platformEndWp, ...b.takeRoute()] : b.takeRoute();
+  // 近道 (dash): 右レーン (lateral +5) で 6.4m を跳び越える (高速/高ジャンプ型だけが成功する)
+  rs.fork({
+    main: bridge,
+    dash: [
+      { pos: [platformEnd[0] - 5, platformEnd[1], platformEnd[2] - 0.2], radius: 1.0 },
+      { pos: [platformEnd[0] - 5, platformEnd[1], platformEnd[2] - 0.2], jump: true, jumpDist: 0.35 },
+    ],
+  });
   b.flat(12, { w: 20 });
   b.checkpoint('cp2');
 
@@ -89,17 +109,11 @@ export function buildStage1(): StageDef {
   b.gap(2.4, 1.0);
   b.flat(14, { w: 12 });
   b.goalHere([6, 5, 6]);
+  rs.common(b.takeRoute());
+  const routes = rs.build();
 
-  // 近道 (dash): 右レーン (lateral +5) で 6.4m を跳び越える (高速/高ジャンプ型だけが成功する)
-  const route = b.route;
-  const lastEnd = mainBefore[mainBefore.length - 1];
-  const dash: WaypointDef[] = [
-    ...mainBefore.slice(0, -1),
-    { pos: [lastEnd.pos[0] - 5, lastEnd.pos[1], lastEnd.pos[2] - 0.2], radius: 1.0 },
-    { pos: [lastEnd.pos[0] - 5, lastEnd.pos[1], lastEnd.pos[2] - 0.2], jump: true, jumpDist: 0.35 },
-    ...route.slice(afterBridgeIdx),
-  ];
-
+  // 景色は全経路 (本道) に沿って置く
+  b.route = routes.main.slice();
   const decorRng = new Rng(11);
   addScenery(b, decorRng, { tree: 0x3f9e3f, trunk: 0x8a5a33, ground: 0x6fcf4b, spacing: 14 });
 
@@ -125,7 +139,7 @@ export function buildStage1(): StageDef {
     hazards: b.hazards,
     breakables: b.breakables,
     decor: b.decor,
-    routes: { main: route, dash },
+    routes,
     parTime: 70,
   };
 }

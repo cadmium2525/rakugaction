@@ -131,6 +131,8 @@ export function buildStage3(): StageDef {
   });
   rs.common([
     pw(pumpRamp - 1, PUMP_FLOOR + 0.3),
+    // 足場の真下 (水底) まで先に行って待つ: 水位が上がった瞬間に浮上して跳べる (遅い泳ぎでも高水位の窓に間に合う)
+    pw(pumpLen - 1.5, PUMP_FLOOR + 0.3, { radius: 0.8 }),
     // 高い足場の手前で水位が上がるのを待つ (水に浮かんだまま)
     pw(pumpLen - 1.2, HIGH_LEDGE, { waitWater: { id: 'pump', level: 2.9 }, radius: 0.9 }),
     { pos: [ledgeBase[0], ledgeBase[1], ledgeBase[2] + 0.3], jump: true, jumpDist: 1.4, land: [ledgeBase[0], HIGH_LEDGE, ledgeBase[2] + 3] },

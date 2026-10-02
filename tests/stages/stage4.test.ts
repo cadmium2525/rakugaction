@@ -24,7 +24,7 @@ describe('STAGE 4 崩れる遺跡', () => {
     expect(new Set(cr.map((c) => c.id)).size).toBe(cr.length);
     expect(Math.min(...cr.map((c) => c.delay))).toBeLessThan(0.8); // 近道の床は速く崩れる
     expect(Math.max(...cr.map((c) => c.delay))).toBeGreaterThan(2); // 最初のチュートリアルの床は長く持つ
-    expect(Object.keys(stage.routes!)).toEqual(expect.arrayContaining(['main', 'hi', 'long', 'fast']));
+    expect(Object.keys(stage.routes!)).toEqual(expect.arrayContaining(['main', 'rock', 'hi', 'long', 'fast']));
   });
 
   it('全てのテストビルド (軽い/標準/重い/極端) が本道をクリアでき、落ちない', async () => {
@@ -32,7 +32,7 @@ describe('STAGE 4 崩れる遺跡', () => {
       const r = await run(id, 'main');
       expect(r.cleared, fmt(r)).toBe(true);
       expect(r.deaths, fmt(r)).toBe(0);
-      expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 100) * 1.15);
+      expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 100) * 1.25);
     }
   }, 300_000);
 
@@ -56,10 +56,21 @@ describe('STAGE 4 崩れる遺跡', () => {
     }
   }, 300_000);
 
-  it('STAGE 4 は高ジャンプ型が有利: SPEED/JUMP の最速は STANDARD より 20% 以上、重い型より 30% 以上速い', () => {
-    for (const id of ['SPEED', 'JUMP']) {
-      expect(best(id), `${id} vs STANDARD`).toBeLessThan(best('STANDARD') * 0.8);
-      for (const heavy of ['HEAVY', 'EXTREME']) expect(best(id), `${id} vs ${heavy}`).toBeLessThan(best(heavy) * 0.7);
+  it('木箱の抜け道 (rock): 攻撃力が標準以上 (STANDARD/POWER/HEAVY/EXTREME) は壁を壊して直進でき、壊せない SPEED/JUMP は使えない。使うと大回りより 8 秒以上速い', async () => {
+    for (const id of ALL_BUILDS) await run(id, 'rock');
+    for (const id of ['STANDARD', 'POWER', 'HEAVY', 'EXTREME']) {
+      expect(get(id, 'rock').cleared, fmt(get(id, 'rock'))).toBe(true);
+      expect(get(id, 'rock').time, id).toBeLessThan(get(id, 'main').time - 8);
+    }
+    for (const id of ['SPEED', 'JUMP']) expect(get(id, 'rock').cleared, fmt(get(id, 'rock'))).toBe(false);
+  }, 300_000);
+
+  it('STAGE 4 は高ジャンプ型が有利: SPEED は STANDARD より 20% 以上・重い型より 30% 以上速く、JUMP も STANDARD より 10% 以上・重い型より 20% 以上速い', () => {
+    expect(best('SPEED'), 'SPEED vs STANDARD').toBeLessThan(best('STANDARD') * 0.8);
+    expect(best('JUMP'), 'JUMP vs STANDARD').toBeLessThan(best('STANDARD') * 0.9);
+    for (const heavy of ['HEAVY', 'EXTREME']) {
+      expect(best('SPEED'), `SPEED vs ${heavy}`).toBeLessThan(best(heavy) * 0.7);
+      expect(best('JUMP'), `JUMP vs ${heavy}`).toBeLessThan(best(heavy) * 0.8);
     }
   });
 

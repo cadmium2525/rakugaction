@@ -33,7 +33,7 @@ const LANDING = 5;
  *   1F 風: 外周の坂 4m / 近道 = 上昇気流で崖 (4m) を越える (風に流される軽い〜標準ビルド)
  *   2F 木箱: 外周 / 近道 = 木箱の壁を壊して直進 (攻撃力のあるビルド)
  *   3F 跳躍: 外周の坂 2.4m / 近道 = 2m の溝を越えて高さ 2.4m の台へ跳ぶ (ジャンプ高さ + 段差 0.3m が 2.4m 以上のビルド)
- *   4F 炎: 外周 / 近道 = 炎の床の通路を走り抜ける (ダメージに耐えられる HP/DEFENSE のビルド)
+ *   4F 炎: 外周 / 近道 = 炎の床の通路 (22m) を走り抜ける (HP 4 + DEFENSE の高い HEAVY だけが耐えられる)
  *   山頂: 長い坂 → 崩れる橋 → ゴール
  * 近道が得意なビルドはフロアごとに違う → どのビルドも全部は得意でない (万能型が安定して速い)。
  */
@@ -86,15 +86,15 @@ export function buildStage5(): StageDef {
         { pos: start.point(-3.5, P_HALF - 0.3), jump: true, jumpDist: 0.6, land: start.point(-3.5, lat1 + 3, y0 + rise) },
       ];
     } else {
-      // 炎の通路 (長さ 16m): 走り抜ける間 1.1 秒ごとに 1.1 ダメージ (ノックバックなし)。
-      // 標準的なビルドは 3 回で倒れるが、HP が多く DEFENSE の高いビルドは耐えて走り抜けられる
+      // 炎の通路 (長さ 22m): 走り抜ける間 1.1 秒ごとに 1 ダメージ (ノックバックなし)。
+      // 速いビルドは 3 回、遅い HEAVY は 4 回浴びる。HP 3 のビルドは 3 回で倒れるが、HP 4 + DEFENSE の高い HEAVY は耐えて走り抜けられる
       const core = start.branchAt(-5, P_HALF, 'R');
       const cp = core.branchAt(0, 0);
       const len = lat1 - P_HALF;
       // 世界座標の大きさ: 通路が x 方向に延びる時は [長さ, 高さ, 幅 6]、z 方向なら [幅 6, 高さ, 長さ]
       const alongX = core.heading === 'x+' || core.heading === 'x-';
       const fireSize: V3t = alongX ? [len, 0.4, 6] : [6, 0.4, len];
-      core.hazard(len / 2, 0, fireSize, { damage: 1.1, style: 'fire' });
+      core.hazard(len / 2, 0, fireSize, { damage: 1.0, style: 'fire' });
       core.flat(len, { w: 6, style: 'stone', noWp: true });
       shortcut = [{ pos: cp.point(0.2), radius: 1.0 }, { pos: cp.point(len - 1.5), radius: 1.4 }];
     }
@@ -104,7 +104,8 @@ export function buildStage5(): StageDef {
     b.flat(LANDING, { w: 8 });
     b.turn('R');
     const cb = b.branchAt(0, 0); // 連絡路の始点 (座標計算用)
-    const sweepAt = D >= 14 ? [0.33, 0.7] : [0.5];
+    // 連絡路が長いほど鉄球が増える (間隔 9m 以上: 近すぎると渡る位置が次の鉄球の危険範囲に入る)。外周を通るほど待ちが増える = 近道を使えるビルドが有利
+    const sweepAt = D >= 28 ? [0.2, 0.5, 0.8] : D >= 14 ? [0.33, 0.7] : [0.5];
     const wps: WaypointDef[] = [];
     sweepAt.forEach((f, i) => {
       const a = D * f;
@@ -150,7 +151,7 @@ export function buildStage5(): StageDef {
   floor('wind', 9, 4, 14);
   floor('crate', 16, 0, 14);
   floor('hop', 11, 2.4, 30);
-  floor('tank', 25, 0);
+  floor('tank', 31, 0);
 
   // ---- 山頂: 長い坂 → 崩れる橋 → ゴール ----
   rs.common(b.takeRoute());

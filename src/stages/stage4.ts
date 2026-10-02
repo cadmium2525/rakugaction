@@ -1,4 +1,5 @@
 import { Rng } from '../core/rng';
+import { crateBypass } from './crateBypass';
 import { PathBuilder } from './pathBuilder';
 import { RouteSet } from './routes';
 import type { StageDef, WaypointDef } from './types';
@@ -13,6 +14,7 @@ const HIGH = 2.7;
  * STAGE 4: 崩れる遺跡。乗ると崩れる床 (重いほど早く崩れる) の上を、止まらずに渡っていく。
  *   A: 遺跡の入口 (チュートリアルの崩れる大床)
  *   B: 崩れる回廊 (全員が通る。ギャップ 1.9m)
+ *   B': 木箱の抜け道 (攻撃力が標準以上なら直進 = 近道 'rock'、壊せないビルドは大回り)
  *   C: 高台。本道 = 崩れる階段 (段差 1.2m ×2) / 近道 'hi' = 高さ 2.4m を直接ジャンプ (高ジャンプ型だけ)
  *   D: 深い谷。本道 = 小さな崩れる床を 7 枚 / 近道 'long' = 3.8m 間隔の床 5 枚 (遠くまで跳べる型だけ。床の崩れが速い)
  *   E: トゲの回廊 → 崩れる橋 → ゴール
@@ -40,6 +42,10 @@ export function buildStage4(): StageDef {
   b.flat(10, { w: 16 });
   b.checkpoint('cp1');
   rs.common(b.takeRoute());
+
+  // ---- B': 木箱の抜け道 (攻撃力が標準以上のビルドは木箱の壁を壊して直進。壊せないビルドは大回り) ----
+  const bp = crateBypass(b, { corridor: 14, detour: 12, pHalf: 8, qHalf: 8, qDepth: 12 });
+  rs.fork({ main: [...bp.outer, bp.join], rock: [...bp.shortcut, bp.join] });
 
   // ---- C: 高台 (崩れる階段の大回り vs 高ジャンプ) ----
   // 台 P0 のすぐ先 (2.2m 先) に高さ HIGH の高台 B がある。HIGH は標準ビルドの届く高さ (ジャンプ 2.17m + 段差 0.3m) より高い。
@@ -167,6 +173,6 @@ export function buildStage4(): StageDef {
     crumbles: b.crumbles,
     decor: b.decor,
     routes: rs.build(),
-    parTime: 60,
+    parTime: 68,
   };
 }

@@ -57,11 +57,11 @@ describe('STAGE 5 巨人の塔', () => {
     for (const id of ['POWER', 'HEAVY', 'EXTREME']) expect(clears(id, 'h'), fmt(get(id, 'h'))).toBe(false);
   }, 300_000);
 
-  it('近道 4F 炎の床 (t): 耐えられる HP/DEFENSE の HEAVY か、駆け抜けられる SPEED だけ。標準的なビルドは倒れる', async () => {
+  it('近道 4F 炎の床 (t): HP が多く DEFENSE の高い HEAVY だけが耐えて走り抜けられる。速い SPEED も標準ビルドも HP 3 なので倒れる', async () => {
     for (const id of ALL_BUILDS) await run(id, 't');
-    for (const id of ['HEAVY', 'SPEED']) expect(clears(id, 't'), fmt(get(id, 't'))).toBe(true);
-    for (const id of ['STANDARD', 'JUMP', 'POWER', 'EXTREME']) expect(clears(id, 't'), fmt(get(id, 't'))).toBe(false);
-    expect(get('HEAVY', 't').hits).toBeGreaterThanOrEqual(2); // 炎を踏んで耐えている (ダメージを受けた)
+    expect(clears('HEAVY', 't'), fmt(get('HEAVY', 't'))).toBe(true);
+    for (const id of ['STANDARD', 'SPEED', 'JUMP', 'POWER', 'EXTREME']) expect(clears(id, 't'), fmt(get(id, 't'))).toBe(false);
+    expect(get('HEAVY', 't').hits).toBeGreaterThanOrEqual(3); // 炎を踏んで耐えている (3〜4 回のダメージ)
   }, 300_000);
 
   it('近道の組み合わせ: ビルドごとの最速ルートは本道より速く、標準ビルドは 3 つの近道 (w+c+h) を使える', async () => {

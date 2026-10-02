@@ -39,15 +39,31 @@ describe('STAGE 1 草原', () => {
     }
   }, 300_000);
 
-  it('STAGE 1 は高速型が有利: SPEED の最速タイムが STANDARD より 15% 以上速く、重量型より速い', () => {
+  it('木箱の抜け道 (rock): 攻撃力が標準以上 (STANDARD/POWER/HEAVY/EXTREME) は木箱の壁を壊して直進でき、壊せない SPEED/JUMP は使えない', async () => {
+    for (const id of ALL_BUILDS) {
+      const r = await runStage(stage, id, 'rock', { maxTime: 150, maxDeaths: 3 });
+      const m = results.get(id)!;
+      if (['STANDARD', 'POWER', 'HEAVY', 'EXTREME'].includes(id)) {
+        expect(r.cleared && r.deaths === 0, fmt(r)).toBe(true);
+        expect(r.time, `${id} rock vs main`).toBeLessThan(m.time - 5); // 大回りより明らかに速い
+        if (!best.get(id) || r.time < best.get(id)!.time) best.set(id, r);
+      } else {
+        expect(r.cleared, fmt(r)).toBe(false);
+      }
+    }
+  }, 300_000);
+
+  it('STAGE 1 は 高速型 (dash) と 攻撃力のあるビルド (rock) の接戦: SPEED は STANDARD より遅くなく (3% 以内)、重量型/ジャンプ型より 15% 以上速い', () => {
     const t = (id: string): number => best.get(id)!.time;
-    expect(t('SPEED')).toBeLessThan(t('STANDARD') * 0.85);
-    expect(t('SPEED')).toBeLessThan(t('HEAVY') * 0.75);
-    expect(t('SPEED')).toBeLessThan(t('JUMP'));
+    expect(t('SPEED')).toBeLessThan(t('STANDARD') * 1.03);
+    expect(t('SPEED')).toBeLessThan(t('HEAVY') * 0.85);
+    expect(t('SPEED')).toBeLessThan(t('JUMP') * 0.85);
+    // 攻撃力の高い POWER は、壊せない JUMP より速い
+    expect(t('POWER')).toBeLessThan(t('JUMP'));
   });
 
-  it('どのビルドも極端に遅くはない (最速と最遅の差が 2 倍未満)', () => {
+  it('どのビルドも極端に遅くはない (最速と最遅の差が 1.6 倍未満)', () => {
     const times = ALL_BUILDS.map((id) => best.get(id)!.time);
-    expect(Math.max(...times) / Math.min(...times)).toBeLessThan(2);
+    expect(Math.max(...times) / Math.min(...times)).toBeLessThan(1.6);
   });
 });
