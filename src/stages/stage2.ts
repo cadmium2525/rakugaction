@@ -113,7 +113,7 @@ export function buildStage2(opts: { crosswind?: number } = {}): StageDef {
   return {
     id: 'stage2',
     name: 'STAGE 2  強風の谷',
-    tagline: '強い風に ふきとばされるな！ 重いほど 風に強い',
+    tagline: '吹きつける強風の谷。体が重いほど風に強い',
     theme: { skyTop: 0xff9d5c, skyBottom: 0xffe6c4, fog: 0xffdcb4, fogNear: 45, fogFar: 170, sun: 0xfff1d6, ambient: 0xffe0c0 },
     spawn: [0, 0, 1],
     killY: -22,

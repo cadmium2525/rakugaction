@@ -202,7 +202,7 @@ describe('敵まわりの安全策 (批評レビューで見つかった問題�
     expect(sim2.hits).toBeGreaterThanOrEqual(1);
   });
 
-  it('おいかけくんは、ゴールした後はプレイヤーを追わない (待機位置へ戻る)', async () => {
+  it('チェイサーは、ゴールした後はプレイヤーを追わない (待機位置へ戻る)', async () => {
     const def: EnemyDef = { id: 'c0', kind: 'chaser', points: [[0, 0, 8]], speed: 3, aggro: 20, leash: { min: [-10, 0, -10], max: [10, 0, 12] } };
     const withGoal: StageDef = { ...stage([def]), goal: { pos: [0, 1, -4], size: [4, 3, 4] } };
     const sim = await makeSim(withGoal);

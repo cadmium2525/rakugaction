@@ -67,7 +67,7 @@ export class HubScreen implements Screen {
         'button',
         { class: `stage-card${unlocked ? '' : ' locked'}${rec.cleared ? ' cleared' : ''}`, attrs: unlocked ? {} : { disabled: '' }, on: { click: () => unlocked && opts.onPlayStage(s.id) } },
         h('span', { class: 'sc-emoji', text: unlocked ? s.emoji : '🔒' }),
-        h('span', { class: 'sc-info' }, h('b', { text: `${s.title}  ${s.subtitle}` }), h('small', { text: unlocked ? `BEST ${best}` : 'まえのステージをクリアしよう' })),
+        h('span', { class: 'sc-info' }, h('b', { text: `${s.title}  ${s.subtitle}` }), h('small', { text: unlocked ? `BEST ${best}` : '前のステージをクリアすると解放' })),
         rec.cleared ? h('span', { class: 'sc-clear', text: '✓' }) : null,
       );
       list.appendChild(btn);
@@ -82,13 +82,13 @@ export class HubScreen implements Screen {
             'button',
             { class: `btn wide ${allCleared ? 'btn-primary' : 'btn-ghost'}`, attrs: allCleared ? {} : { disabled: '' }, on: { click: () => opts.onTimeAttack?.() } },
             '⏱ ALL STAGES TIME ATTACK',
-            h('small', { text: allCleared ? (opts.taBestMs != null ? `BEST ${formatTime(opts.taBestMs)}` : 'ぜんぶ つなげて はしろう！') : '🔒 ぜんぶのステージを クリアすると あそべるよ' }),
+            h('small', { text: allCleared ? (opts.taBestMs != null ? `BEST ${formatTime(opts.taBestMs)}` : '全ステージを連続で攻略') : '🔒 全ステージをクリアすると挑戦できます' }),
           )
         : null,
       h('button', { class: 'btn btn-ghost', text: '✏️ 描く', on: { click: () => opts.onDraw() } }),
       opts.onCharacters ? h('button', { class: 'btn btn-ghost', text: `👤 キャラ (${opts.characterCount ?? 0})`, on: { click: () => opts.onCharacters?.() } }) : null,
       opts.onRanking ? h('button', { class: 'btn btn-ghost', text: '🏆 ランキング', on: { click: () => opts.onRanking?.() } }) : null,
-      opts.onSettings ? h('button', { class: 'btn btn-ghost', text: '⚙ せってい', on: { click: () => opts.onSettings?.() } }) : null,
+      opts.onSettings ? h('button', { class: 'btn btn-ghost', text: '⚙ 設定', on: { click: () => opts.onSettings?.() } }) : null,
       h('button', { class: 'btn btn-ghost wide', text: '← タイトル', on: { click: () => opts.onTitle() } }),
     );
 
@@ -97,7 +97,7 @@ export class HubScreen implements Screen {
       { class: 'screen screen-clear hub-screen' },
       h('div', { class: 'hub-name', text: opts.name }),
       opts.level ? levelBadge(opts.level) : null,
-      h('div', { class: 'hub-panel' }, h('div', { class: 'hub-title', text: 'ステージをえらぼう' }), list, card.el, menu),
+      h('div', { class: 'hub-panel' }, h('div', { class: 'hub-title', text: 'ステージ選択' }), list, card.el, menu),
     );
   }
 
@@ -141,6 +141,6 @@ function levelBadge(p: LevelProgress): HTMLElement {
     { class: 'hub-level' },
     h('b', { text: `Lv.${p.level}` }),
     h('div', { class: 'hub-lv-bar' }, fill),
-    h('span', { text: p.toNext > 0 ? `あと ${p.toNext - p.into} EXP` : 'MAX' }),
+    h('span', { text: p.toNext > 0 ? `次のLvまで ${p.toNext - p.into} EXP` : 'MAX' }),
   );
 }

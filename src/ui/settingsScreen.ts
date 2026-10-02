@@ -25,11 +25,11 @@ export interface SettingsOptions {
   onBack(): void;
 }
 
-const QUALITY_LABEL: Record<QualitySetting, string> = { auto: 'じどう', low: 'ひくい', medium: 'ふつう', high: 'たかい' };
+const QUALITY_LABEL: Record<QualitySetting, string> = { auto: '自動', low: '低', medium: '標準', high: '高' };
 const STORAGE_LABEL: Record<StoreKind, string> = {
-  indexeddb: 'このブラウザに ほぞん (IndexedDB)',
-  localstorage: 'このブラウザに ほぞん (localStorage)',
-  memory: 'ほぞんできません (このまま閉じると きえます)',
+  indexeddb: 'このブラウザに保存 (IndexedDB)',
+  localstorage: 'このブラウザに保存 (localStorage)',
+  memory: '保存できません (閉じるとデータが失われます)',
 };
 
 /** せってい: 画質・セーブデータの状態・データの初期化。 */
@@ -42,18 +42,18 @@ export class SettingsScreen implements Screen {
       const b = h('button', { class: `btn btn-ghost st-opt${q === opts.quality ? ' on' : ''}`, text: QUALITY_LABEL[q], on: { click: () => opts.onQuality(q) } });
       seg.appendChild(b);
     }
-    const when = opts.savedAt ? new Date(opts.savedAt).toLocaleString('ja-JP') : 'まだ ほぞんしていません';
+    const when = opts.savedAt ? new Date(opts.savedAt).toLocaleString('ja-JP') : '未保存';
     let armed = false;
     let timer = 0;
-    const reset = h('button', { class: 'btn btn-ghost st-reset', text: '🗑 セーブデータを ぜんぶ けす' });
+    const reset = h('button', { class: 'btn btn-ghost st-reset', text: '🗑 セーブデータをすべて削除' });
     reset.addEventListener('click', () => {
       if (!armed) {
         armed = true;
-        reset.textContent = 'ほんとうに ぜんぶ けしますか？ (もういちど おす)';
+        reset.textContent = '本当にすべて削除しますか？ (もう一度押すと実行)';
         reset.classList.add('armed');
         timer = window.setTimeout(() => {
           armed = false;
-          reset.textContent = '🗑 セーブデータを ぜんぶ けす';
+          reset.textContent = '🗑 セーブデータをすべて削除';
           reset.classList.remove('armed');
         }, 4000);
         return;
@@ -67,18 +67,18 @@ export class SettingsScreen implements Screen {
       h(
         'div',
         { class: 'st-card' },
-        h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: '⚙ せってい' }), h('button', { class: 'btn btn-ghost', text: '← もどる', on: { click: () => opts.onBack() } })),
-        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'がしつ' }), seg, h('small', { class: 'st-note', text: `「じどう」は いま ${QUALITY_LABEL[opts.autoQuality as QualitySetting] ?? opts.autoQuality} (たんまつに あわせて えらびます)` })),
+        h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: '⚙ 設定' }), h('button', { class: 'btn btn-ghost', text: '← 戻る', on: { click: () => opts.onBack() } })),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '画質' }), seg, h('small', { class: 'st-note', text: `「自動」は現在「${QUALITY_LABEL[opts.autoQuality as QualitySetting] ?? opts.autoQuality}」です (端末の性能に合わせて選びます)` })),
         h(
           'div',
           { class: 'st-row' },
           h('div', { class: 'st-label', text: 'セーブデータ' }),
           h('div', { class: `st-info${opts.storage === 'memory' ? ' warn' : ''}`, text: STORAGE_LABEL[opts.storage] }),
-          h('small', { class: 'st-note', text: `キャラクター ${opts.characterCount} 体 / Lv.${opts.level} / さいごの ほぞん: ${when}` }),
-          opts.saveError ? h('small', { class: 'st-note warn', text: `ほぞんに しっぱいしました: ${opts.saveError}` }) : null,
+          h('small', { class: 'st-note', text: `キャラクター ${opts.characterCount} 体 / Lv.${opts.level} / 最終保存: ${when}` }),
+          opts.saveError ? h('small', { class: 'st-note warn', text: `保存に失敗しました: ${opts.saveError}` }) : null,
         ),
         opts.fullscreenAvailable
-          ? h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'がめん' }), h('button', { class: 'btn btn-ghost', text: opts.isFullscreen ? '⛶ ぜんがめんを やめる' : '⛶ ぜんがめんにする', on: { click: () => opts.onFullscreen() } }))
+          ? h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '画面' }), h('button', { class: 'btn btn-ghost', text: opts.isFullscreen ? '⛶ 全画面を解除' : '⛶ 全画面にする', on: { click: () => opts.onFullscreen() } }))
           : null,
         h('div', { class: 'st-row' }, reset),
         h('div', { class: 'st-version', text: `RAKUGACTION v${GAME_VERSION}` }),

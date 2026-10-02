@@ -187,7 +187,7 @@ export function buildStage5(): StageDef {
   return {
     id: 'stage5',
     name: 'STAGE 5  巨人の塔',
-    tagline: 'ぜんぶの しかけが ならぶ！ じぶんに あう ちか道を さがそう',
+    tagline: 'これまでの仕掛けが勢ぞろい。自分の体に合った近道を探そう',
     theme: { skyTop: 0x23233f, skyBottom: 0xb49cd8, fog: 0x9a86c0, fogNear: 50, fogFar: 190, sun: 0xffe9c8, ambient: 0xb8a8e0 },
     spawn: [0, 0, 1],
     killY: -34,

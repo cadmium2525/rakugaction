@@ -135,7 +135,7 @@ class Parts {
 }
 
 /**
- * 敵の描画。ぷるん/ぴょんた/トゲまる/おいかけくん を、球・円錐などのプリミティブと黒い縁取り (反転した殻) で作る
+ * 敵の描画。プルン/ピョンタ/トゲマル/チェイサー を、球・円錐などのプリミティブと黒い縁取り (反転した殻) で作る
  * (ラクガキ風のぷっくりした見た目)。動きは sim の状態からの手続きアニメーション。
  * パーツは 1 体ごとに結合して軽くする (塗り 1 + 縁取り 1 + 動く部品)。倒した時の煙と星は InstancedMesh 1 つ (1 draw call)。
  */
@@ -229,7 +229,7 @@ export class EnemyView {
     };
 
     if (kind === 'blob') {
-      // ぷるん: 緑のゼリー。ふちのつやと、まるい目
+      // プルン: 緑のゼリー。ふちのつやと、まるい目
       const p = new Parts();
       p.add(this.sphere, { pos: [0, 0.45, 0], scale: [0.55, 0.45, 0.55], color: pal.body, outline: 1.09 });
       p.add(this.sphereLow, { pos: [-0.28, 0.82, 0.3], scale: [0.16, 0.1, 0.1], rot: [0, 0, 0.5], color: pal.accent });
@@ -237,7 +237,7 @@ export class EnemyView {
       this.eyes(p, body, node, 0.2, 0.55, 0.42, 0.14);
       finish(p, body);
     } else if (kind === 'hopper') {
-      // ぴょんた: オレンジのかえる風。目が頭の上に飛び出している
+      // ピョンタ: オレンジのかえる風。目が頭の上に飛び出している
       const p = new Parts();
       p.add(this.sphere, { pos: [0, 0.46, 0], scale: [0.46, 0.44, 0.5], color: pal.body, outline: 1.09 });
       p.add(this.sphereLow, { pos: [0, 0.34, 0.3], scale: [0.3, 0.26, 0.2], color: pal.accent });
@@ -250,7 +250,7 @@ export class EnemyView {
         node.legs.push(leg);
       }
     } else if (kind === 'spiky') {
-      // トゲまる: 紫の球に黄色いトゲ。転がって進む。顔は転がらない
+      // トゲマル: 紫の球に黄色いトゲ。転がって進む。顔は転がらない
       const roller = new THREE.Group();
       roller.position.y = 0.47;
       body.add(roller);
@@ -282,7 +282,7 @@ export class EnemyView {
       for (const side of [-1, 1]) fp.add(this.box, { pos: [side * 0.17, 0.2, 0.12], scale: [0.2, 0.05, 0.04], rot: [0, 0, -side * 0.5], color: INK });
       finish(fp, face);
     } else {
-      // おいかけくん: 赤い丸に とがった耳。追いかける時は足が速く動き、頭の上に ! が出る
+      // チェイサー: 赤い丸に とがった耳。追いかける時は足が速く動き、頭の上に ! が出る
       const p = new Parts();
       p.add(this.sphere, { pos: [0, 0.5, 0], scale: [0.5, 0.47, 0.5], color: pal.body, outline: 1.09 });
       for (const side of [-1, 1]) p.add(this.cone, { pos: [side * 0.28, 0.95, -0.02], scale: [0.16, 0.34, 0.16], rot: [0, 0, -side * 0.35], color: pal.body, outline: 1.18 });

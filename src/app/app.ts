@@ -65,9 +65,9 @@ function lockLandscape(): void {
 /** ランキング送信の結果メッセージ。 */
 function rankMessage(o: SubmitOutcome): string {
   const rank = o.rank !== null ? `  ${o.rank}位` : '';
-  if (o.status === 'created') return `🏆 ランキングに のりました！${rank}`;
-  if (o.status === 'updated') return `🏆 ベストを こうしんしました！${rank}`;
-  return `すでに もっと速い記録が のっています${rank}`;
+  if (o.status === 'created') return `🏆 ランキングに登録しました${rank}`;
+  if (o.status === 'updated') return `🏆 自己ベストを更新しました${rank}`;
+  return `登録済みの記録の方が速いため、更新されませんでした${rank}`;
 }
 
 function loadingScreen(text: string): Screen {
@@ -131,7 +131,7 @@ export class App {
     root.innerHTML = '';
     this.viewEl = h('div', { class: 'view' });
     this.uiEl = h('div', { class: 'ui-layer' });
-    const hint = h('div', { class: 'rotate-hint' }, h('div', { class: 'rot-icon', text: '📱' }), h('div', { text: '横向きにしてください' }));
+    const hint = h('div', { class: 'rotate-hint' }, h('div', { class: 'rot-icon', text: '📱' }), h('div', { text: '画面を横向きにしてください' }));
     root.append(this.viewEl, this.uiEl, hint);
 
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
@@ -242,22 +242,22 @@ export class App {
   }
 
   private onSaveError(): void {
-    toast(this.root, 'ほぞんに しっぱいしました (せっていで くわしく見られます)', 4000);
+    toast(this.root, '保存に失敗しました (詳細は設定画面で確認できます)', 4000);
   }
 
   /** 読み込み結果をプレイヤーに知らせるメッセージ (問題がなければ null)。 */
   private noticeFor(out: LoadOutcome, kind: string): string | null {
     switch (out.status) {
       case 'recovered':
-        return 'セーブデータが こわれていたので、ひとつ前の データから ふっきゅうしました';
+        return 'セーブデータが破損していたため、一つ前のデータから復元しました';
       case 'reset':
-        return 'セーブデータが こわれていて ふっきゅうできませんでした。さいしょから はじめます';
+        return 'セーブデータが破損しており、復元できませんでした。最初から始めます';
       case 'newer':
-        return 'あたらしいバージョンの セーブデータです。うわがき しないよう ほぞんを とめています';
+        return '新しいバージョンのセーブデータです。上書きを避けるため、保存を停止しています';
       case 'unreadable':
-        return 'セーブデータを よみこめませんでした。ほぞんを とめています';
+        return 'セーブデータを読み込めませんでした。保存を停止しています';
       default:
-        return kind === 'memory' && !this.params.has('doodle') ? 'このブラウザでは ほぞん できません。とじると きえてしまいます' : null;
+        return kind === 'memory' && !this.params.has('doodle') ? 'このブラウザでは保存できません。閉じるとデータが失われます' : null;
     }
   }
 
@@ -335,7 +335,7 @@ export class App {
     this.settings = { quality: 'auto' };
     this.host?.setQuality(this.effectiveQuality());
     this.loadOutcome = null;
-    toast(this.root, 'セーブデータを けしました', 2500);
+    toast(this.root, 'セーブデータを削除しました', 2500);
     this.showTitle();
   }
 
@@ -414,7 +414,7 @@ export class App {
   /** 誕生: ラクガキを 3D 化して演出を見せる。 */
   async showBirth(drawing: DrawingData): Promise<void> {
     this.leaveGame();
-    this.setScreen(loadingScreen('ラクガキを立体にしているよ…'));
+    this.setScreen(loadingScreen('ラクガキを立体化しています…'));
     // ローディング表示を 1 フレーム描画してから重い生成を行う
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     const host = this.ensureHost();
@@ -431,7 +431,7 @@ export class App {
           this.characterName = name;
           if (!this.registerCharacter(name)) {
             // キャラクターがいっぱい: 一覧で消してもらう
-            toast(this.root, `キャラクターは ${MAX_CHARACTERS} 体までです。いらない子を けしてね`, 3500);
+            toast(this.root, `キャラクターは ${MAX_CHARACTERS} 体までです。不要なキャラクターを削除してください`, 3500);
             this.showCharacters();
             return;
           }
@@ -525,7 +525,7 @@ export class App {
       return;
     }
     this.leaveGame();
-    this.setScreen(loadingScreen('ステージをよみこみ中…'));
+    this.setScreen(loadingScreen('ステージを読み込み中…'));
     const host = this.ensureHost();
     const session = await StageSession.create({
       host,
@@ -618,7 +618,7 @@ export class App {
       return;
     }
     this.leaveGame();
-    this.setScreen(loadingScreen(`${entry.title}  よみこみ中…`));
+    this.setScreen(loadingScreen(`${entry.title}  読み込み中…`));
     const host = this.ensureHost();
     const no = run.index + 1;
     const count = run.stageIds.length;
@@ -639,8 +639,8 @@ export class App {
         this.ta = null;
         void this.showHub();
       },
-      quitLabel: '⌂ やめる (ここまでの記録は消えます)',
-      restartLabel: '↻ 最初のステージから',
+      quitLabel: '⌂ 中断 (ここまでの記録は破棄されます)',
+      restartLabel: '↻ 最初のステージからやり直す',
       onRestart: () => void this.startTimeAttack(),
     });
     this.session = session;
@@ -705,7 +705,7 @@ export class App {
         // 参考記録 (フラグ付き) はランキングに送れない。ランキングが未設定ならボタンを出さない
         onSubmit: clean && rec && this.ranking.available ? () => void this.submitRanking(screen, result, rec) : undefined,
         onRanking: this.ranking.available ? () => this.showRanking() : undefined,
-        statusText: this.ranking.available ? '' : 'ランキングは まだ準備中です',
+        statusText: this.ranking.available ? '' : 'ランキングは現在利用できません',
         onRetry: () => void this.startTimeAttack(),
         onHub: () => {
           this.ta = null;
@@ -717,11 +717,11 @@ export class App {
 
   /** ALL STAGES の記録をランキングへ送る (結果は画面のメッセージで知らせる。失敗してもゲームは続けられる)。 */
   private async submitRanking(screen: TimeAttackResultScreen | null, result: TimeAttackResult, rec: CharacterRecord): Promise<void> {
-    screen?.setStatus('おくっています…');
+    screen?.setStatus('送信中…');
     const eff = this.effectiveStats(rec);
     const res = await this.ranking.submit({ result, name: rec.name, label: describeBuild(eff).label, stats: eff, level: this.profile.level });
     if (!res.ok) {
-      screen?.setStatus(`ランキングに のせられませんでした: ${res.message}`);
+      screen?.setStatus(`ランキングに登録できませんでした: ${res.message}`);
       return;
     }
     screen?.setStatus(rankMessage(res.value));

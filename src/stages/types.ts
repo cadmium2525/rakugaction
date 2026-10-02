@@ -80,10 +80,10 @@ export interface SweeperDef {
 
 /**
  * 敵の種類。
- *   blob    = ぷるん: 巡回する。ふんづけ / ACTION のどちらでも倒せる (誰でも倒せる弱い敵)。
- *   hopper  = ぴょんた: 巡回しながら跳ねる。ふんづけ / ACTION で倒せる。
- *   spiky   = トゲまる: 巡回する。上からふんでもトゲで痛い。ACTION は攻撃力が足りるキャラだけが倒せる (POWER の出番)。
- *   chaser  = おいかけくん: 気づくと追いかけてくる (決められた範囲 leash の中だけ)。ふんづけ / ACTION で倒せる。
+ *   blob    = プルン: 巡回する。ふんづけ / ACTION のどちらでも倒せる (誰でも倒せる弱い敵)。
+ *   hopper  = ピョンタ: 巡回しながら跳ねる。ふんづけ / ACTION で倒せる。
+ *   spiky   = トゲマル: 巡回する。上からふんでもトゲで痛い。ACTION は攻撃力が足りるキャラだけが倒せる (POWER の出番)。
+ *   chaser  = チェイサー: 気づくと追いかけてくる (決められた範囲 leash の中だけ)。ふんづけ / ACTION で倒せる。
  */
 export type EnemyKind = 'blob' | 'hopper' | 'spiky' | 'chaser';
 

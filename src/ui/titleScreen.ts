@@ -19,10 +19,10 @@ export class TitleScreen implements Screen {
     const menu = h(
       'div',
       { class: 'title-menu' },
-      h('button', { class: 'btn btn-primary', text: opts.hasSave ? '▶ つづきから' : '▶ あそぶ', on: { click: opts.onPlay } }),
+      h('button', { class: 'btn btn-primary', text: opts.hasSave ? '▶ 続きから' : '▶ はじめる', on: { click: opts.onPlay } }),
       h('button', { class: 'btn btn-ghost', text: '✏️ ラクガキを描く', on: { click: opts.onDraw } }),
     );
-    if (opts.onSettings) menu.appendChild(h('button', { class: 'btn btn-ghost', text: '⚙ せってい', on: { click: opts.onSettings } }));
+    if (opts.onSettings) menu.appendChild(h('button', { class: 'btn btn-ghost', text: '⚙ 設定', on: { click: opts.onSettings } }));
     if (opts.onArena) {
       menu.appendChild(h('button', { class: 'btn btn-ghost', text: '🧪 テストアリーナ (開発用)', on: { click: opts.onArena } }));
     }
@@ -30,7 +30,7 @@ export class TitleScreen implements Screen {
       'div',
       { class: 'screen title-screen' },
       h('div', { class: 'title-logo', text: 'ラクガキアクション' }),
-      h('div', { class: 'title-sub', text: 'きみの ラクガキが 3Dで うごきだす！' }),
+      h('div', { class: 'title-sub', text: 'ラクガキが立体になり、動き出す。' }),
       menu,
     );
   }

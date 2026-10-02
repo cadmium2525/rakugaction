@@ -38,8 +38,8 @@ export class RankingService {
 
   /** タイムアタックの結果を送る。異常フラグ付き/値域外の記録は送らない。 */
   async submit(src: SubmissionSource): Promise<RankingResult<SubmitOutcome>> {
-    if (!this.backend) return fail('unconfigured', 'ランキングはまだ準備中です');
-    if (src.result.flags.length > 0) return fail('invalid', '参考記録のため ランキングには のせられません');
+    if (!this.backend) return fail('unconfigured', 'ランキングは現在利用できません');
+    if (src.result.flags.length > 0) return fail('invalid', '参考記録のため、ランキングには登録できません');
     const sub = buildSubmission(src);
     const problems = validateSubmission(sub);
     if (problems.length > 0) return fail('invalid', `記録が不正です (${problems.join(', ')})`);
@@ -51,7 +51,7 @@ export class RankingService {
 
   /** TOP100 と自分の記録/順位。どちらかが失敗したら失敗として返す。 */
   async loadBoard(limit = 100, force = false): Promise<RankingResult<RankingBoard>> {
-    if (!this.backend) return fail('unconfigured', 'ランキングはまだ準備中です');
+    if (!this.backend) return fail('unconfigured', 'ランキングは現在利用できません');
     const c = this.cache;
     if (!force && c && c.limit === limit && this.now() - c.at < BOARD_CACHE_MS) return ok(c.board);
     const [top, mine] = await Promise.all([this.guard(() => this.backend!.fetchTop(limit)), this.guard(() => this.backend!.fetchMine())]);

@@ -23,16 +23,16 @@ export function buildStage1(): StageDef {
   b.plate(-16, 0, -5, 5, b.y, 1.4, 'grass');
   // 看板 (操作と、これから出会う物の案内)
   b.sign(5, -3.4, ['出発'], { icon: 'arrow', hint: ['{move} で移動 ／ {jump} でジャンプ', '正面の光の輪 (ゴール) を目指そう'] });
-  b.sign(10, 3.4, ['ぷるん'], { icon: 'action', hint: ['ぷるん: 踏みつけるか {action} で倒せる', '触れるとダメージを受ける'] });
+  b.sign(10, 3.4, ['プルン'], { icon: 'action', hint: ['プルン: 踏みつけるか {action} で倒せる', '触れるとダメージを受ける'] });
   b.flat(22, { w: 9 });
-  // はじめての敵: ぷるん (ふんづけ / ACTION で倒せる)。原っぱを左右に歩いている
+  // はじめての敵: プルン (ふんづけ / ACTION で倒せる)。原っぱを左右に歩いている
   b.enemy('blob', -9, -3.5, 3.5, { speed: 1.6 });
   b.enemy('blob', -4, 3.5, -3.5, { speed: 1.6, phase: 1.1 });
   b.ramp(14, 2.2);
   b.flat(8);
   b.ramp(14, -2.2);
   b.flat(10);
-  // 丘をおりた所に ぴょんた (ジャンプで跳ねている。着地を待って通るか、ふんづける)
+  // 丘をおりた所に ピョンタ (ジャンプで跳ねている。着地を待って通るか、ふんづける)
   b.enemy('hopper', -5, -3, 3, { speed: 2.2 });
   b.sign(-1.5, 3.0, ['木箱'], { icon: 'action', hint: ['{action} で木箱を壊せる', '攻撃力が足りない場合は、右の大回りの道へ'] });
   // 木箱の壁 (ACTION チュートリアル): 床の上に、木箱 3x2 の壁 + 左右/頭上の石でふさぐ (迂回・飛び越え不可)
@@ -51,16 +51,16 @@ export function buildStage1(): StageDef {
   b.route.push({ pos: before, radius: 0.7, action: true });
   b.route.push({ pos: after, radius: 1.2 });
   b.flat(6, { w: 8 });
-  b.sign(-2.5, 3.2, ['トゲまる'], { icon: 'warn', tone: 'warn', hint: ['トゲまる: 上から踏むとダメージ', '倒せるのは攻撃力の高いキャラの {action} だけ'] });
+  b.sign(-2.5, 3.2, ['トゲマル'], { icon: 'warn', tone: 'warn', hint: ['トゲマル: 上から踏むとダメージ', '倒せるのは攻撃力の高いキャラの {action} だけ'] });
   b.checkpoint('cp0');
   rs.common(b.takeRoute());
 
   // ---- A': 木箱の抜け道 (攻撃力のあるビルドの近道。壊せない SPEED/JUMP などは大回り) ----
   const bp = crateBypass(b, { corridor: 14, detour: 20, pHalf: 4, qHalf: 4, qDepth: 8 });
   rs.fork({ main: [...bp.outer, bp.join], rock: [...bp.shortcut, bp.join] });
-  // 抜け道の通路 (木箱の壁のむこう) にトゲまる: 壊せるビルド (= 攻撃力が標準以上) だけがここに来る。ACTION でたおせる
+  // 抜け道の通路 (木箱の壁のむこう) にトゲマル: 壊せるビルド (= 攻撃力が標準以上) だけがここに来る。ACTION でたおせる
   b.enemy('spiky', -14, -2, 2, { speed: 2 });
-  // 合流の台 (どちらの道でも通る): ぷるん
+  // 合流の台 (どちらの道でも通る): プルン
   b.enemy('blob', -4, -3, 3, { speed: 1.7, phase: 0.7 });
 
   // ---- B: せせらぎの飛び石 ----
@@ -80,10 +80,10 @@ export function buildStage1(): StageDef {
   // ---- C: 階段状の丘 + 動く橋 ----
   b.gap(1.8, 1.0);
   b.flat(6, { w: 7 });
-  b.sign(-3, -2.9, ['トゲまる'], { icon: 'warn', tone: 'warn', hint: ['トゲまるが足場の左半分を往復している', '右側を回り込んで避けよう'] });
+  b.sign(-3, -2.9, ['トゲマル'], { icon: 'warn', tone: 'warn', hint: ['トゲマルが足場の左半分を往復している', '右側を回り込んで避けよう'] });
   b.gap(1.8, 1.0);
   b.flat(6, { w: 7 });
-  // 避ける敵: トゲまるが足場の左半分を往復する (右側 1.7m 以上は常に安全)。攻撃力が足りないキャラ (SPEED/JUMP) はここを避けて通る。
+  // 避ける敵: トゲマルが足場の左半分を往復する (右側 1.7m 以上は常に安全)。攻撃力が足りないキャラ (SPEED/JUMP) はここを避けて通る。
   // ジャンプの着地目標と、通るレーンを右側 (lateral +2.3) に寄せる。攻撃力が高いキャラは近づいてきたら ACTION で倒してもよい
   b.enemy('spiky', -3, -3.1, 0.3, { speed: 2.0, pause: 0.5 });
   const landJump = [...b.route].reverse().find((w) => w.jump);
@@ -135,7 +135,7 @@ export function buildStage1(): StageDef {
   b.sign(-2.5, 2.6, ['要注意'], { icon: 'warn', tone: 'warn', hint: ['この先に、追いかけてくる敵がいる', '踏みつけるか {action} で倒そう'] });
   b.gap(2.4, 1.0);
   b.flat(14, { w: 12 });
-  // ゴール前の広場: おいかけくん (近づくと追いかけてくる。広場の外へは出ない)
+  // ゴール前の広場: チェイサー (近づくと追いかけてくる。広場の外へは出ない)
   // 入口の穴から 8m 以上奥に待機し、入口から 2.5m の範囲には出てこない (着地した瞬間に襲われて、後ろの穴に落ちる事故を防ぐ)
   b.enemy('chaser', -5, 0, 0, { speed: 3.4, aggro: 8, leash: { a0: -11.5, a1: -1.5, l0: -5.5, l1: 5.5 } });
   b.goalHere([6, 5, 6]);
@@ -148,7 +148,7 @@ export function buildStage1(): StageDef {
   return {
     id: 'stage1',
     name: 'STAGE 1  草原',
-    tagline: 'はしって ジャンプ！ てきを ふんづけて ゴールへ',
+    tagline: '走って、跳んで、敵を踏みつけてゴールへ',
     theme: {
       skyTop: 0x4aa3ff,
       skyBottom: 0xd6efff,

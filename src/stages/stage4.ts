@@ -160,7 +160,7 @@ export function buildStage4(): StageDef {
   return {
     id: 'stage4',
     name: 'STAGE 4  崩れる遺跡',
-    tagline: 'とまると おちる！ ジャンプで ショートカット！',
+    tagline: '乗ると崩れる足場。高く跳べればショートカットできる',
     theme: { skyTop: 0x6a5acd, skyBottom: 0xffd9a0, fog: 0xf0cf9f, fogNear: 45, fogFar: 170, sun: 0xffe2b0, ambient: 0xe6c9d8 },
     spawn: [0, 0, 1],
     killY: -30,

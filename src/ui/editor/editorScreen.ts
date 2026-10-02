@@ -20,10 +20,10 @@ interface Step {
 }
 
 const STEPS: Step[] = [
-  { key: 'body', title: 'からだを描こう', hint: 'ぐるっと線でかこんで、「ぬる」で中に色をつけよう', pair: null },
-  { key: 'head', title: 'あたまを描こう', hint: '顔を描いてもOK。下の「くび」が体につながるよ', pair: null },
-  { key: 'armLeft', title: 'うでを描こう', hint: '上の「かた」から下にのびるうでを描こう', pair: 'arms' },
-  { key: 'legLeft', title: 'あしを描こう', hint: '上の「こし」から下にのびるあしを描こう', pair: 'legs' },
+  { key: 'body', title: '胴体を描く', hint: '輪郭を線で閉じ、「塗り」で中に色を付けます', pair: null },
+  { key: 'head', title: '頭を描く', hint: '顔を描き込んでもかまいません。下の「首」が胴体とつながります', pair: null },
+  { key: 'armLeft', title: '腕を描く', hint: '上の「肩」から下に伸びる腕を描きます', pair: 'arms' },
+  { key: 'legLeft', title: '脚を描く', hint: '上の「腰」から下に伸びる脚を描きます', pair: 'legs' },
 ];
 
 export interface EditorOptions {
@@ -95,7 +95,7 @@ export class EditorScreen implements Screen {
     if (!ctx) throw new Error('2D canvas is not available');
     this.ctx = ctx;
     this.guideCanvas = h('canvas', { class: 'ed-guides', attrs: { width: '512', height: '512' } });
-    this.lockOverlay = h('div', { class: 'ed-lock', text: 'ひだりを描くと、同じ形がここに反転して出るよ' });
+    this.lockOverlay = h('div', { class: 'ed-lock', text: '左側を描くと、反転した同じ形がここに表示されます' });
     this.paper = h('div', { class: 'ed-paper' }, this.guideCanvas, this.canvas, this.lockOverlay);
     this.hintEl = h('div', { class: 'ed-hint' });
     const stage = h('div', { class: 'ed-stage' }, this.paper);
@@ -107,7 +107,7 @@ export class EditorScreen implements Screen {
     const bar = h(
       'div',
       { class: 'ed-bar' },
-      h('button', { class: 'btn btn-ghost ed-back', text: '← もどる', on: { click: () => this.back() } }),
+      h('button', { class: 'btn btn-ghost ed-back', text: '← 戻る', on: { click: () => this.back() } }),
       h('div', { class: 'ed-bar-mid' }, this.titleEl, this.stepDots),
       h('button', { class: 'btn btn-ghost ed-prev-btn', text: 'プレビュー', on: { click: () => this.openPreview() } }),
       this.nextBtn,
@@ -119,15 +119,15 @@ export class EditorScreen implements Screen {
       this.toolBtns.set(tool, b);
       return b;
     };
-    this.undoBtn = h('button', { class: 'tool-btn', attrs: { 'aria-label': 'ひとつもどす' }, on: { click: () => this.undo() } }, h('span', { class: 'ti', text: '↶' }), h('span', { class: 'tl', text: 'もどす' }));
-    this.redoBtn = h('button', { class: 'tool-btn', attrs: { 'aria-label': 'やりなおす' }, on: { click: () => this.redo() } }, h('span', { class: 'ti', text: '↷' }), h('span', { class: 'tl', text: 'すすむ' }));
-    this.clearBtn = h('button', { class: 'tool-btn tool-danger', attrs: { 'aria-label': 'ぜんぶけす' }, on: { click: () => this.clearPart() } }, h('span', { class: 'ti', text: '🗑' }), h('span', { class: 'tl', text: 'ぜんぶ' }));
+    this.undoBtn = h('button', { class: 'tool-btn', attrs: { 'aria-label': '元に戻す' }, on: { click: () => this.undo() } }, h('span', { class: 'ti', text: '↶' }), h('span', { class: 'tl', text: '戻す' }));
+    this.redoBtn = h('button', { class: 'tool-btn', attrs: { 'aria-label': 'やり直し' }, on: { click: () => this.redo() } }, h('span', { class: 'ti', text: '↷' }), h('span', { class: 'tl', text: 'やり直し' }));
+    this.clearBtn = h('button', { class: 'tool-btn tool-danger', attrs: { 'aria-label': '全消去' }, on: { click: () => this.clearPart() } }, h('span', { class: 'ti', text: '🗑' }), h('span', { class: 'tl', text: '全消去' }));
     const tools = h(
       'div',
       { class: 'ed-tools' },
       mkTool('pen', '✏️', 'ペン'),
-      mkTool('eraser', '🧽', 'けす'),
-      mkTool('fill', '🪣', 'ぬる'),
+      mkTool('eraser', '🧽', '消しゴム'),
+      mkTool('fill', '🪣', '塗り'),
       this.undoBtn,
       this.redoBtn,
       this.clearBtn,
@@ -150,15 +150,15 @@ export class EditorScreen implements Screen {
     const sizes = h('div', { class: 'ed-sizes' });
     BRUSH_SIZES.forEach((_, i) => {
       const dotPx = 5 + i * 5;
-      const b = h('button', { class: 'size-btn', attrs: { 'aria-label': `ふとさ${i + 1}` }, on: { click: () => this.setSize(i) } }, h('span', { class: 'size-dot', style: { width: `${dotPx}px`, height: `${dotPx}px` } }));
+      const b = h('button', { class: 'size-btn', attrs: { 'aria-label': `太さ${i + 1}` }, on: { click: () => this.setSize(i) } }, h('span', { class: 'size-dot', style: { width: `${dotPx}px`, height: `${dotPx}px` } }));
       this.sizeBtns.push(b);
       sizes.appendChild(b);
     });
     this.mirrorChk = h('input', { attrs: { type: 'checkbox', id: 'ed-mirror' } });
     this.mirrorChk.addEventListener('change', () => this.toggleMirror());
     this.sideTabs = h('div', { class: 'ed-tabs' });
-    this.copyBtn = h('button', { class: 'btn btn-small', text: '↔ コピー', on: { click: () => this.copyLeftToRight() } });
-    this.pairBox = h('div', { class: 'ed-pair' }, h('label', { class: 'ed-mirror', attrs: { for: 'ed-mirror' } }, this.mirrorChk, h('span', { text: 'ひだりみぎ おなじ' })), this.sideTabs, this.copyBtn);
+    this.copyBtn = h('button', { class: 'btn btn-small', text: '↔ 左をコピー', on: { click: () => this.copyLeftToRight() } });
+    this.pairBox = h('div', { class: 'ed-pair' }, h('label', { class: 'ed-mirror', attrs: { for: 'ed-mirror' } }, this.mirrorChk, h('span', { text: '左右対称' })), this.sideTabs, this.copyBtn);
     const side = h('div', { class: 'ed-side' }, this.miniCanvas, palette, sizes, this.pairBox);
 
     const body = h('div', { class: 'ed-body' }, tools, h('div', { class: 'ed-center' }, stage, this.hintEl), side);
@@ -172,13 +172,13 @@ export class EditorScreen implements Screen {
       h(
         'div',
         { class: 'ed-modal-box' },
-        h('div', { class: 'ed-modal-title', text: 'こんなキャラクターになるよ' }),
+        h('div', { class: 'ed-modal-title', text: 'このキャラクターが生成されます' }),
         this.modalCanvas,
         h(
           'div',
           { class: 'ed-modal-btns' },
-          h('button', { class: 'btn btn-ghost', text: 'もどって描く', on: { click: () => this.closePreview() } }),
-          h('button', { class: 'btn btn-primary btn-big', text: '✨ 誕生させる！', on: { click: () => this.finish() } }),
+          h('button', { class: 'btn btn-ghost', text: '描き直す', on: { click: () => this.closePreview() } }),
+          h('button', { class: 'btn btn-primary btn-big', text: '✨ 生成する', on: { click: () => this.finish() } }),
         ),
       ),
     );
@@ -263,7 +263,7 @@ export class EditorScreen implements Screen {
       ...STEPS.map((_, i) => h('span', { class: `dot${i === this.step ? ' on' : i < this.step ? ' done' : ''}` })),
     );
     this.hintEl.textContent = st.hint;
-    this.nextBtn.textContent = this.step === STEPS.length - 1 ? 'できあがり ✓' : 'つぎへ →';
+    this.nextBtn.textContent = this.step === STEPS.length - 1 ? '完成 ✓' : '次へ →';
 
     // ペア (うで/あし) の UI
     this.pairBox.style.display = st.pair ? '' : 'none';
@@ -276,7 +276,7 @@ export class EditorScreen implements Screen {
       this.sideTabs.replaceChildren();
       this.sideTabs.style.display = mirror ? 'none' : '';
       this.copyBtn.style.display = mirror ? 'none' : '';
-      const noun = st.pair === 'arms' ? 'うで' : 'あし';
+      const noun = st.pair === 'arms' ? '腕' : '脚';
       for (const [key, label] of [
         [right, `◀ ${noun}`],
         [left, `${noun} ▶`],
@@ -347,7 +347,7 @@ export class EditorScreen implements Screen {
       this.invalidate(st.pair === 'arms' ? 'armRight' : 'legRight');
       this.state.setPart(st.pair === 'arms' ? 'armRight' : 'legRight');
       this.refreshPartUi();
-      toast(this.opts.host, 'ひだりの絵を反転してコピーしたよ');
+      toast(this.opts.host, '左の絵を反転してコピーしました');
     }
   }
 
@@ -369,7 +369,7 @@ export class EditorScreen implements Screen {
     if (this.state.clearPart()) {
       this.invalidate(this.state.current);
       this.refreshPartUi();
-      toast(this.opts.host, 'ぜんぶ消したよ (もどすで元にもどせるよ)');
+      toast(this.opts.host, 'すべて消去しました (「元に戻す」で復元できます)');
     }
   }
 
@@ -391,7 +391,7 @@ export class EditorScreen implements Screen {
       this.goStep(this.step - 1);
       return;
     }
-    if (hasAnyInk(this.state.drawing) && !window.confirm('描いた絵が消えちゃうよ。もどる？')) return;
+    if (hasAnyInk(this.state.drawing) && !window.confirm('描いた絵は破棄されます。戻りますか？')) return;
     this.opts.onBack();
   }
 
@@ -409,7 +409,7 @@ export class EditorScreen implements Screen {
   private finish(): void {
     if (!hasAnyInk(this.state.drawing)) {
       this.closePreview();
-      toast(this.opts.host, 'まずは何か描いてみよう！');
+      toast(this.opts.host, 'まず何か描いてください');
       return;
     }
     this.opts.onDone(cloneDrawing(this.state.drawing));
@@ -437,7 +437,7 @@ export class EditorScreen implements Screen {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
     if (!this.state.isEditable()) {
-      toast(this.opts.host, 'ここは「ひだり」と同じ形になるよ。ひだりを描いてね');
+      toast(this.opts.host, 'こちらは「左」と同じ形になります。左を描いてください');
       return;
     }
     this.rect = this.canvas.getBoundingClientRect();
@@ -447,14 +447,14 @@ export class EditorScreen implements Screen {
       const r = this.raster(st.current);
       const dirty = r.applyOp({ kind: 'fill', color: st.color, x, y });
       if (!dirty) {
-        toast(this.opts.host, 'とじた線の中をタッチしてね');
+        toast(this.opts.host, '閉じた線の内側をタッチしてください');
         return;
       }
       const res = st.commitOp({ kind: 'fill', color: st.color, x, y });
       if (res !== 'ok') {
         this.invalidate(st.current);
         this.blit();
-        toast(this.opts.host, 'これ以上は描けないよ');
+        toast(this.opts.host, 'これ以上は描けません');
         return;
       }
       this.blit(dirty);
@@ -517,7 +517,7 @@ export class EditorScreen implements Screen {
       // 描き途中のインクを消して状態と一致させる
       this.invalidate(key);
       this.blit();
-      toast(this.opts.host, res === 'limit' ? 'これ以上は描けないよ。「もどす」か「ぜんぶ」で整理してね' : '');
+      toast(this.opts.host, res === 'limit' ? 'これ以上は描けません。「戻す」か「全消去」で整理してください' : '');
     }
     this.afterCommit();
   }

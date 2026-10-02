@@ -14,7 +14,7 @@ describe('STAGE 1 草原', () => {
     expect(stage.checkpoints!.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('敵が 4 種類 (ぷるん/ぴょんた/トゲまる/おいかけくん) 配置され、看板で案内している', () => {
+  it('敵が 4 種類 (プルン/ピョンタ/トゲマル/チェイサー) 配置され、看板で案内している', () => {
     const kinds = new Set(stage.enemies!.map((e) => e.kind));
     expect([...kinds].sort()).toEqual(['blob', 'chaser', 'hopper', 'spiky']);
     expect(stage.enemies!.length).toBeGreaterThanOrEqual(8);
@@ -40,14 +40,14 @@ describe('STAGE 1 草原', () => {
     }
   });
 
-  it('トゲまる (避ける敵) が本道の足場にいて、攻撃力が足りない SPEED/JUMP は戦わずに被弾 0 で通れる', async () => {
+  it('トゲマル (避ける敵) が本道の足場にいて、攻撃力が足りない SPEED/JUMP は戦わずに被弾 0 で通れる', async () => {
     const spikies = stage.enemies!.filter((e) => e.kind === 'spiky');
     expect(spikies.length).toBeGreaterThanOrEqual(2); // 抜け道の通路と、本道の階段の 2 体
-    // トゲまるだけを残したステージで、戦わずに走る (他の敵の被弾を混ぜない)
+    // トゲマルだけを残したステージで、戦わずに走る (他の敵の被弾を混ぜない)
     const onlySpiky = { ...stage, enemies: spikies };
     for (const id of ['SPEED', 'JUMP']) {
       const r = await runStage(onlySpiky, id, 'main', { maxTime: 200, maxDeaths: 3, fight: false });
-      expect(r.cleared && r.hits === 0 && r.deaths === 0, `トゲまるを避けられていない (敵と戦わない設定): ${fmt(r)}`).toBe(true);
+      expect(r.cleared && r.hits === 0 && r.deaths === 0, `トゲマルを避けられていない (敵と戦わない設定): ${fmt(r)}`).toBe(true);
     }
   }, 120_000);
 

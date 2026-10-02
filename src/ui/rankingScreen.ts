@@ -36,7 +36,7 @@ export class RankingScreen implements Screen {
           { class: 'rk-head' },
           h('div', { class: 'rk-title', text: '🏆 ALL STAGES ランキング' }),
           h('button', { class: 'btn btn-ghost rk-reload', text: '↻', attrs: { 'aria-label': '再読み込み' }, on: { click: () => void this.load(true) } }),
-          h('button', { class: 'btn btn-ghost', text: '← もどる', on: { click: () => opts.onBack() } }),
+          h('button', { class: 'btn btn-ghost', text: '← 戻る', on: { click: () => opts.onBack() } }),
         ),
         this.body,
         this.footer,
@@ -51,14 +51,14 @@ export class RankingScreen implements Screen {
   /** 読み込んで表示する。force = キャッシュを使わず読み直す。 */
   async load(force: boolean): Promise<void> {
     if (!this.opts.service.available) {
-      this.showMessage('ランキングは まだ準備中です', 'ランキングのサーバーが設定されていません。ゲームは ふつうに あそべます。');
+      this.showMessage('ランキングは現在利用できません', 'ランキングサーバーが設定されていません。ゲーム自体は通常どおり遊べます。');
       return;
     }
-    this.showMessage('よみこみ中…');
+    this.showMessage('読み込み中…');
     const res = await this.opts.service.loadBoard(100, force);
     if (this.disposed) return;
     if (!res.ok) {
-      this.showMessage('ランキングを よみこめませんでした', res.message, true);
+      this.showMessage('ランキングを読み込めませんでした', res.message, true);
       return;
     }
     this.render(res.value);
@@ -66,7 +66,7 @@ export class RankingScreen implements Screen {
 
   private showMessage(title: string, detail = '', retry = false): void {
     const children: (HTMLElement | null)[] = [h('div', { class: 'rk-msg-title', text: title }), detail ? h('div', { class: 'rk-msg-detail', text: detail }) : null];
-    if (retry) children.push(h('button', { class: 'btn btn-primary', text: '↻ もういちど', on: { click: () => void this.load(true) } }));
+    if (retry) children.push(h('button', { class: 'btn btn-primary', text: '↻ 再試行', on: { click: () => void this.load(true) } }));
     this.body.replaceChildren(h('div', { class: 'rk-msg' }, ...children));
     this.footer.textContent = '';
   }
@@ -74,7 +74,7 @@ export class RankingScreen implements Screen {
   private render(board: RankingBoard): void {
     const mineUid = board.mine.entry?.uid ?? null;
     if (board.top.length === 0) {
-      this.body.replaceChildren(h('div', { class: 'rk-msg' }, h('div', { class: 'rk-msg-title', text: 'まだ だれも のっていません' }), h('div', { class: 'rk-msg-detail', text: 'ALL STAGES TIME ATTACK をクリアして 1 位をめざそう！' })));
+      this.body.replaceChildren(h('div', { class: 'rk-msg' }, h('div', { class: 'rk-msg-title', text: 'まだ記録がありません' }), h('div', { class: 'rk-msg-detail', text: 'ALL STAGES TIME ATTACK をクリアして、最初の記録を登録しましょう。' })));
     } else {
       const list = h('div', { class: 'rk-list' });
       board.top.forEach((e, i) => list.appendChild(this.row(e, i + 1, e.uid === mineUid)));
@@ -84,12 +84,12 @@ export class RankingScreen implements Screen {
     this.footer.replaceChildren(
       m.entry
         ? h('div', { class: 'rk-mine' }, h('b', { text: 'あなたの記録' }), h('span', { text: m.rank !== null ? `${m.rank}位` : '' }), h('b', { class: 'rk-time', text: formatTime(m.entry.timeMs) }), h('span', { text: `Lv.${m.entry.level}` }))
-        : h('div', { class: 'rk-mine dim', text: 'まだ 記録がありません。ALL STAGES TIME ATTACK をクリアして のせよう！' }),
+        : h('div', { class: 'rk-mine dim', text: 'まだ記録がありません。ALL STAGES TIME ATTACK をクリアすると登録できます。' }),
     );
   }
 
   private row(e: RankingEntry, rank: number, mine: boolean): HTMLElement {
-    const detail = h('div', { class: 'rk-detail', attrs: { hidden: '' } }, h('div', { text: e.splits.map((t, i) => `S${i + 1} ${formatTime(t)}`).join('   ') }), h('div', { text: `HP ${e.stats.hp} / POWER ${e.stats.power} / DEFENSE ${e.stats.defense} / SPEED ${e.stats.speed} / JUMP ${e.stats.jump} / WEIGHT ${e.stats.weight}   やられた ${e.deaths} 回` }));
+    const detail = h('div', { class: 'rk-detail', attrs: { hidden: '' } }, h('div', { text: e.splits.map((t, i) => `S${i + 1} ${formatTime(t)}`).join('   ') }), h('div', { text: `HP ${e.stats.hp} / POWER ${e.stats.power} / DEFENSE ${e.stats.defense} / SPEED ${e.stats.speed} / JUMP ${e.stats.jump} / WEIGHT ${e.stats.weight}   ミス ${e.deaths} 回` }));
     const row = h(
       'button',
       { class: `rk-row${mine ? ' mine' : ''}`, on: { click: () => (detail.hasAttribute('hidden') ? detail.removeAttribute('hidden') : detail.setAttribute('hidden', '')) } },

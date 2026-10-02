@@ -4,12 +4,12 @@ import { STAT_KEYS } from '../character/stats';
 import { h } from './dom';
 
 const LABELS: Record<StatKey, { en: string; ja: string; color: string }> = {
-  hp: { en: 'HP', ja: 'たいりょく', color: '#4cd964' },
-  power: { en: 'POWER', ja: 'ちから', color: '#ff5a4d' },
-  defense: { en: 'DEFENSE', ja: 'まもり', color: '#3d8bff' },
-  speed: { en: 'SPEED', ja: 'はやさ', color: '#2fd0d8' },
-  jump: { en: 'JUMP', ja: 'ジャンプ', color: '#ffd23f' },
-  weight: { en: 'WEIGHT', ja: 'おもさ', color: '#b07cff' },
+  hp: { en: 'HP', ja: '体力', color: '#4cd964' },
+  power: { en: 'POWER', ja: '攻撃力', color: '#ff5a4d' },
+  defense: { en: 'DEFENSE', ja: '防御力', color: '#3d8bff' },
+  speed: { en: 'SPEED', ja: '速さ', color: '#2fd0d8' },
+  jump: { en: 'JUMP', ja: '跳躍力', color: '#ffd23f' },
+  weight: { en: 'WEIGHT', ja: '重さ', color: '#b07cff' },
 };
 
 /** バー表示の上限 (能力値 220 で満タン)。 */

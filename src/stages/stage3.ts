@@ -169,7 +169,7 @@ export function buildStage3(): StageDef {
   return {
     id: 'stage3',
     name: 'STAGE 3  水没神殿',
-    tagline: '水の中では 小さいほど すいすい およげる！',
+    tagline: '水位が変わる神殿。水中では体が小さいほど速く泳げる',
     theme: { skyTop: 0x2a8fb0, skyBottom: 0xbfeee6, fog: 0x9fe3d8, fogNear: 40, fogFar: 150, sun: 0xeaffff, ambient: 0xa8e0e0 },
     spawn: [0, LEDGE, 1],
     killY: -24,

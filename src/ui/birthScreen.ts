@@ -39,15 +39,15 @@ export class BirthScreen implements Screen {
     this.view.setCompositionOffset(0.16);
     this.card.setStats(opts.stats);
 
-    this.banner = h('div', { class: 'birth-banner', text: 'たんじょう！' });
-    this.nameInput = h('input', { class: 'name-input', attrs: { type: 'text', maxlength: '12', value: opts.name, 'aria-label': 'キャラクターのなまえ', placeholder: 'なまえをつけよう' } });
+    this.banner = h('div', { class: 'birth-banner', text: 'キャラクター誕生' });
+    this.nameInput = h('input', { class: 'name-input', attrs: { type: 'text', maxlength: '12', value: opts.name, 'aria-label': 'キャラクター名', placeholder: '名前を入力' } });
     this.nameInput.addEventListener('keydown', (e) => e.stopPropagation());
     this.cardBox = h('div', { class: 'birth-card' }, this.nameInput, this.card.el);
     this.buttons = h(
       'div',
       { class: 'birth-buttons' },
-      h('button', { class: 'btn btn-ghost', text: '✏️ もういちど描く', on: { click: () => opts.onRetry() } }),
-      h('button', { class: 'btn btn-primary btn-big', text: '▶ あそぶ', on: { click: () => opts.onPlay(this.name) } }),
+      h('button', { class: 'btn btn-ghost', text: '✏️ 描き直す', on: { click: () => opts.onRetry() } }),
+      h('button', { class: 'btn btn-primary btn-big', text: '▶ はじめる', on: { click: () => opts.onPlay(this.name) } }),
     );
     this.el = h('div', { class: 'screen screen-clear birth-screen' }, this.banner, this.cardBox, this.buttons);
     // 演出中のタップでスキップ

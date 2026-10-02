@@ -186,15 +186,15 @@ export function describeBuild(s: CharacterStats): BuildLabel {
   const wt = z(s.weight);
   const all = [hp, pw, df, sp, jp, wt];
   const maxAbs = Math.max(...all.map(Math.abs));
-  if (maxAbs < 0.14) return { id: 'balanced', label: 'バランス型', tagline: 'どこでも そこそこ やれる！' };
-  if (maxAbs > 0.62) return { id: 'extreme', label: '極端型', tagline: 'クセが つよい！ 使いこなせるかな？' };
+  if (maxAbs < 0.14) return { id: 'balanced', label: 'バランス型', tagline: '偏りが少なく、どのステージでも扱いやすい' };
+  if (maxAbs > 0.62) return { id: 'extreme', label: '極端型', tagline: '能力が極端に偏った、玄人向けの体型' };
   const heavy = (wt + df + hp) / 3 - (sp + jp) / 2;
   const light = sp + jp;
-  if (heavy > 0.35 && wt > 0.25) return { id: 'heavy', label: '重量型', tagline: 'ズシンと どっしり！ 風にも つよい' };
-  if (sp > 0.2 && sp >= jp) return { id: 'speed', label: '高速型', tagline: 'びゅんびゅん はしる！' };
-  if (jp > 0.2) return { id: 'jump', label: 'ジャンプ型', tagline: 'たかく とべる！' };
-  if (pw > 0.2 && pw >= df) return { id: 'power', label: '力持ち型', tagline: 'ぱわーで ごういんに！' };
-  if (df > 0.15 || hp > 0.2) return { id: 'guard', label: '守り型', tagline: 'タフで たおれにくい！' };
-  if (light > 0.2) return { id: 'speed', label: '軽量型', tagline: 'ふわっと かるい！' };
-  return { id: 'balanced', label: 'バランス型', tagline: 'どこでも そこそこ やれる！' };
+  if (heavy > 0.35 && wt > 0.25) return { id: 'heavy', label: '重量型', tagline: '重厚で安定感がある。風に強い' };
+  if (sp > 0.2 && sp >= jp) return { id: 'speed', label: '高速型', tagline: '足が速く、駆け抜けるのが得意' };
+  if (jp > 0.2) return { id: 'jump', label: 'ジャンプ型', tagline: '高く跳べる。段差や空中戦が得意' };
+  if (pw > 0.2 && pw >= df) return { id: 'power', label: '力持ち型', tagline: '攻撃力が高く、力押しが得意' };
+  if (df > 0.15 || hp > 0.2) return { id: 'guard', label: '守り型', tagline: '打たれ強く、ダメージに耐えやすい' };
+  if (light > 0.2) return { id: 'speed', label: '軽量型', tagline: '軽くて小回りが利く' };
+  return { id: 'balanced', label: 'バランス型', tagline: '偏りが少なく、どのステージでも扱いやすい' };
 }

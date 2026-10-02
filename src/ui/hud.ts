@@ -32,7 +32,7 @@ export class Hud {
     this.hintEl = h('div', { class: 'hud-hint' });
     this.flash = h('div', { class: 'hud-flash' });
     this.fade = h('div', { class: 'hud-fade' });
-    const pause = h('button', { class: 'hud-pause', text: 'Ⅱ', attrs: { 'aria-label': 'ポーズ' } });
+    const pause = h('button', { class: 'hud-pause', text: 'Ⅱ', attrs: { 'aria-label': '一時停止' } });
     pause.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();

@@ -27,20 +27,20 @@ export class CharacterListScreen implements Screen {
     const full = opts.characters.length >= MAX_CHARACTERS;
     const list = h('div', { class: 'cl-list' });
     for (const c of opts.characters) list.appendChild(this.card(c));
-    if (opts.characters.length === 0) list.appendChild(h('div', { class: 'cl-empty', text: 'まだ キャラクターが いません。ラクガキを描いてみよう！' }));
+    if (opts.characters.length === 0) list.appendChild(h('div', { class: 'cl-empty', text: 'キャラクターがいません。ラクガキを描いて作成しましょう。' }));
     this.el = h(
       'div',
       { class: 'screen cl-screen' },
       h(
         'div',
         { class: 'cl-card' },
-        h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: `👤 キャラクター  ${opts.characters.length}/${MAX_CHARACTERS}` }), h('button', { class: 'btn btn-ghost', text: '← もどる', on: { click: () => opts.onBack() } })),
+        h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: `👤 キャラクター  ${opts.characters.length}/${MAX_CHARACTERS}` }), h('button', { class: 'btn btn-ghost', text: '← 戻る', on: { click: () => opts.onBack() } })),
         list,
         h(
           'div',
           { class: 'cl-foot' },
-          full ? h('div', { class: 'cl-full', text: 'いっぱいです。いらないキャラクターを けしてから 描いてね' }) : null,
-          h('button', { class: 'btn btn-primary', text: '✏️ あたらしく描く', attrs: full ? { disabled: '' } : {}, on: { click: () => !full && opts.onDraw() } }),
+          full ? h('div', { class: 'cl-full', text: '上限に達しました。不要なキャラクターを削除してから、新しく描いてください。' }) : null,
+          h('button', { class: 'btn btn-primary', text: '✏️ 新しく描く', attrs: full ? { disabled: '' } : {}, on: { click: () => !full && opts.onDraw() } }),
         ),
       ),
     );
@@ -49,13 +49,13 @@ export class CharacterListScreen implements Screen {
   private card(c: CharacterRecord): HTMLElement {
     const selected = c.id === this.opts.selectedId;
     const build = describeBuild(c.stats);
-    const del = h('button', { class: 'btn btn-ghost cl-del', text: '🗑', attrs: { 'aria-label': `${c.name} を けす` } });
+    const del = h('button', { class: 'btn btn-ghost cl-del', text: '🗑', attrs: { 'aria-label': `${c.name} を削除` } });
     let armed = false;
     let timer = 0;
     del.addEventListener('click', () => {
       if (!armed) {
         armed = true;
-        del.textContent = 'ほんとうに けす？';
+        del.textContent = '本当に削除？';
         del.classList.add('armed');
         timer = window.setTimeout(() => {
           armed = false;
@@ -73,11 +73,11 @@ export class CharacterListScreen implements Screen {
       h(
         'div',
         { class: 'cl-info' },
-        h('div', { class: 'cl-name' }, h('b', { text: c.name }), selected ? h('span', { class: 'cl-badge', text: 'つかっている' }) : null),
+        h('div', { class: 'cl-name' }, h('b', { text: c.name }), selected ? h('span', { class: 'cl-badge', text: '使用中' }) : null),
         h('div', { class: 'cl-build', text: build.label }),
         h('div', { class: 'cl-stats', text: STAT_KEYS.map((k) => `${SHORT[k]} ${c.stats[k]}`).join('  ') }),
       ),
-      h('button', { class: 'btn btn-primary cl-pick', text: selected ? 'ハブへ' : 'えらぶ', on: { click: () => this.opts.onSelect(c.id) } }),
+      h('button', { class: 'btn btn-primary cl-pick', text: selected ? 'ステージ選択へ' : '選択', on: { click: () => this.opts.onSelect(c.id) } }),
       del,
     );
   }

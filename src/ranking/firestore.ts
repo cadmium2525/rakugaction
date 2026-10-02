@@ -125,7 +125,7 @@ export class FirestoreRankingBackend implements RankingBackend {
       }
       return { error: fail('auth', `匿名ログインに失敗しました (${r.status})`) };
     } catch (e) {
-      if (e instanceof NetworkError) return { error: fail('offline', 'ネットワークにつながりません') };
+      if (e instanceof NetworkError) return { error: fail('offline', 'ネットワークに接続できません') };
       throw e;
     }
   }
@@ -147,7 +147,7 @@ export class FirestoreRankingBackend implements RankingBackend {
       if (r.status !== 200) return fail(FirestoreRankingBackend.reasonOf(r.status), `記録を読めませんでした (${r.status})`);
       return ok(decodeEntry((r.json as { fields?: FsFields } | null)?.fields));
     } catch (e) {
-      if (e instanceof NetworkError) return fail('offline', 'ネットワークにつながりません');
+      if (e instanceof NetworkError) return fail('offline', 'ネットワークに接続できません');
       throw e;
     }
   }
@@ -170,7 +170,7 @@ export class FirestoreRankingBackend implements RankingBackend {
       const n = Number(first?.result?.aggregateFields?.c?.integerValue);
       return Number.isFinite(n) ? ok(n + 1) : fail('server', '順位の形式が不正です');
     } catch (e) {
-      if (e instanceof NetworkError) return fail('offline', 'ネットワークにつながりません');
+      if (e instanceof NetworkError) return fail('offline', 'ネットワークに接続できません');
       throw e;
     }
   }
@@ -194,7 +194,7 @@ export class FirestoreRankingBackend implements RankingBackend {
       }
       return ok(entries);
     } catch (e) {
-      if (e instanceof NetworkError) return fail('offline', 'ネットワークにつながりません');
+      if (e instanceof NetworkError) return fail('offline', 'ネットワークに接続できません');
       throw e;
     }
   }
@@ -231,7 +231,7 @@ export class FirestoreRankingBackend implements RankingBackend {
       });
       if (r.status !== 200) return fail(FirestoreRankingBackend.reasonOf(r.status), `送信が受け付けられませんでした (${r.status})`);
     } catch (e) {
-      if (e instanceof NetworkError) return fail('offline', 'ネットワークにつながりません');
+      if (e instanceof NetworkError) return fail('offline', 'ネットワークに接続できません');
       throw e;
     }
     const rank = await this.rankOf(sub.timeMs);

@@ -24,11 +24,11 @@ export class PauseMenu {
       h(
         'div',
         { class: 'pause-box' },
-        h('div', { class: 'pause-title', text: 'ポーズ' }),
-        h('button', { class: 'btn btn-primary btn-big', text: '▶ つづける', on: { click: () => opts.onResume() } }),
-        h('button', { class: 'btn btn-ghost', text: '🚩 チェックポイントから', on: { click: () => opts.onCheckpoint() } }),
-        h('button', { class: 'btn btn-ghost', text: opts.restartLabel ?? '↻ さいしょから', on: { click: () => opts.onRestart() } }),
-        h('button', { class: 'btn btn-ghost', text: opts.quitLabel ?? '⌂ やめる', on: { click: () => opts.onQuit() } }),
+        h('div', { class: 'pause-title', text: '一時停止' }),
+        h('button', { class: 'btn btn-primary btn-big', text: '▶ 再開', on: { click: () => opts.onResume() } }),
+        h('button', { class: 'btn btn-ghost', text: '🚩 チェックポイントから再開', on: { click: () => opts.onCheckpoint() } }),
+        h('button', { class: 'btn btn-ghost', text: opts.restartLabel ?? '↻ 最初からやり直す', on: { click: () => opts.onRestart() } }),
+        h('button', { class: 'btn btn-ghost', text: opts.quitLabel ?? '⌂ ステージを終了', on: { click: () => opts.onQuit() } }),
       ),
     );
     parent.appendChild(this.el);

@@ -68,18 +68,18 @@ export const BRUSH_SIZES = [0.02, 0.045, 0.08, 0.14] as const;
 
 /** 基本パレット。色相は能力傾向 (赤=POWER 青=DEFENSE 緑=SPEED 黄=JUMP 紫=特殊) と対応する。 */
 export const BASE_PALETTE: readonly { name: string; hex: string }[] = [
-  { name: 'あか', hex: '#e53935' },
-  { name: 'だいだい', hex: '#fb8c00' },
-  { name: 'きいろ', hex: '#fdd835' },
-  { name: 'みどり', hex: '#43a047' },
-  { name: 'みずいろ', hex: '#29b6f6' },
-  { name: 'あお', hex: '#1e63d6' },
-  { name: 'むらさき', hex: '#8e24aa' },
+  { name: '赤', hex: '#e53935' },
+  { name: '橙', hex: '#fb8c00' },
+  { name: '黄', hex: '#fdd835' },
+  { name: '緑', hex: '#43a047' },
+  { name: '水色', hex: '#29b6f6' },
+  { name: '青', hex: '#1e63d6' },
+  { name: '紫', hex: '#8e24aa' },
   { name: 'ピンク', hex: '#f06292' },
-  { name: 'ちゃいろ', hex: '#8d5a2b' },
-  { name: 'くろ', hex: '#202124' },
-  { name: 'しろ', hex: '#ffffff' },
-  { name: 'はいいろ', hex: '#9e9e9e' },
+  { name: '茶', hex: '#8d5a2b' },
+  { name: '黒', hex: '#202124' },
+  { name: '白', hex: '#ffffff' },
+  { name: '灰', hex: '#9e9e9e' },
 ];
 
 export function emptyDrawing(): DrawingData {

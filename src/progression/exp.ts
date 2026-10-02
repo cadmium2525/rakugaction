@@ -36,7 +36,7 @@ export function stageExp(i: StageExpInput): ExpGain {
   const order = Number.isFinite(i.order) ? Math.max(1, Math.min(5, Math.round(i.order))) : 1;
   const base = 40 + 20 * order;
   const mul = i.firstClear ? FIRST_MUL : REPEAT_MUL;
-  const parts: ExpPart[] = [{ label: i.firstClear ? 'はじめてのクリア' : 'クリア (くりかえし)', exp: Math.round(base * mul) }];
+  const parts: ExpPart[] = [{ label: i.firstClear ? '初クリア' : 'クリア (再挑戦)', exp: Math.round(base * mul) }];
   const rankExp = Math.round(base * mul * (RANK_BONUS[i.rank] ?? 0));
   if (rankExp > 0) parts.push({ label: `ランク ${i.rank}`, exp: rankExp });
   if (i.newBest) parts.push({ label: 'NEW BEST', exp: NEW_BEST_BONUS });

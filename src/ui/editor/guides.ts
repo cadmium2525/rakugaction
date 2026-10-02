@@ -54,30 +54,30 @@ export function drawGuides(canvas: HTMLCanvasElement, key: PartKey, mirrored: bo
       ctx.arc(u(0.5), u(0.46), u(0.3), 0, Math.PI * 2);
       ctx.stroke();
       dot(0.5, 0.9);
-      label('くび', 0.5, 0.96);
+      label('首', 0.5, 0.96);
       break;
     case 'body':
       ctx.roundRect(u(0.27), u(0.12), u(0.46), u(0.76), u(0.12));
       ctx.stroke();
       dot(0.27, 0.26);
       dot(0.73, 0.26);
-      label('かた', 0.5, 0.2);
+      label('肩', 0.5, 0.2);
       dot(0.5, 0.92);
-      label('こし', 0.5, 0.98);
+      label('腰', 0.5, 0.98);
       break;
     case 'armLeft':
     case 'armRight':
       ctx.roundRect(u(0.41), u(0.1), u(0.18), u(0.7), u(0.09));
       ctx.stroke();
       dot(0.5, 0.1);
-      label('かた', 0.5, 0.07);
+      label('肩', 0.5, 0.07);
       break;
     case 'legLeft':
     case 'legRight':
       ctx.roundRect(u(0.39), u(0.1), u(0.22), u(0.76), u(0.09));
       ctx.stroke();
       dot(0.5, 0.1);
-      label('こし', 0.5, 0.07);
+      label('腰', 0.5, 0.07);
       break;
   }
   ctx.restore();

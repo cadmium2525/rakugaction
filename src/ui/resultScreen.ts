@@ -46,15 +46,15 @@ export class ResultScreen implements Screen {
       { class: 'rs-rows' },
       row('TIME', formatTime(opts.timeMs), opts.newBest ? 'NEW BEST!' : ''),
       row('BEST', formatTime(opts.newBest ? opts.timeMs : (opts.prevBestMs ?? opts.timeMs))),
-      row('やられた回数', `${opts.deaths}`),
+      row('ミス回数', `${opts.deaths}`),
       ...(opts.extra ?? []).map((t) => h('div', { class: 'rs-extra', text: t })),
     );
     const progress = opts.progress ? progressBlock(opts.progress) : null;
     const btns = h('div', { class: 'rs-btns' });
-    if (opts.onNext) btns.appendChild(h('button', { class: 'btn btn-primary btn-big', text: opts.nextLabel ?? 'つぎへ ▶', on: { click: () => opts.onNext?.() } }));
+    if (opts.onNext) btns.appendChild(h('button', { class: 'btn btn-primary btn-big', text: opts.nextLabel ?? '次へ ▶', on: { click: () => opts.onNext?.() } }));
     btns.append(
-      h('button', { class: 'btn btn-ghost', text: '↻ もういちど', on: { click: () => opts.onRetry() } }),
-      h('button', { class: 'btn btn-ghost', text: '⌂ もどる', on: { click: () => opts.onHub() } }),
+      h('button', { class: 'btn btn-ghost', text: '↻ もう一度', on: { click: () => opts.onRetry() } }),
+      h('button', { class: 'btn btn-ghost', text: '⌂ 戻る', on: { click: () => opts.onHub() } }),
     );
     this.el = h(
       'div',
@@ -86,8 +86,8 @@ export function progressBlock(p: ResultProgress): HTMLElement {
   );
   if (p.levelUp) {
     const u = p.levelUp;
-    const items = [`HP/POWER/DEFENSE/SPEED/JUMP +${(u.uniformGain * 100).toFixed(2).replace(/\.?0+$/, '')}%`, `得意な能力 さらに +${(u.focusGain * 100).toFixed(2).replace(/\.?0+$/, '')}%`];
-    if (u.heartsGained > 0) items.push(`さいだいHP ハート +${u.heartsGained}`);
+    const items = [`HP/POWER/DEFENSE/SPEED/JUMP +${(u.uniformGain * 100).toFixed(2).replace(/\.?0+$/, '')}%`, `得意な能力に追加 +${(u.focusGain * 100).toFixed(2).replace(/\.?0+$/, '')}%`];
+    if (u.heartsGained > 0) items.push(`最大HP +${u.heartsGained}`);
     el.append(
       h('div', { class: 'rs-levelup' }, h('b', { text: `LEVEL UP!  Lv.${u.from} → Lv.${u.to}` }), h('small', { text: items.join(' / ') })),
     );

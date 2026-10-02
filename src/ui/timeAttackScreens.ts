@@ -55,7 +55,7 @@ export class SplitScreen implements Screen {
           h('div', { class: 'ta-row' }, h('span', { class: 'ta-l', text: 'TIME' }), h('b', { class: 'ta-v', text: formatTime(opts.timeMs) }), delta ? h('span', { class: `ta-delta${deltaCls}`, text: delta }) : null),
           h('div', { class: 'ta-row' }, h('span', { class: 'ta-l', text: 'TOTAL' }), h('b', { class: 'ta-v', text: formatTime(opts.totalMs) })),
         ),
-        h('div', { class: 'ta-next', text: `つぎは  ${opts.next.title}  ${opts.next.subtitle}` }),
+        h('div', { class: 'ta-next', text: `次のステージ  ${opts.next.title}  ${opts.next.subtitle}` }),
         this.btn,
       ),
     );
@@ -70,7 +70,7 @@ export class SplitScreen implements Screen {
   }
 
   private updateLabel(): void {
-    this.btn.textContent = `つぎへ ▶  ${Math.max(0, this.left)}`;
+    this.btn.textContent = `次へ ▶  ${Math.max(0, this.left)}`;
   }
 
   private go(): void {
@@ -110,7 +110,7 @@ export interface TimeAttackResultOptions {
 
 const FLAG_TEXT: Record<TaFlag, string> = {
   'clock-mismatch': '時計とゲーム内の時間が合いません',
-  'implausible-time': 'ありえないほど速いタイムです',
+  'implausible-time': '想定を大きく下回る、非現実的なタイムです',
   'bad-order': 'ステージの順番が正しくありません',
 };
 
@@ -141,16 +141,16 @@ export class TimeAttackResultScreen implements Screen {
       'div',
       { class: 'ta-total' },
       h('div', { class: 'ta-row' }, h('span', { class: 'ta-l', text: 'TOTAL' }), h('b', { class: 'ta-big', text: formatTime(r.totalMs) }), opts.newBest ? h('span', { class: 'rs-tag', text: 'NEW BEST!' }) : null, delta ? h('span', { class: `ta-delta${opts.deltaMs !== null && opts.deltaMs <= 0 ? ' good' : ' bad'}`, text: delta }) : null),
-      h('div', { class: 'ta-row' }, h('span', { class: 'ta-l', text: 'BEST' }), h('b', { class: 'ta-v', text: opts.bestMs === null ? '--:--.---' : formatTime(opts.bestMs) }), h('span', { class: 'ta-sub', text: `やられた ${r.deaths} 回` })),
+      h('div', { class: 'ta-row' }, h('span', { class: 'ta-l', text: 'BEST' }), h('b', { class: 'ta-v', text: opts.bestMs === null ? '--:--.---' : formatTime(opts.bestMs) }), h('span', { class: 'ta-sub', text: `ミス ${r.deaths} 回` })),
     );
     const notice = r.flags.length > 0 ? h('div', { class: 'ta-notice', text: `この記録は参考記録になります (${r.flags.map((f) => FLAG_TEXT[f]).join(' / ')})` }) : null;
     this.statusEl = h('div', { class: 'ta-status', text: opts.statusText ?? '' });
     const btns = h('div', { class: 'rs-btns' });
-    if (opts.onSubmit) btns.appendChild(h('button', { class: 'btn btn-primary', text: opts.submitLabel ?? '🏆 ランキングにのせる', on: { click: () => opts.onSubmit?.() } }));
+    if (opts.onSubmit) btns.appendChild(h('button', { class: 'btn btn-primary', text: opts.submitLabel ?? '🏆 ランキングに登録', on: { click: () => opts.onSubmit?.() } }));
     if (opts.onRanking) btns.appendChild(h('button', { class: 'btn btn-ghost', text: '🏆 ランキングを見る', on: { click: () => opts.onRanking?.() } }));
     btns.append(
-      h('button', { class: 'btn btn-ghost', text: '↻ もういちど', on: { click: () => opts.onRetry() } }),
-      h('button', { class: 'btn btn-ghost', text: '⌂ もどる', on: { click: () => opts.onHub() } }),
+      h('button', { class: 'btn btn-ghost', text: '↻ もう一度', on: { click: () => opts.onRetry() } }),
+      h('button', { class: 'btn btn-ghost', text: '⌂ 戻る', on: { click: () => opts.onHub() } }),
     );
     this.el = h(
       'div',

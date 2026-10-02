@@ -20,10 +20,10 @@ export interface EnemySpec {
 }
 
 export const ENEMY_SPECS: Record<EnemyKind, EnemySpec> = {
-  blob: { label: 'ぷるん', radius: 0.55, height: 0.9, toughness: 0.5, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
-  hopper: { label: 'ぴょんた', radius: 0.5, height: 0.95, toughness: 0.5, stompable: true, damage: 1, hopHeight: 1.1, hopPeriod: 1.3 },
-  spiky: { label: 'トゲまる', radius: 0.62, height: 0.95, toughness: 0.95, stompable: false, damage: 1, hopHeight: 0, hopPeriod: 1 },
-  chaser: { label: 'おいかけくん', radius: 0.55, height: 0.95, toughness: 0.5, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
+  blob: { label: 'プルン', radius: 0.55, height: 0.9, toughness: 0.5, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
+  hopper: { label: 'ピョンタ', radius: 0.5, height: 0.95, toughness: 0.5, stompable: true, damage: 1, hopHeight: 1.1, hopPeriod: 1.3 },
+  spiky: { label: 'トゲマル', radius: 0.62, height: 0.95, toughness: 0.95, stompable: false, damage: 1, hopHeight: 0, hopPeriod: 1 },
+  chaser: { label: 'チェイサー', radius: 0.55, height: 0.95, toughness: 0.5, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
 };
 
 /** 定義 (scale/上書き) を反映した、この敵の実際の性能。 */
