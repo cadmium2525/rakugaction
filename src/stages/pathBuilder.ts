@@ -332,10 +332,19 @@ export class PathBuilder {
     return this;
   }
 
-  hazard(a: number, l: number, size: V3t, o: { damage?: number; style?: 'spikes' | 'bumper' | 'fire' } = {}): this {
+  /**
+   * ダメージ床 / トゲを置く。既定ではカーソルの高さ (this.y) の平らな床の上。
+   * 坂の上に置くときは slope (上り勾配 = dy/len。下りは負) を渡す: カーソルは坂の終端にあるので、a 手前の床の高さは y + a * slope。
+   * 箱は水平のままなので、傾いた床に埋まらず浮かないよう、低い側の縁が床に着くところまで下げる。
+   */
+  hazard(a: number, l: number, size: V3t, o: { damage?: number; style?: 'spikes' | 'bumper' | 'fire'; slope?: number } = {}): this {
+    const slope = o.slope ?? 0;
+    const alongX = this.heading === 'x+' || this.heading === 'x-';
+    const extent = alongX ? size[0] : size[2];
+    const base = this.y + a * slope - Math.abs(slope) * (extent / 2);
     this.hazards.push({
       id: this.nextId('hz'),
-      pos: this.point(a, l, this.y + size[1] / 2),
+      pos: this.point(a, l, base + size[1] / 2),
       size,
       damage: o.damage,
       style: o.style ?? 'spikes',

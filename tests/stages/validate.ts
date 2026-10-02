@@ -65,6 +65,18 @@ export async function validateStage(stage: StageDef): Promise<void> {
       for (const q of near) expect(Math.hypot(p[0] - q[0], p[2] - q[2]), `enemy ${e.id} がスタート/チェックポイントに近すぎる`).toBeGreaterThan(3);
     }
   }
+  // 危険物 (トゲ等) と動く危険物の経路: 底面の 0.4m 下〜 0.3m 上に床がある (坂の上で宙に浮かない)
+  for (const hz of stage.hazards ?? []) {
+    const bottom = hz.pos[1] - hz.size[1] / 2;
+    const down = sim.raycast(hz.pos[0], bottom + 0.3, hz.pos[2], 0, -1, 0, 0.7);
+    expect(down, `hazard ${hz.id} (${hz.style ?? 'spikes'}) [${hz.pos.map((v) => v.toFixed(1)).join(', ')}] が宙に浮いている`).not.toBeNull();
+  }
+  for (const sw of stage.sweepers ?? []) {
+    for (const p of sw.points) {
+      const down = sim.raycast(p[0], p[1] - sw.size[1] / 2 + 0.3, p[2], 0, -1, 0, 0.7);
+      expect(down, `sweeper ${sw.id} [${p.map((v) => v.toFixed(1)).join(', ')}] が宙に浮いている`).not.toBeNull();
+    }
+  }
   // 看板: 文字は 1〜3 行
   for (const s of stage.signs ?? []) {
     expect(finite(s.pos) && Number.isFinite(s.yaw), 'sign の座標').toBe(true);
