@@ -14,7 +14,7 @@ import type { StageDef, WaypointDef } from './types';
  *   ★ 風車の丘 (中央)        誰でも
  *   ★ 池の中の小島           誰でも (飛び石 / 泳ぎ)
  *   ★ ピョンタの花畑 (南東)   誰でも
- *   ★ 崖の上 (南西)          誰でも (らせんの道)
+ *   ★ 崖の上 (南西)          誰でも (外周をぐるぐる回る道をたどる。崖は直登できない)
  *   ★ チェイサーの広場 (西)   誰でも (チェイサーを倒すか、かわす)
  *   ★ トゲ畑の先 (北)        誰でも (すき間をぬう)
  *   ★ 木箱の遺跡 (北西)      攻撃力が標準以上のビルドだけ (木箱の壁を壊す)
@@ -25,6 +25,21 @@ import type { StageDef, WaypointDef } from './types';
 
 /** 島の中心 */
 const ISLAND = { x: 0, z: 6, r: 112 };
+
+/**
+ * 崖の丘 (渦巻きの塔): 外側から内側へ 2 周する、幅 6.4m の螺旋状の段。1 周ごとに 5m 高くなり、周回と周回の間は 5m の垂直な崖
+ * (石のブロックの側面。誰も登れない)。外周をぐるぐる回って頂上へ向かう。始まり (λ=0) は東側 = スタートから来る道の終点。
+ * 道の中心線は λ = 0..2 (半径 r0 − s·λ、角度 2π·λ、高さ rise·λ)。ブロックは地面から立つ柱で、上面が螺旋の坂になる。
+ */
+const CLIFF = { cx: -58, cz: -64, r0: 16, s: 6.4, rise: 5, loops: 2, h0: 0 };
+/** 渦巻きの道の中心線の点 (lat = 外向きにずらす m) */
+const cliffPoint = (lam: number, lat = 0): [number, number] => {
+  const r = CLIFF.r0 - CLIFF.s * lam + lat;
+  const phi = 2 * Math.PI * lam;
+  return [CLIFF.cx + r * Math.cos(phi), CLIFF.cz + r * Math.sin(phi)];
+};
+/** 道の λ の位置の高さ (ブロックの上面。0.2m 刻みの階段なので、ほんの少し高く見積もる) */
+const cliffY = (lam: number): number => CLIFF.h0 + CLIFF.rise * Math.min(CLIFF.loops, Math.max(0, lam)) + 0.1;
 
 function buildTerrain() {
   const tb = new TerrainBuilder({ x0: -132, z0: -132, x1: 132, z1: 138 }, 2, 0);
@@ -46,8 +61,8 @@ function buildTerrain() {
   tb.plateau(-62, -14, 15, 0.4, 12);
   // 南東の花畑: 平ら
   tb.plateau(32, -62, 17, 0, 12);
-  // 崖の丘 (南西): らせんの道で登る
-  tb.hill(-58, -64, 22, 22, 13).plateau(-58, -64, 4, 13, 5);
+  // 崖の丘 (南西): まわりを平らにそろえる (塔は箱で作る)
+  tb.plateau(CLIFF.cx, CLIFF.cz, CLIFF.r0 + 12, CLIFF.h0, 10);
   // ゴールの台地 (北)
   tb.plateau(0, 90, 10, 3.0, 9);
 
@@ -56,19 +71,13 @@ function buildTerrain() {
   const road = (pts: [number, number][], w = W): void => void tb.path(pts, w, 4.5);
   road([[0, -96], [0, -80], [2, -64], [-2, -48], [0, -34], [-6, -26], [-10, -14], [-10, 0], [-6, 8]]); // スタート → 風車の丘
   road([[2, -64], [14, -64], [27, -62]]); // → 花畑
-  road([[-2, -48], [-14, -52], [-28, -56], [-34, -60]]); // → 崖の丘のふもと
+  road([[-2, -48], [-14, -52], [-28, -58], [-38, -63], [-41, -64]]); // → 崖の丘 (渦巻きの道の入口)
   road([[8, 2], [22, -4], [36, -14], [42.5, -22]]); // → 池
   road([[-8, 0], [-22, -4], [-38, -8], [-48, -12]]); // → 広場
   road([[-6, 8], [-18, 18], [-30, 26], [-42, 30], [-54, 32]]); // → 遺跡
   road([[6, 10], [12, 24], [16, 36], [18, 42]]); // → トゲ畑
   road([[18, 62], [18, 70], [12, 80], [4, 86], [0, 88]]); // → ゴール
   road([[14, 28], [30, 32], [46, 34], [58, 34]]); // → 浮島の階段
-  // 崖の丘のらせんの道 (ふもと → 頂上)
-  road(
-    [[-34, -60], [-40, -48], [-56, -44], [-72, -52], [-76, -68], [-62, -80], [-46, -76], [-42, -66], [-50, -58], [-58, -62]],
-    4.2,
-  );
-
   // 島の外側を崖にして雲海へ落とす
   tb.island(ISLAND.x, ISLAND.z, ISLAND.r, [
     { k: 3, amp: 0.05, phase: 0.4 },
@@ -78,7 +87,6 @@ function buildTerrain() {
 
   // 地面の種類: 急な所は岩、池のふちは砂、特定の場所は色を変える
   tb.paintDisk(62, 34, 9, PAINT.rock);
-  tb.paintDisk(-58, -64, 5, PAINT.rock);
   tb.autoPaint({ rockSlope: 0.72, waterLevel: -0.4, shoreBand: 0.8, shore: { cx: 58, cz: -22, r: 26 } });
   return tb.build();
 }
@@ -142,11 +150,14 @@ export function buildStage1(): StageDef {
   }
 
   // ===== 南西: 崖の丘 (らせんの道) =====
-  keepOut(-58, -64, 24);
-  k.checkpoint('cp3', -36, -58);
-  k.star('崖の上', -58, -64);
-  k.enemy('spiky', -40, -52, -44, -46, { speed: 1.8, pause: 0.4 });
-  k.sign(-31, -52, 2.0, ['崖の丘'], { icon: 'arrow', hint: ['らせんの道を登った頂上に、星がある'] });
+  keepOut(CLIFF.cx, CLIFF.cz, 24);
+  cliffTower(k);
+  k.checkpoint('cp3', -33, -60);
+  k.star('崖の上', CLIFF.cx, CLIFF.cz, 1.35, cliffY(CLIFF.loops) + 1.35 - 0.1);
+  // 1 周目の道 (中央) にプルン、2 周目の道の内側のレーンにトゲマル (外側のレーンを通ればかわせる)
+  k.enemy('blob', ...cliffPoint(0.46), ...cliffPoint(0.54), { speed: 1.4, y0: cliffY(0.46) - 0.1, y1: cliffY(0.54) - 0.1 });
+  k.enemy('spiky', ...cliffPoint(1.43, -1.15), ...cliffPoint(1.53, -1.15), { speed: 1.7, pause: 0.5, y0: cliffY(1.43) - 0.1, y1: cliffY(1.53) - 0.1 });
+  k.sign(-30, -52, 2.2, ['崖の丘'], { icon: 'arrow', hint: ['崖は登れない。外周の道をぐるぐる回って頂上へ', '落ちても、下の周回に戻るだけ'] });
 
   // ===== 東: 池 =====
   keepOut(58, -22, 26);
@@ -249,6 +260,34 @@ export function buildStage1(): StageDef {
     routes,
     parTime: 120,
   };
+}
+
+/**
+ * 崖の丘の塔: 螺旋の道に沿って、石のブロック (地面から立つ柱) を並べる。ブロックの上面が 0.2m 刻みの階段 = 登り坂。
+ * 周回と周回の間はブロックの垂直な側面なので、ジャンプしながら押し込んでも登れない (格子の粗い地形では、崖が 60° の斜面になって登れてしまう)。
+ * 外の地面との境 (入口) は 0.2m の段。頂上は中心の円柱で、道の終わり (高さ 10m) がそこへつながる。
+ */
+function cliffTower(k: FieldKit): void {
+  const { cx, cz, r0, s, rise, loops, h0 } = CLIFF;
+  const dl = 0.04; // 1 ブロックの周回の幅 (rise × dl = 0.2m の段)
+  for (let l = 0; l < loops - 1e-9; l += dl) {
+    const m = l + dl / 2;
+    const rc = r0 - s * m;
+    const phi = 2 * Math.PI * m;
+    // 中心線の接線 (半径の縮みも含む)
+    const tx = -s * Math.cos(phi) - rc * 2 * Math.PI * Math.sin(phi);
+    const tz = -s * Math.sin(phi) + rc * 2 * Math.PI * Math.cos(phi);
+    const len = Math.hypot(tx, tz) * dl * 1.25 + 0.2;
+    const top = h0 + rise * (l + dl);
+    const bottom = h0 - 0.5;
+    k.box([cx + rc * Math.cos(phi), (top + bottom) / 2, cz + rc * Math.sin(phi)], [len, top - bottom, s], 'grass', [0, Math.atan2(-tz, tx), 0]);
+  }
+  // 頂上 (道の終わりの高さ): 中心の円柱
+  const topY = h0 + rise * loops;
+  k.cyl(cx, (topY + h0 - 0.5) / 2, cz, 3.4, topY - h0 + 0.5, 'grass');
+  // 頂上の飾り: 小さな旗
+  k.push({ shape: 'cylinder', pos: [cx + 2, topY + 1.2, cz + 2], size: [0.07, 2.4, 1], color: 0xdddddd, seg: 5 });
+  k.push({ shape: 'box', pos: [cx + 2.5, topY + 2.0, cz + 2], size: [1.0, 0.6, 0.05], color: 0xd9573f });
 }
 
 /** 木箱の遺跡: 石の壁で囲まれた中庭。南の門が木箱の壁でふさがれている。中にトゲマルが 2 体。 */
@@ -375,9 +414,29 @@ function buildRoutes(k: FieldKit): Record<string, WaypointDef[]> {
   // 浮島の最上段から西へ飛び降り、トゲ畑の北側を回って星 (18,70) へ (トゲ畑は通らない)
   const stepsToStar = [k.wp(55, stepZ(2), { radius: 3 }), W(40, 68, 3), W(28, 70, 2), S(18, 70), W(12, 80), W(4, 86), k.wp(0, 90, { radius: 1.5 })];
 
+  // 崖の丘: 入口 → 渦巻きの道を 2 周 (外側のレーンを通る = トゲマルをかわす) → 頂上の星 → 外側へ飛び降りて入口へ
+  const toCliff = [W(-2, -52, 3), W(-14, -53, 3), W(-28, -58, 2.5), W(-38, -63, 1.5)];
+  const spiral: WaypointDef[] = [];
+  for (let lam = 0; lam <= CLIFF.loops - 0.2 + 1e-9; lam += 0.07) {
+    const [x, z] = cliffPoint(lam, 0.6);
+    spiral.push({ pos: [x, cliffY(lam), z], radius: 1.4 });
+  }
+  const summitY = CLIFF.h0 + CLIFF.rise * CLIFF.loops;
+  const cliffUp = [...toCliff, ...spiral, { pos: [CLIFF.cx, summitY + 0.1, CLIFF.cz] as [number, number, number], radius: 1.0 }];
+  // 頂上の東の縁から、外へ飛び降りる (2 周目の道 → 1 周目の道 → 地面)
+  const cliffDown: WaypointDef[] = [
+    { pos: [CLIFF.cx + 7.5, CLIFF.h0 + CLIFF.rise + 0.1, CLIFF.cz], radius: 3 },
+    { pos: [CLIFF.cx + 14, CLIFF.h0 + 0.1, CLIFF.cz], radius: 3 },
+    W(CLIFF.cx + 19, CLIFF.cz - 1, 3),
+    W(-28, -58, 3),
+    W(-8, -56, 3),
+  ];
+
   const common = [...start, ...toC, ...toPond, ...stonesOut, ...stonesBack, ...toHub];
   const main = [...common, ...hubToPlaza, ...plazaToHub, ...hubToSpikes, ...spikesToGoal];
   const power = [...common, ...hubToRuins, ...crate, ...ruinsToSpikes, ...spikesToGoal];
   const jump = [...common, ...hubToSteps, ...steps, ...stepsToStar];
-  return { main, power, jump };
+  // 崖の丘ルート: 平原の星 (花畑・池・風車の丘・トゲ畑) の 4 個に崖の上を足す。広場 (チェイサー) は通らない
+  const cliff = [...start, ...cliffUp, ...cliffDown, ...toC, ...toPond, ...stonesOut, ...stonesBack, ...toHub, ...hubToSpikes, ...spikesToGoal];
+  return { main, power, jump, cliff };
 }

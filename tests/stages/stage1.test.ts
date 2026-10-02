@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest';
+import { getBuild } from '../../src/character/stats';
+import { Bot } from '../../src/game/bot';
+import { statsToParams } from '../../src/game/params';
+import { GameSim } from '../../src/game/sim';
+import { emptyInput } from '../../src/input/types';
 import { buildStage1 } from '../../src/stages/stage1';
 import { terrainHeightAt } from '../../src/stages/terrain';
+import type { WaypointDef } from '../../src/stages/types';
 import { ALL_BUILDS, FRAGILE_BUILD, fmt, runStage } from './harness';
 import type { RunReport } from './harness';
 import { validateStage } from './validate';
-import { makeSim, run } from '../helpers/headless';
+import { makeSim, rapier, run } from '../helpers/headless';
 
 /** 木箱の壁を壊せる攻撃力 (toughness 0.95) を持つビルド */
 const BREAKERS = ['STANDARD', 'POWER', 'HEAVY', 'EXTREME'];
@@ -47,7 +53,8 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     const kinds = new Set(stage.enemies!.map((e) => e.kind));
     expect([...kinds].sort()).toEqual(['blob', 'chaser', 'hopper', 'spiky']);
     expect(stage.enemies!.length).toBeGreaterThanOrEqual(12);
-    expect(stage.enemies!.every((e) => e.onTerrain)).toBe(true);
+    // 地形に沿う敵がほとんど (崖の丘の塔の上の 2 体だけは、ブロックの高さを直接指定している)
+    expect(stage.enemies!.filter((e) => !e.onTerrain).length).toBe(2);
     expect(stage.signs!.length).toBeGreaterThanOrEqual(8);
     expect(stage.decor!.length).toBeGreaterThanOrEqual(1500);
     // 低画質で消せる飾りと、遠景 (1 メッシュにまとめる) がある
@@ -122,4 +129,40 @@ describe('STAGE 1 草原 (フィールド型)', () => {
       expect(r.cleared, `跳べないはずの浮島を渡っている: ${fmt(r)}`).toBe(false);
     }
   }, 240_000);
+
+  it('崖の丘: 渦巻きの道は全ビルドが登り切れる (cliff ルート)。崖は、どの向きからも歩きとジャンプの連打では登れない', async () => {
+    for (const id of ALL_BUILDS) {
+      const r = await runStage(stage, id, 'cliff', { maxTime: 240, maxDeaths: 6 });
+      expect(r.cleared, fmt(r)).toBe(true);
+    }
+    // 頂上の星 (崖の上) へ、まわりのいろいろな向きから、真っすぐ向かう (行き止まりなら自動でジャンプし続ける = 連打)
+    const R = await rapier();
+    const star = stage.pickups!.find((p) => p.label === '崖の上')!;
+    const cx = star.pos[0];
+    const cz = star.pos[2];
+    for (const id of ALL_BUILDS) {
+      const b = getBuild(id);
+      for (let a = 0; a < 8; a++) {
+        const ang = (a / 8) * Math.PI * 2;
+        // 渦巻きの外 (半径 26m) の地面から、頂上へ
+        const sx = cx + Math.cos(ang) * 26;
+        const sz = cz + Math.sin(ang) * 26;
+        const sim = new GameSim(R, stage, statsToParams(b.stats, b.traits));
+        sim.player.placeFeet(sx, terrainHeightAt(stage.terrain!, sx, sz)! + 0.2, sz);
+        const route: WaypointDef[] = [{ pos: star.pos, radius: 1.0 }];
+        const bot = new Bot(sim, route, { fight: false });
+        const input = emptyInput();
+        let maxY = -Infinity;
+        for (let i = 0; i < 60 * 45; i++) {
+          bot.next(input);
+          sim.step(input);
+          if (sim.player.grounded) maxY = Math.max(maxY, sim.player.feetY);
+        }
+        expect(sim.collected.has(star.id), `${id} が ${a * 45}° から崖を直登して星に届いた (地面に立てた最高 ${maxY.toFixed(1)}m)`).toBe(false);
+        // 立てたのは、せいぜい 1 周目の道 (最高 5m 弱) まで。2 周目の道 (5m 以上) には上がれない (空中で 5m を超えるのは跳んだだけ)
+        expect(maxY, `${id} が ${a * 45}° から 2 周目の道に立った (最高 ${maxY.toFixed(1)}m)`).toBeLessThan(5.3);
+        sim.dispose();
+      }
+    }
+  }, 600_000);
 });

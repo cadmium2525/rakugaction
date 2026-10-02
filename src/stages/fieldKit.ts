@@ -92,16 +92,21 @@ export class FieldKit {
   }
 
   /** 巡回する敵 (x0,z0) ⇄ (x1,z1) / chaser は (x0,z0) が待機位置。足元は地形に沿う。 */
-  enemy(kind: EnemyKind, x0: number, z0: number, x1: number, z1: number, o: Partial<EnemyDef> = {}): EnemyDef {
-    const points: V3t[] = kind === 'chaser' ? [this.at(x0, z0)] : [this.at(x0, z0), this.at(x1, z1)];
+  enemy(kind: EnemyKind, x0: number, z0: number, x1: number, z1: number, o: Partial<EnemyDef> & { y0?: number; y1?: number } = {}): EnemyDef {
+    const { y0, y1, ...rest } = o;
+    // y0 / y1 を渡すと、足元の高さを直接指定する (地形ではなく、ブロックや床の上の敵。地形には沿わない)
+    const explicit = y0 !== undefined;
+    const p0: V3t = explicit ? [x0, y0, z0] : this.at(x0, z0);
+    const p1: V3t = explicit ? [x1, y1 ?? y0, z1] : this.at(x1, z1);
+    const points: V3t[] = kind === 'chaser' ? [p0] : [p0, p1];
     const def: EnemyDef = {
       id: this.id('en'),
       kind,
       points,
       speed: kind === 'chaser' ? 3.4 : kind === 'spiky' ? 2.0 : 1.8,
       pause: 0.4,
-      onTerrain: true,
-      ...o,
+      onTerrain: !explicit,
+      ...rest,
     };
     // chaser の範囲 (leash) の高さは待機位置の地面に合わせる (地形に沿って動くので、y は検査と描画の目安)
     if (def.leash) {

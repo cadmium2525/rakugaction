@@ -91,9 +91,12 @@ export class Minimap {
     g.fillStyle = 'rgba(70, 74, 86, 0.9)';
     for (const bx of stage.boxes) {
       if (bx.rot && (bx.rot[0] !== 0 || bx.rot[2] !== 0)) continue;
-      const u = (bx.pos[0] - bx.size[0] / 2 - t.x0) / MAP_RES;
-      const v = (bx.pos[2] - bx.size[2] / 2 - t.z0) / MAP_RES;
-      g.fillRect(u, v, Math.max(1, bx.size[0] / MAP_RES), Math.max(1, bx.size[2] / MAP_RES));
+      // y 軸まわりに回した箱 (崖の擁壁など) は、回した長方形で描く
+      g.save();
+      g.translate((bx.pos[0] - t.x0) / MAP_RES, (bx.pos[2] - t.z0) / MAP_RES);
+      g.rotate(-(bx.rot?.[1] ?? 0));
+      g.fillRect(-bx.size[0] / 2 / MAP_RES, -bx.size[2] / 2 / MAP_RES, Math.max(1, bx.size[0] / MAP_RES), Math.max(1, bx.size[2] / MAP_RES));
+      g.restore();
     }
     // 道の色は地面の種類 (dirt) で出ている。トゲ床は赤
     g.fillStyle = 'rgba(214, 70, 60, 0.9)';
