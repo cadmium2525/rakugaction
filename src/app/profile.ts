@@ -4,12 +4,20 @@ import { MAX_LEVEL, expForLevel, levelFromExp } from '../progression/level';
 import type { TimeAttackBest } from '../timeattack/run';
 import type { LevelProgress } from '../progression/level';
 
+/** 集めるアイテム (ラクガキ星) を取った時刻 (ステージの操作開始からの ms。ミスの加算を含む)。 */
+export interface StarSplit {
+  id: string;
+  ms: number;
+}
+
 /** ステージ 1 つぶんの記録。 */
 export interface StageRecord {
   cleared: boolean;
   /** ベストタイム (ms)。未クリアは null。 */
   bestMs: number | null;
   clears: number;
+  /** ベストを出した走りの、星の取得時刻 (集めるアイテムのあるステージだけ)。次の走りで星ごとに比べる */
+  bestSplits?: StarSplit[];
 }
 
 /**
@@ -135,13 +143,18 @@ export class Profile {
   }
 
   /** クリアを記録する。ベスト更新なら newBest = true。 */
-  recordClear(stageId: string, timeMs: number): { newBest: boolean; firstClear: boolean } {
+  recordClear(stageId: string, timeMs: number, splits?: readonly StarSplit[]): { newBest: boolean; firstClear: boolean } {
     const r = this.stage(stageId);
     const firstClear = !r.cleared;
     r.cleared = true;
     r.clears++;
     const newBest = r.bestMs === null || timeMs < r.bestMs;
-    if (newBest) r.bestMs = timeMs;
+    if (newBest) {
+      r.bestMs = timeMs;
+      // ベストの走りの星の時刻に差し替える (星の記録が無い走りなら、古い記録は残さない)
+      if (splits && splits.length > 0) r.bestSplits = splits.map((x) => ({ id: x.id, ms: x.ms }));
+      else delete r.bestSplits;
+    }
     this.changed();
     return { newBest, firstClear };
   }

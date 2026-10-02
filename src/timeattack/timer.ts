@@ -64,6 +64,22 @@ export class StageTimer {
   }
 }
 
+/** 星の取得などの短い表示: 9876 → "9.9"、65200 → "1:05.2" (0.1 秒単位)。 */
+export function formatSplit(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '--';
+  const t = Math.round(ms / 100) / 10;
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return m > 0 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : s.toFixed(1);
+}
+
+/** ベストとの差 (ms): −1300 → "−1.3"、800 → "+0.8" (0.1 秒単位)。 */
+export function formatSplitDelta(ms: number): string {
+  if (!Number.isFinite(ms)) return '';
+  const v = Math.round(ms / 100) / 10;
+  return v === 0 ? '±0.0' : `${v < 0 ? '−' : '+'}${Math.abs(v).toFixed(1)}`;
+}
+
 /** 12345 → "00:12.345" */
 export function formatTime(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '--:--.---';

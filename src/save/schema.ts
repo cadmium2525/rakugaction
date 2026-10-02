@@ -1,4 +1,4 @@
-import type { StageRecord } from '../app/profile';
+import type { StageRecord, StarSplit } from '../app/profile';
 import { STAT_FORMULA_VERSION } from '../character/record';
 import type { CharacterRecord } from '../character/record';
 import { DEFAULT_TRAITS, STAT_KEYS } from '../character/stats';
@@ -177,8 +177,24 @@ function normalizeStages(raw: unknown, issues: string[]): Record<string, StageRe
     // ベストがあるのにクリア済みでない/クリア回数 0 は矛盾 → ベストに合わせる
     const cleared = v.cleared === true || bestMs !== null;
     out[id] = { cleared, bestMs, clears: cleared ? Math.max(clears, 1) : clears };
+    const splits = bestMs !== null ? normalizeSplits(v.bestSplits) : null;
+    if (splits) out[id].bestSplits = splits;
   }
   return out;
+}
+
+/** ベストの走りの星の取得時刻。壊れた要素は捨て、数と長さに上限を付ける (保存データは信用しない)。 */
+function normalizeSplits(raw: unknown): StarSplit[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: StarSplit[] = [];
+  const seen = new Set<string>();
+  for (const x of raw) {
+    if (out.length >= 32) break;
+    if (!isObj(x) || typeof x.id !== 'string' || !/^[A-Za-z0-9_-]{1,40}$/.test(x.id) || seen.has(x.id) || !finite(x.ms) || x.ms < 0 || x.ms > 7_200_000) continue;
+    seen.add(x.id);
+    out.push({ id: x.id, ms: Math.round(x.ms) });
+  }
+  return out.length > 0 ? out : null;
 }
 
 function normalizeBest(raw: unknown): TimeAttackBest | null {

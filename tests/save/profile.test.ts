@@ -104,3 +104,75 @@ describe('Profile ⇔ セーブデータ', () => {
     expect(fn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Profile.recordClear: 星の取得時刻 (ベストの走り)', () => {
+  const splitsA = [
+    { id: 'star1', ms: 9000 },
+    { id: 'star2', ms: 21_000 },
+  ];
+  const splitsB = [{ id: 'star1', ms: 8000 }];
+
+  it('ベスト更新の時だけ、その走りの星の時刻に差し替える。更新しない走りでは変えない', () => {
+    const p = new Profile();
+    p.recordClear('stage1', 60_000, splitsA);
+    expect(p.stage('stage1').bestSplits).toEqual(splitsA);
+    // 遅い走り: ベストも星の時刻も変わらない
+    p.recordClear('stage1', 70_000, splitsB);
+    expect(p.stage('stage1').bestMs).toBe(60_000);
+    expect(p.stage('stage1').bestSplits).toEqual(splitsA);
+    // 速い走り: 差し替わる
+    p.recordClear('stage1', 55_000, splitsB);
+    expect(p.stage('stage1').bestSplits).toEqual(splitsB);
+  });
+
+  it('星の記録が無い走りでベストを更新したら、古い星の記録は残さない (今のベストと食い違うため)', () => {
+    const p = new Profile();
+    p.recordClear('stage1', 60_000, splitsA);
+    p.recordClear('stage1', 50_000);
+    expect(p.stage('stage1').bestMs).toBe(50_000);
+    expect(p.stage('stage1').bestSplits).toBeUndefined();
+  });
+
+  it('渡した配列は写して保持する (あとで呼び出し側が変えても影響しない)', () => {
+    const p = new Profile();
+    const mine = [{ id: 'star1', ms: 1000 }];
+    p.recordClear('stage1', 60_000, mine);
+    mine[0].ms = 99;
+    expect(p.stage('stage1').bestSplits![0].ms).toBe(1000);
+  });
+
+  it('保存して読み込むと、星の時刻が残る。壊れた要素・重複・範囲外は捨て、ベストが無ければ読み込まない', () => {
+    const p = new Profile();
+    p.recordClear('stage1', 60_000, splitsA);
+    const r = parseSave(serializeSave(makeSave({ stages: p.snapshot().stages })));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.result.data.profile.stages.stage1.bestSplits).toEqual(splitsA);
+
+    const dirty = makeSave();
+    dirty.profile.stages.stage1 = {
+      cleared: true,
+      bestMs: 60_000,
+      clears: 1,
+      bestSplits: [
+        { id: 'star1', ms: 1234.6 },
+        { id: 'star1', ms: 5 }, // 重複
+        { id: 'bad id!', ms: 5 }, // 不正な id
+        { id: 'star3', ms: -1 }, // 範囲外
+        { id: 'star4', ms: 9e9 }, // 範囲外
+        { id: 'star5', ms: Number.NaN },
+        null as never,
+        { id: 'star6', ms: 500 },
+      ],
+    };
+    dirty.profile.stages.stage2 = { cleared: false, bestMs: null, clears: 0, bestSplits: [{ id: 'star1', ms: 1 }] }; // ベストが無い
+    const r2 = parseSave(JSON.stringify(dirty));
+    expect(r2.ok).toBe(true);
+    if (!r2.ok) return;
+    expect(r2.result.data.profile.stages.stage1.bestSplits).toEqual([
+      { id: 'star1', ms: 1235 },
+      { id: 'star6', ms: 500 },
+    ]);
+    expect(r2.result.data.profile.stages.stage2?.bestSplits).toBeUndefined();
+  });
+});

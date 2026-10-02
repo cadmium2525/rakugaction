@@ -14,6 +14,8 @@ import { Minimap } from '../ui/minimap';
 import { PauseMenu } from '../ui/pauseMenu';
 import type { ObjectiveInfo } from '../ui/pauseMenu';
 import { missPenaltySec, returnSpeed } from '../timeattack/penalty';
+import { formatSplit, formatSplitDelta } from '../timeattack/timer';
+import type { StarSplit } from './profile';
 import { PlayScene } from './playScene';
 
 export type Rank = 'S' | 'A' | 'B' | 'C';
@@ -37,6 +39,8 @@ export interface StageResult {
   pickupsRequired?: number;
   /** ミスのペナルティとして timeMs に加えた時間 (ms)。0 なら加算なし */
   penaltyMs?: number;
+  /** 星 (集めるアイテム) を取った時刻。取った順 */
+  splits?: StarSplit[];
 }
 
 export interface SessionDeps {
@@ -60,6 +64,8 @@ export interface SessionDeps {
   clock?: () => number;
   /** 最初のステージ紹介バナー (例: 'STAGE 2') */
   intro?: string;
+  /** これまでのベストの走りの、星の取得時刻 (あれば、星を取るたびにベストとの差を出す) */
+  bestSplits?: readonly StarSplit[];
 }
 
 type Phase = 'ready' | 'playing' | 'goal' | 'done';
@@ -109,6 +115,8 @@ export class StageSession {
   private hintCooldown = 0;
   /** ミスのペナルティとしてタイムに足した時間 (ms) */
   private penaltyMs = 0;
+  /** この走りで星を取った時刻 (取った順) */
+  private splits: StarSplit[] = [];
   /** 木箱の「壊せません」を最後に出したシミュレーション時間 (秒) */
   private lastGuardToast = -Infinity;
   private windHintShown = false;
@@ -170,6 +178,7 @@ export class StageSession {
     this.phaseTime = 0;
     this.goBannerShown = false;
     this.penaltyMs = 0;
+    this.splits = [];
     this.timer.reset();
     this.scene.inputOverride = (si) => {
       Object.assign(si, this.zero);
@@ -222,7 +231,14 @@ export class StageSession {
     const pickups = this.deps.stage.pickups;
     if (!obj || !pickups) return null;
     const sim = this.scene.sim;
-    return { noun: obj.noun, required: obj.required, count: sim.pickupCount, items: pickups.map((p) => ({ label: p.label ?? p.id, taken: sim.collected.has(p.id) })) };
+    const mine = new Map(this.splits.map((x) => [x.id, x.ms]));
+    const best = new Map((this.deps.bestSplits ?? []).map((x) => [x.id, x.ms]));
+    return {
+      noun: obj.noun,
+      required: obj.required,
+      count: sim.pickupCount,
+      items: pickups.map((p) => ({ label: p.label ?? p.id, taken: sim.collected.has(p.id), ms: mine.get(p.id), bestMs: best.get(p.id) })),
+    };
   }
 
   private syncHud(): void {
@@ -268,7 +284,15 @@ export class StageSession {
         case 'pickup': {
           this.syncPickups();
           const noun = this.deps.stage.objective?.noun ?? 'アイテム';
-          this.hud.toast(e.count >= e.required && e.required > 0 ? `★ ${noun} ${e.count}/${e.required} ／ ゴールが開きました` : `★ ${noun} ${e.count}/${e.required}`, e.count >= e.required ? 2400 : 1100);
+          // 取った時刻を記録し、ベストの走りで同じ星を取った時刻と比べる
+          let when = '';
+          if (this.phase === 'playing') {
+            const ms = this.timer.elapsedMs;
+            this.splits.push({ id: e.id, ms });
+            const best = this.deps.bestSplits?.find((b) => b.id === e.id);
+            when = `\u3000${formatSplit(ms)}` + (best ? ` (${formatSplitDelta(ms - best.ms)})` : '');
+          }
+          this.hud.toast(e.count >= e.required && e.required > 0 ? `★ ${noun} ${e.count}/${e.required}${when} ／ ゴールが開きました` : `★ ${noun} ${e.count}/${e.required}${when}`, e.count >= e.required ? 2400 : 1500);
           break;
         }
         case 'goalLocked':
@@ -320,6 +344,7 @@ export class StageSession {
       pickupsTotal: this.deps.stage.pickups?.length ?? 0,
       pickupsRequired: sim.pickupsRequired,
       penaltyMs: this.penaltyMs,
+      splits: this.splits.slice(),
     };
     this.hud.setBanner('GOAL!', 'clear');
     // 祝福ジャンプ (プレイヤーは操作不能)

@@ -1,3 +1,4 @@
+import { formatSplit, formatSplitDelta } from '../timeattack/timer';
 import { h } from './dom';
 
 export interface PauseMenuOptions {
@@ -20,10 +21,18 @@ export interface ObjectiveInfo {
   /** ゴールが開くのに必要な数 / 取った数 */
   required: number;
   count: number;
-  items: { label: string; taken: boolean }[];
+  /** taken = 取ったか。ms = この走りで取った時刻、bestMs = ベストの走りで取った時刻 (どちらも無ければ省略) */
+  items: { label: string; taken: boolean; ms?: number; bestMs?: number }[];
 }
 
 const CHECKPOINT_LABEL = '🚩 チェックポイントから再開';
+
+/** 星の一覧に添える時刻: 取った星は「この走りの時刻 (ベストとの差)」、まだの星はベストの時刻 (あれば)。 */
+function splitText(it: { taken: boolean; ms?: number; bestMs?: number }): string {
+  if (it.taken && it.ms !== undefined) return `\u3000${formatSplit(it.ms)}` + (it.bestMs !== undefined ? ` (${formatSplitDelta(it.ms - it.bestMs)})` : '');
+  if (!it.taken && it.bestMs !== undefined) return `\u3000ベスト ${formatSplit(it.bestMs)}`;
+  return '';
+}
 
 /** ポーズメニュー。 */
 export class PauseMenu {
@@ -67,7 +76,7 @@ export class PauseMenu {
     this.list.replaceChildren(
       h('div', { class: 'pause-list-head', text: `${info.noun} ${info.count} / ${info.required}` }),
       h('div', { class: 'pause-list-sub', text: `${info.required} 個集めるとゴールが開く (全 ${info.items.length} 個)` }),
-      ...info.items.map((it) => h('div', { class: `pause-item${it.taken ? ' taken' : ''}`, text: `${it.taken ? '★' : '☆'} ${it.label}` })),
+      ...info.items.map((it) => h('div', { class: `pause-item${it.taken ? ' taken' : ''}`, text: `${it.taken ? '★' : '☆'} ${it.label}${splitText(it)}` })),
     );
     this.box.appendChild(this.list);
   }

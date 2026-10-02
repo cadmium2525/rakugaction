@@ -34,6 +34,7 @@ import { CharacterListScreen } from '../ui/characterList';
 import { SettingsScreen } from '../ui/settingsScreen';
 import { toast } from '../ui/toast';
 import { formatTime } from '../timeattack/timer';
+import { starSplitLine } from '../timeattack/splits';
 import { STAT_KEYS } from '../character/stats';
 import type { CharacterStats, StatKey } from '../character/stats';
 import { applyLevel, levelBonus, summarizeLevelUp } from '../progression/level';
@@ -544,6 +545,7 @@ export class App {
       params: this.paramsOf(rec),
       makeRig: this.makeRigOf(rec),
       intro: entry.title,
+      bestSplits: this.profile.stage(entry.id).bestSplits,
       onFinish: (r) => this.onStageFinished(entry.id, r),
       onQuit: () => void this.showHub(),
     });
@@ -557,7 +559,9 @@ export class App {
     const session = this.session;
     if (!entry || !session) return;
     const prevBest = this.profile.stage(stageId).bestMs;
-    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs);
+    // 星の取得時刻は、記録を更新する前の (これまでの) ベストと比べる
+    const prevSplits = this.profile.stage(stageId).bestSplits;
+    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs, r.splits);
     const extraPickups = Math.max(0, (r.pickups ?? 0) - (r.pickupsRequired ?? 0));
     const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest, enemiesDefeated: r.enemiesDefeated, extraPickups });
     const before = this.profile.progress;
@@ -579,6 +583,7 @@ export class App {
         extra: [
           ...(r.pickupsTotal ? [`ラクガキ星 ${r.pickups ?? 0} / ${r.pickupsTotal}`] : []),
           ...(r.enemiesTotal ? [`撃破した敵 ${r.enemiesDefeated ?? 0} 体`] : []),
+          ...(r.splits && r.splits.length > 0 ? [starSplitLine(r.splits, prevSplits)] : []),
           ...(r.penaltyMs ? [`ミスの加算 +${(r.penaltyMs / 1000).toFixed(1)} 秒 (チェックポイントまで戻る時間。タイムに含まれます)`] : []),
         ],
         progress: { gain, before, after, levelUp },
@@ -645,6 +650,7 @@ export class App {
       params: this.paramsOf(rec),
       makeRig: this.makeRigOf(rec),
       intro: `${entry.title}  ${no}/${count}`,
+      bestSplits: this.profile.stage(entry.id).bestSplits,
       clock: this.devClock ?? undefined,
       // HUD の 2 行目: ここまでの総タイム (このステージの経過を含む)
       subTime: () => `ALL STAGES ${no}/${count}   TOTAL ${formatTime(run.totalMs + (session?.timer.elapsedMs ?? 0))}`,
@@ -669,7 +675,7 @@ export class App {
     const split: Split = { stageId: r.stageId, timeMs: r.timeMs, simMs: r.simMs, deaths: r.deaths, falls: r.falls, hits: r.hits };
     if (!run.finishStage(split)) return;
     // 通常のステージ記録 (ベスト) も更新する。EXP は走り全体の完走時にまとめて与える
-    this.profile.recordClear(r.stageId, r.timeMs);
+    this.profile.recordClear(r.stageId, r.timeMs, r.splits);
     session.hud.el.style.display = 'none';
     session.setControlsVisible(false);
     if (run.complete) {
