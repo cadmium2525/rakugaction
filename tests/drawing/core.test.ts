@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { LIMITS, PART_KEYS, emptyDrawing, mirrorOps } from '../../src/drawing/model';
+import { KIND_MAX, LIMITS, mirrorOps, slotOf } from '../../src/drawing/model';
 import type { DrawOp } from '../../src/drawing/model';
 import { sanitizeDrawing, sanitizeOp } from '../../src/drawing/sanitize';
 import { DrawingRaster, rasterize } from '../../src/drawing/raster';
 import { EditorState } from '../../src/drawing/editorState';
+import { templateOf } from '../../src/drawing/templates';
 import { maskMetrics } from '../../src/drawing/metrics';
-import { resolveAllParts } from '../../src/drawing/defaults';
+import { resolveSlotOps } from '../../src/drawing/defaults';
 import { computeLayout } from '../../src/character/layout';
+import type { LayoutSlot } from '../../src/character/layout';
 import { circle, drawing, extremeDoodles, fill, pen, rectPts, standardDoodle } from '../../src/dev/doodles';
 
 const RES = 128; // テストは軽量な解像度で
@@ -35,7 +37,9 @@ describe('sanitize', () => {
   it('壊れた DrawingData でも例外を投げず空の描画に落ちる', () => {
     for (const bad of [null, undefined, 5, 'x', [], {}, { parts: 3 }, { parts: { body: { ops: 'no' } } }]) {
       const d = sanitizeDrawing(bad);
-      expect(PART_KEYS.every((k) => Array.isArray(d.parts[k].ops))).toBe(true);
+      expect(d.parts.length).toBeGreaterThanOrEqual(1);
+      expect(d.parts[0].id).toBe('body');
+      expect(d.parts.every((p) => Array.isArray(p.ops))).toBe(true);
     }
   });
 
@@ -43,15 +47,16 @@ describe('sanitize', () => {
     const ops: DrawOp[] = [];
     for (let i = 0; i < 1000; i++) ops.push(pen('#000000', 0.05, Array.from({ length: 2000 }, (_, j) => (j % 100) / 100)));
     const d = sanitizeDrawing({ parts: { body: { ops } } });
-    expect(d.parts.body.ops.length).toBeLessThanOrEqual(LIMITS.maxOpsPerPart);
-    const pts = d.parts.body.ops.reduce((n, o) => n + (o.kind === 'fill' ? 0 : o.pts.length / 2), 0);
+    expect(d.parts[0].ops.length).toBeLessThanOrEqual(LIMITS.maxOpsPerPart);
+    const pts = d.parts[0].ops.reduce((n, o) => n + (o.kind === 'fill' ? 0 : o.pts.length / 2), 0);
     expect(pts).toBeLessThanOrEqual(LIMITS.maxTotalPointsPerPart + LIMITS.maxPointsPerStroke);
   });
 
   it('既に正しいデータは (量子化の範囲で) 変わらない', () => {
     const d = standardDoodle();
     const s = sanitizeDrawing(JSON.parse(JSON.stringify(d)));
-    expect(s.parts.head.ops.length).toBe(d.parts.head.ops.length);
+    expect(s.parts.length).toBe(d.parts.length);
+    expect(slotOf(s, 'head')!.ops.length).toBe(slotOf(d, 'head')!.ops.length);
   });
 });
 
@@ -133,6 +138,12 @@ describe('raster', () => {
 
 describe('EditorState', () => {
   const stroke = (x: number): DrawOp => pen('#000000', 0.05, [x, 0.2, x, 0.8]);
+  /** 人型のひな形で始める */
+  const human = (): EditorState => {
+    const s = new EditorState();
+    s.applyTemplate(templateOf('human')!);
+    return s;
+  };
 
   it('Undo / Redo / 新規描画で Redo が破棄される', () => {
     const s = new EditorState();
@@ -151,18 +162,18 @@ describe('EditorState', () => {
   });
 
   it('パーツごとに履歴が独立している', () => {
-    const s = new EditorState();
+    const s = human();
     s.commitOp(stroke(0.2));
     s.setPart('head');
     expect(s.canUndo).toBe(false);
     s.commitOp(stroke(0.3));
     s.undo();
-    expect(s.drawing.parts.head.ops.length).toBe(0);
-    expect(s.drawing.parts.body.ops.length).toBe(1);
+    expect(slotOf(s.drawing, 'head')!.ops.length).toBe(0);
+    expect(slotOf(s.drawing, 'body')!.ops.length).toBe(1);
   });
 
-  it('全消去は Undo で戻せる。リセットは全パーツを空にする', () => {
-    const s = new EditorState();
+  it('全消去は Undo で戻せる。リセットは胴体だけの空の状態にする', () => {
+    const s = human();
     s.commitOp(stroke(0.2));
     s.commitOp(stroke(0.4));
     expect(s.clearPart()).toBe(true);
@@ -170,7 +181,8 @@ describe('EditorState', () => {
     expect(s.undo()).toBe(true);
     expect(s.ops.length).toBe(2);
     s.resetAll();
-    expect(PART_KEYS.every((k) => s.drawing.parts[k].ops.length === 0)).toBe(true);
+    expect(s.drawing.parts.length).toBe(1);
+    expect(s.drawing.parts[0].ops.length).toBe(0);
     expect(s.canUndo).toBe(false);
   });
 
@@ -181,21 +193,46 @@ describe('EditorState', () => {
     expect(s.commitOp(pen('#000000', 0.02, [0.5, 0.5]))).toBe('limit');
   });
 
-  it('左右コピー: ON の間は右は編集不可で左の反転。OFF で反転コピーが右の出発点になる', () => {
+  it('パーツの追加・削除・設定の変更 (向き / ペア / 反転 / 取り付け位置)', () => {
+    const s = human();
+    const leg2 = s.addPart('leg');
+    expect(leg2).not.toBeNull();
+    expect(leg2!.pair).toBe(true); // 脚は左右ペアで始まる
+    expect(s.currentId).toBe(leg2!.id);
+    expect(s.updatePart(leg2!.id, { view: 'side' })).toBe(true);
+    expect(slotOf(s.drawing, leg2!.id)!.view).toBe('side');
+    expect(s.setMount(leg2!.id, { u: 0.3, v: 0.9 })).toBe(true);
+    expect(slotOf(s.drawing, leg2!.id)!.mount).toEqual({ u: 0.3, v: 0.9 });
+    // ペアをやめると、置き場所が中央のままなら左になる
+    s.updatePart(leg2!.id, { pair: false });
+    expect(slotOf(s.drawing, leg2!.id)!.side).toBe('L');
+    expect(s.removePart(leg2!.id)).toBe(true);
+    expect(slotOf(s.drawing, leg2!.id)).toBeUndefined();
+    expect(s.currentId).toBe('body');
+    // 胴体は消せない / ペア・置き場所・取り付け位置の設定は無効
+    expect(s.removePart('body')).toBe(false);
+    s.updatePart('body', { pair: true, side: 'L', mount: { u: 0.1, v: 0.1 } });
+    const b = slotOf(s.drawing, 'body')!;
+    expect([b.pair, b.side, b.mount]).toEqual([false, 'C', null]);
+  });
+
+  it('種類ごとの上限と、全体の上限を超えて足せない', () => {
     const s = new EditorState();
-    s.setPart('armLeft');
-    s.commitOp(pen('#000000', 0.05, [0.2, 0.1, 0.3, 0.9]));
-    expect(s.isEditable('armRight')).toBe(false);
-    const eff = s.effectiveOps('armRight');
-    expect(eff.length).toBe(1);
-    expect((eff[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.8, 3);
-    s.setMirror('arms', false);
-    expect(s.isEditable('armRight')).toBe(true);
-    expect(s.drawing.parts.armRight.ops.length).toBe(1);
-    s.setPart('armRight');
-    expect(s.commitOp(pen('#ff0000', 0.05, [0.5, 0.5]))).toBe('ok');
-    s.setMirror('arms', true);
-    expect(s.current).toBe('armLeft');
+    expect(s.addPart('head')).not.toBeNull();
+    expect(s.addPart('head')).toBeNull(); // 頭は 1 つまで
+    expect(s.addPart('body')).toBeNull();
+    for (let i = 0; i < 20; i++) s.addPart(i % 2 ? 'arm' : 'leg');
+    expect(s.drawing.parts.length).toBeLessThanOrEqual(LIMITS.maxSlots);
+    expect(s.drawing.parts.filter((p) => p.kind === 'arm').length).toBeLessThanOrEqual(KIND_MAX.arm);
+  });
+
+  it('flipDrawing: 絵を左右反転した絵に置き換え、Undo で戻せる', () => {
+    const s = new EditorState();
+    s.commitOp(pen('#000000', 0.05, [0.25, 0.1, 0.5, 0.9]));
+    expect(s.flipDrawing()).toBe(true);
+    expect((s.ops[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.75, 3);
+    expect(s.undo()).toBe(true);
+    expect((s.ops[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.25, 3);
   });
 
   it('mirrorOps は 2 回で元に戻る', () => {
@@ -205,41 +242,43 @@ describe('EditorState', () => {
   });
 });
 
+/** パーツごとの縮小前のマスク (テストは軽量な解像度) で配置の入力を作る。 */
+function layoutInputs(d: ReturnType<typeof standardDoodle>): LayoutSlot[] {
+  return d.parts.map((slot) => {
+    const r = resolveSlotOps(slot);
+    let mask = rasterize(r.ops, RES).mask();
+    if (maskMetrics(mask, RES).empty) mask = rasterize(resolveSlotOps({ ...slot, ops: [] }).ops, RES).mask();
+    return { slot, mask, res: RES };
+  });
+}
+
 describe('layout (極端なラクガキでも壊れない)', () => {
   for (const { name, data } of extremeDoodles()) {
     it(`${name}: 全パーツの配置が有限で、高さ/幅が正`, () => {
-      const parts = resolveAllParts(data);
-      const inputs = {} as Parameters<typeof computeLayout>[0];
-      for (const k of PART_KEYS) {
-        const r = rasterize(parts[k].ops, RES);
-        let mask = r.mask();
-        if (maskMetrics(mask, RES).empty) mask = rasterize(resolveAllParts(emptyDrawing())[k].ops, RES).mask();
-        inputs[k] = { mask, res: RES };
-      }
-      const L = computeLayout(inputs);
+      const L = computeLayout(layoutInputs(data));
       expect(L.totalHeight).toBeGreaterThan(0);
-      expect(L.maxX).toBeGreaterThan(L.minX);
-      for (const k of PART_KEYS) {
-        const p = L.parts[k];
-        for (const v of [p.ax, p.ay, p.jx, p.jy, p.z]) expect(Number.isFinite(v)).toBe(true);
-      }
+      expect(L.maxA).toBeGreaterThan(L.minA);
+      expect(L.placed.length).toBeGreaterThanOrEqual(data.parts.length);
+      for (const p of L.placed) for (const v of [p.ax, p.ay, p.ja, p.jy]) expect(Number.isFinite(v)).toBe(true);
       expect(Number.isFinite(L.hipY)).toBe(true);
     });
   }
 
   it('標準ラクガキ: 頭が胴体の上、脚が胴体の下、左腕が +x 側、右腕が -x 側', () => {
-    const parts = resolveAllParts(standardDoodle());
-    const inputs = {} as Parameters<typeof computeLayout>[0];
-    for (const k of PART_KEYS) inputs[k] = { mask: rasterize(parts[k].ops, RES).mask(), res: RES };
-    const L = computeLayout(inputs);
-    expect(L.parts.head.jy).toBeGreaterThan(L.parts.body.jy);
-    expect(L.parts.legLeft.jy).toBeLessThanOrEqual(L.hipY + 1e-6);
-    expect(L.parts.armLeft.jx).toBeGreaterThan(0);
-    expect(L.parts.armRight.jx).toBeLessThan(0);
-    expect(L.parts.legLeft.jx).toBeGreaterThan(0);
-    expect(L.parts.legRight.jx).toBeLessThan(0);
+    const L = computeLayout(layoutInputs(standardDoodle()));
+    const one = (kind: string, side: number) => L.placed.find((p) => p.kind === kind && p.side === side)!;
+    const body = L.placed.find((p) => p.kind === 'body')!;
+    expect(one('head', 0).jy).toBeGreaterThan(body.jy);
+    expect(one('leg', 1).jy).toBeLessThanOrEqual(L.hipY + 1e-6);
+    expect(one('arm', 1).ja).toBeGreaterThan(0);
+    expect(one('arm', -1).ja).toBeLessThan(0);
+    expect(one('leg', 1).ja).toBeGreaterThan(0);
+    expect(one('leg', -1).ja).toBeLessThan(0);
     // 左右対称
-    expect(L.parts.armLeft.jx + L.parts.armRight.jx).toBeCloseTo(0, 1);
+    expect(one('arm', 1).ja + one('arm', -1).ja).toBeCloseTo(0, 1);
+    // ペアの鏡像側は反転して置く
+    expect(one('arm', -1).mirrored).toBe(true);
+    expect(one('arm', 1).mirrored).toBe(false);
   });
 });
 
@@ -247,6 +286,7 @@ describe('drawing helper', () => {
   it('rectPts は閉じた矩形', () => {
     const p = rectPts(0, 0, 1, 1);
     expect(p.slice(0, 2)).toEqual(p.slice(-2));
-    expect(drawing({}).mirrorArms).toBe(true);
+    expect(drawing({}).v).toBe(2);
+    expect(drawing({}).parts.map((p) => p.id)).toEqual(['body', 'head', 'arms', 'legs']);
   });
 });

@@ -60,7 +60,8 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 /**
  * バージョン n → n+1 への変換。古い形式を 1 段ずつ新しくする (n = 変換前のバージョン)。
  *  v0: 開発中の旧形式 (schemaVersion なし): { characters, selectedId, stages, allStagesBestMs }
- *  v1: 現行
+ *  v1: ラクガキが固定の 6 パーツ (胴体・頭・腕 L/R・脚 L/R + 左右コピー) の形式
+ *  v2: 現行。ラクガキが「胴体 + 任意のパーツのリスト」(向き・ペア・取り付け位置つき)
  */
 const MIGRATIONS: Record<number, (raw: Obj) => Obj> = {
   0: (raw) => ({
@@ -78,6 +79,16 @@ const MIGRATIONS: Record<number, (raw: Obj) => Obj> = {
     },
     settings: { quality: 'auto' },
   }),
+  // v1 → v2: 各キャラクターのラクガキを新しい形式へ (人型の 6 パーツ → 胴体・頭・腕・脚のスロット。見た目と能力は変わらない)
+  1: (raw) => {
+    const profile = isObj(raw.profile) ? raw.profile : {};
+    const chars = Array.isArray(profile.characters) ? profile.characters : [];
+    return {
+      ...raw,
+      schemaVersion: 2,
+      profile: { ...profile, characters: chars.map((c) => (isObj(c) ? { ...c, drawing: sanitizeDrawing(c.drawing) } : c)) },
+    };
+  },
 };
 
 export type MigrateResult =

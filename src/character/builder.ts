@@ -1,23 +1,18 @@
 import * as THREE from 'three';
-import { PART_KEYS } from '../drawing/model';
-import type { DrawingData, PartKey } from '../drawing/model';
-import { defaultOps, resolvePartOps } from '../drawing/defaults';
-import { downsampleMask } from '../drawing/downsample';
-import { rasterize } from '../drawing/raster';
-import { toonMaterial } from '../render/toon';
-import { cleanPart, TEX_RES } from './cleanPart';
+import type { DrawingData } from '../drawing/model';
+import { characterMaterial } from '../render/toon';
+import { TEX_RES } from './cleanPart';
+import type { CharacterLayout, PlacedPart } from './layout';
 import { measureBody, measureColors } from './measure';
 import type { BodyMeasures, ColorMeasures } from './measure';
+import { buildPartGeometry } from './partGeometry';
+import type { PartGeometryResult } from './partGeometry';
+import { LAYOUT_FACTOR, layoutOfPrepared, prepareSlots } from './prepare';
+import type { PreparedSlot } from './prepare';
+import { disposeObject } from './rig';
+import type { CharacterRig, RigMetrics, RigPart } from './rig';
 import { computeStats } from './statGen';
 import type { StatGenResult } from './statGen';
-import type { CleanedPart } from './cleanPart';
-import { computeLayout } from './layout';
-import type { CharacterLayout } from './layout';
-import { buildPartGeometry } from './partGeometry';
-import { createEmptyRig, disposeObject } from './rig';
-import type { CharacterRig, RigMetrics } from './rig';
-
-const LAYOUT_FACTOR = 4;
 
 /** 標準サイズ (size = 1) のキャラクター全高 (m)。 */
 export const BASE_HEIGHT = 1.6;
@@ -42,7 +37,8 @@ export interface PartReport {
 }
 
 export interface BuildReport {
-  parts: Record<PartKey, PartReport>;
+  /** スロットの id → 生成の記録 */
+  parts: Record<string, PartReport>;
   totalTriangles: number;
   drawCalls: number;
   ms: number;
@@ -51,13 +47,18 @@ export interface BuildReport {
 export interface BuiltCharacter {
   rig: CharacterRig;
   layout: CharacterLayout;
-  /** 整形後のシルエットとテクスチャ */
-  cleaned: Record<PartKey, CleanedPart>;
+  /** 整形後のシルエットとテクスチャ (スロット順) */
+  prepared: PreparedSlot[];
   /** 形状・色の計測値と、そこから決まった能力値 (形状が主要因・色は副次補正) */
   body: BodyMeasures;
   color: ColorMeasures;
   analysis: StatGenResult;
   report: BuildReport;
+}
+
+/** 輪郭の線の色 (0..255) → 縁取りの色。線より少し暗くして、どんな色の線でも縁がはっきり見えるようにする。 */
+function rimOf(c: readonly [number, number, number]): [number, number, number] {
+  return [Math.max(0.03, (c[0] / 255) * 0.7), Math.max(0.03, (c[1] / 255) * 0.7), Math.max(0.03, (c[2] / 255) * 0.7)];
 }
 
 function textureFromRgba(rgba: Uint8ClampedArray, size: number): THREE.DataTexture {
@@ -80,126 +81,151 @@ function textureFromRgba(rgba: Uint8ClampedArray, size: number): THREE.DataTextu
 
 /**
  * ラクガキ → 3D キャラクター。
- *  1. 各パーツをラスタライズ (左右コピーと既定形状を解決)
+ *  1. 各パーツをラスタライズ (反転と既定形状を解決)
  *  2. シルエットを整形 (穴埋め/ゴミ除去/細さ補正) してテクスチャ作成
- *  3. 輪郭を抽出して単純多角形にし、押し出し + ベベルで立体化
- *  4. レイアウト (頭→胴→腕/脚の接続) に従って rig に組み立て
+ *  3. シルエットを前後に膨らませて丸い立体にする (partGeometry の膨らませ)
+ *  4. レイアウト (胴体への取り付け位置・向き・ペア) に従って rig に組み立て
  * 例外を投げず、極端な絵でも必ず rig を返す。
  */
 export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): BuiltCharacter {
   const t0 = performance.now();
-  const resolved: Record<PartKey, { usedDefault: boolean }> = {} as Record<PartKey, { usedDefault: boolean }>;
-  const cleaned = {} as Record<PartKey, CleanedPart>;
-
-  for (const key of PART_KEYS) {
-    const r = resolvePartOps(drawing, key);
-    let raster = rasterize(r.ops, opts.rasterRes);
-    let usedDefault = r.usedDefault;
-    // 線はあるが全て消された場合など、ラスタが空なら既定形状へ
-    if (!raster.hasInk()) {
-      raster = rasterize(defaultOps(key), opts.rasterRes);
-      usedDefault = true;
-    }
-    resolved[key] = { usedDefault };
-    cleaned[key] = cleanPart(raster);
-  }
-
-  // レイアウト (縮小マスクで計算)
-  const lin = {} as Parameters<typeof computeLayout>[0];
-  for (const key of PART_KEYS) {
-    const c = cleaned[key];
-    lin[key] = downsampleMask(c.mask, c.res, LAYOUT_FACTOR, 1);
-  }
-  const layout = computeLayout(lin);
-  const body = measureBody(cleaned, layout);
-  const color = measureColors(cleaned);
+  const prepared = prepareSlots(drawing, { rasterRes: opts.rasterRes, texture: true });
+  const layout = layoutOfPrepared(prepared);
+  const body = measureBody(prepared, layout);
+  const color = measureColors(prepared);
   const analysis = computeStats(body, color);
   const targetHeight = opts.targetHeight ?? BASE_HEIGHT * analysis.traits.size;
   const S = targetHeight / Math.max(0.05, layout.totalHeight);
+  const L = layout;
 
-  const rig = createEmptyRig();
-  const meshes: THREE.Mesh[] = [];
-  const reports = {} as Record<PartKey, PartReport>;
-  const thick = {} as Record<PartKey, number>;
+  const root = new THREE.Group();
+  root.name = 'root';
+  const bodyGroup = new THREE.Group();
+  bodyGroup.name = 'body';
+  root.add(bodyGroup);
+
+  // ---- スロットごとにジオメトリとマテリアル (ペアの左右で共有) ----
+  const geos = new Map<string, PartGeometryResult>();
+  const mats = new Map<string, THREE.MeshToonMaterial>();
+  const reports: Record<string, PartReport> = {};
   let totalTris = 0;
-
-  const pivots: Record<PartKey, THREE.Object3D> = {
-    body: rig.body,
-    head: rig.head,
-    armLeft: rig.armLeft,
-    armRight: rig.armRight,
-    legLeft: rig.legLeft,
-    legRight: rig.legRight,
-  };
-
-  for (const key of PART_KEYS) {
-    const c = cleaned[key];
-    const p = layout.parts[key];
+  for (const prep of prepared) {
+    const first = L.placed.find((p) => p.slotId === prep.slot.id);
+    if (!first) continue;
     // レイアウトはダウンサンプル座標なので、フル解像度の座標へ
-    const ax = p.ax * LAYOUT_FACTOR;
-    const ay = p.ay * LAYOUT_FACTOR;
-    const g = buildPartGeometry(key, c, ax, ay, S);
-    thick[key] = g.thickness;
-    const mat = toonMaterial({ map: textureFromRgba(c.texture, TEX_RES), vertexColors: true });
-    const mesh = new THREE.Mesh(g.geometry, mat);
-    mesh.name = `${key}Mesh`;
-    meshes.push(mesh);
-    pivots[key].add(mesh);
+    const g = buildPartGeometry(prep.slot.kind, prep.cleaned, first.ax * LAYOUT_FACTOR, first.ay * LAYOUT_FACTOR, S);
+    geos.set(prep.slot.id, g);
+    mats.set(prep.slot.id, characterMaterial({ map: textureFromRgba(prep.cleaned.texture, TEX_RES), vertexColors: true }, rimOf(prep.cleaned.outline)));
     totalTris += g.triangles;
-    reports[key] = {
-      usedDefault: resolved[key].usedDefault,
+    reports[prep.slot.id] = {
+      usedDefault: prep.usedDefault,
       triangles: g.triangles,
       contours: g.contours,
       contourPoints: g.contourPoints,
       fallbacks: g.fallbacks,
-      dilateRadius: c.dilateRadius,
-      holesFilledPx: c.holesFilledPx,
-      specksRemoved: c.specksRemoved,
+      dilateRadius: prep.cleaned.dilateRadius,
+      holesFilledPx: prep.cleaned.holesFilledPx,
+      specksRemoved: prep.cleaned.specksRemoved,
       thickness: g.thickness,
     };
   }
 
-  // --- 配置 (単位: m) ---
-  const L = layout;
+  // ---- 胴体 ----
+  const sideBody = L.bodyView === 'side';
+  const bodyGeo = geos.get('body') as PartGeometryResult;
+  const Tb = bodyGeo.thickness;
   const hipY = L.hipY * S;
-  rig.body.position.set(0, hipY, 0);
-  const bodyMesh = pivots.body.children[0];
-  bodyMesh.position.set(0, (L.bodyBottomY - L.hipY) * S, 0);
-  const Tb = thick.body;
-  const place = (key: PartKey, z: number): void => {
-    const pl = L.parts[key];
-    const pivot = pivots[key];
-    if (key === 'body') return;
-    // パーツ原点 = 関節。body グループ (腰) からの相対位置
-    pivot.position.set(pl.jx * S, (pl.jy - L.hipY) * S, 0);
-    pivot.children[0].position.set(0, 0, z);
+  bodyGroup.position.set(0, hipY, 0);
+  const attach = (parent: THREE.Object3D, slotId: string, view: 'front' | 'side', mirrored: boolean, name: string): THREE.Mesh => {
+    const mesh = new THREE.Mesh((geos.get(slotId) as PartGeometryResult).geometry, mats.get(slotId));
+    mesh.name = name;
+    // 横向きの絵は、絵の右が +z (前) になるよう 90° 回す。正面の絵のペアの鏡像側は x を反転する
+    if (view === 'side') mesh.rotation.y = -Math.PI / 2;
+    if (mirrored) mesh.scale.x = -1;
+    parent.add(mesh);
+    return mesh;
   };
-  const eps = 0.004 * S;
-  // 正面から見た 2D プレビューと同じ重なりになるよう、前面をそろえて手前/奥に置く
-  place('head', Tb / 2 - thick.head / 2 + eps);
-  place('armLeft', Tb / 2 - thick.armLeft / 2 + eps);
-  place('armRight', Tb / 2 - thick.armRight / 2 + eps);
-  place('legLeft', Tb / 2 - thick.legLeft / 2 - 0.01 * S);
-  place('legRight', Tb / 2 - thick.legRight / 2 - 0.01 * S);
+  const bodyMesh = attach(bodyGroup, 'body', L.bodyView, false, 'bodyMesh');
+  bodyMesh.position.set(0, (L.bodyBottomY - L.hipY) * S, 0);
 
-  // 計測 (アニメーションの振れ幅調整用)
+  // ---- 胴体以外のパーツ ----
+  const rigParts: RigPart[] = [];
+  let headGroup: THREE.Group | null = null;
+  let headPlaced: PlacedPart | null = null;
+  const latDist = 0.32 * Tb;
+  const depthGap = Math.min(0.55 * Tb, 0.45 * S);
+  /** 前後 (z) の位置: 正面の胴体では、脚/腕を複数組つけた時は奥行きに並べ、しっぽ・翼は後ろへ */
+  const zOf = (p: PlacedPart): number => {
+    if (sideBody) return p.ja * S;
+    switch (p.kind) {
+      case 'leg':
+        return ((p.count - 1) / 2 - p.rank) * depthGap;
+      case 'arm':
+        return ((p.count - 1) / 2 - p.rank) * depthGap * 0.35;
+      case 'tail':
+        return -0.45 * Tb;
+      case 'wing':
+        return -0.12 * Tb;
+      default:
+        return 0;
+    }
+  };
+  const makePivot = (p: PlacedPart): THREE.Group => {
+    const pivot = new THREE.Group();
+    pivot.name = `${p.slotId}${p.twin ? '-twin' : ''}`;
+    attach(pivot, p.slotId, p.view, p.mirrored, `${pivot.name}Mesh`);
+    return pivot;
+  };
+  const ordered = [...L.placed.filter((p) => p.kind !== 'body' && p.parent === 'body'), ...L.placed.filter((p) => p.parent === 'head')];
+  for (const p of ordered) {
+    const pivot = makePivot(p);
+    const y = (p.jy - L.hipY) * S;
+    const x = sideBody ? p.lateral * latDist : p.ja * S;
+    const z = zOf(p);
+    if (p.parent === 'head' && headGroup && headPlaced) {
+      // 頭の子: 頭のピボットからの相対位置
+      const hx = sideBody ? headPlaced.lateral * latDist : headPlaced.ja * S;
+      pivot.position.set(x - hx, y - (headPlaced.jy - L.hipY) * S, z - zOf(headPlaced));
+      headGroup.add(pivot);
+    } else {
+      pivot.position.set(x, y, z);
+      bodyGroup.add(pivot);
+    }
+    if (p.kind === 'head' && !headGroup) {
+      headGroup = pivot;
+      headPlaced = p;
+    }
+    rigParts.push({ slotId: p.slotId, kind: p.kind, view: p.view, side: p.side, rank: p.rank, count: p.count, pivot });
+  }
+
+  // ---- 計測 (アニメーションの振れ幅調整用) ----
   const U = (px: number): number => (px / L.res) * S;
-  const mt = L.metrics;
+  const mean = (kind: 'arm' | 'leg'): number => {
+    const list = L.placed.filter((p) => p.kind === kind);
+    if (list.length === 0) return 0;
+    return list.reduce((s, p) => s + U((L.metrics.get(p.slotId) as { height: number }).height), 0) / list.length;
+  };
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const bm = L.metrics.get('body')!;
+  const hm = L.metrics.get(L.placed.find((p) => p.kind === 'head')?.slotId ?? '');
   const metrics: RigMetrics = {
-    armLengthLeft: U(mt.armLeft.height),
-    armLengthRight: U(mt.armRight.height),
-    legLengthLeft: U(mt.legLeft.height),
-    legLengthRight: U(mt.legRight.height),
-    headHeight: U(mt.head.height),
-    bodyHeight: U(mt.body.height),
-    bodyWidth: U(mt.body.width),
-    width: (L.maxX - L.minX) * S,
+    armLength: mean('arm'),
+    legLength: mean('leg'),
+    headHeight: hm ? U(hm.height) : 0,
+    bodyHeight: U(bm.height),
+    bodyWidth: U(bm.width),
+    width: Math.max(size.x, size.z, 0.05),
     scale: S,
   };
 
-  const root = rig.root;
   const character: CharacterRig = {
-    ...rig,
+    root,
+    body: bodyGroup,
+    head: headGroup,
+    bodyView: L.bodyView,
+    parts: rigParts,
     hipHeight: hipY,
     totalHeight: L.totalHeight * S,
     metrics,
@@ -209,8 +235,8 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
   const report: BuildReport = {
     parts: reports,
     totalTriangles: totalTris,
-    drawCalls: meshes.length,
+    drawCalls: L.placed.length,
     ms: performance.now() - t0,
   };
-  return { rig: character, layout, cleaned, body, color, analysis, report };
+  return { rig: character, layout, prepared, body, color, analysis, report };
 }

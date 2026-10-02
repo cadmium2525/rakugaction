@@ -16,27 +16,27 @@ import type { DoodleProfile } from '../../src/dev/randomDoodle';
 describe.skipIf(!process.env.CALIBRATE)('calibrate', () => {
   it('REF と分布', () => {
     const r = measureDrawing(referenceDoodle());
-    const P = r.body.parts;
+    const B = r.body;
     const f = (x: number): number => +x.toFixed(4);
     const out: string[] = [];
     out.push(
       'REF (現在の定数): ' + JSON.stringify(REF),
       'REF (再計測): ' +
         JSON.stringify({
-          height: f(r.body.height),
-          totalArea: f(r.body.totalArea),
-          bodyArea: f(P.body.area),
-          headArea: f(P.head.area),
-          armArea: f((P.armLeft.area + P.armRight.area) / 2),
-          legArea: f((P.legLeft.area + P.legRight.area) / 2),
-          legLength: f(r.body.legLength),
-          armLength: f((P.armLeft.height + P.armRight.height) / 2),
-          armThickness: f((P.armLeft.thickness + P.armRight.thickness) / 2),
-          legThickness: f((P.legLeft.thickness + P.legRight.thickness) / 2),
-          bodyWidth: f(P.body.width),
-          bodyHeight: f(P.body.height),
-          comY: f(r.body.comY),
-          footprint: f(r.body.footprint),
+          height: f(B.height),
+          totalArea: f(B.totalArea),
+          bodyArea: f(B.body.area),
+          headArea: f(B.head?.area ?? 0),
+          armArea: f(B.arms.area),
+          legArea: f(0),
+          legLength: f(B.legLength),
+          armLength: f(B.arms.length),
+          armThickness: f(B.arms.thickness),
+          legThickness: f(B.legs.thickness),
+          bodyWidth: f(B.body.width),
+          bodyHeight: f(B.body.height),
+          comY: f(B.comY),
+          footprint: f(B.footprint),
         }),
     );
     const N = Number(process.env.CALIBRATE_N ?? 500);

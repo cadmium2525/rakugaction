@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PartKey } from '../drawing/model';
+import type { PartKind } from '../drawing/model';
 import type { CleanedPart } from './cleanPart';
 
 export interface PartGeometryResult {
@@ -18,19 +18,18 @@ export interface PartGeometryResult {
  * パーツごとの膨らませ具合 (1 = 基準)。基準では、細い手足の断面はほぼ真円、丸い塊は少しつぶれた球になる。
  * 胴体はやや平たく、頭はふっくら、翼などは薄く。
  */
-const PUFF: Record<PartKey, number> = {
+const PUFF: Record<PartKind, number> = {
   body: 0.9,
   head: 1.05,
-  armLeft: 1,
-  armRight: 1,
-  legLeft: 1,
-  legRight: 1,
+  arm: 1,
+  leg: 1,
+  tail: 1,
+  wing: 0.45,
+  ornament: 0.9,
 };
 
 /** 内側の格子点の数の目安 (多いほど滑らかで重い)。前後 2 面で三角形はこの約 4 倍。 */
 const CELL_BUDGET = 520;
-/** 側面の色を取る「輪郭から内側へのずらし量」(キャンバス幅比)。輪郭の黒い線ではなく塗りの色を側面に使うため。 */
-const SIDE_INSET = 0.012;
 /** 内側の格子点の数の上限 (これを超えるなら格子を粗くする) */
 const MAX_CELLS = 760;
 /** 細い部分でも断面の幅にこれだけの格子が入るように、格子の大きさに上限を付ける */
@@ -56,7 +55,7 @@ const MIN_THETA = 0.1;
  * @param ax,ay  パーツ画像内のアンカー (ラスタのピクセル座標)。ジオメトリの原点になる。
  * @param scale  キャンバス幅 1.0 あたりのメートル数 (u → m)
  */
-export function buildPartGeometry(key: PartKey, part: CleanedPart, ax: number, ay: number, scale: number): PartGeometryResult {
+export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number, ay: number, scale: number): PartGeometryResult {
   const res = part.res;
   const mask = part.mask;
   // ---- 外接矩形 ----
@@ -193,7 +192,7 @@ export function buildPartGeometry(key: PartKey, part: CleanedPart, ax: number, a
   }
 
   // ---- メッシュ: 前面の頂点 [0, nIn) / 輪郭の頂点 / 背面の頂点 / 多角形の重心 (前後) ----
-  const puff = K * PUFF[key];
+  const puff = K * PUFF[kind];
   const px: number[] = []; // 格子の単位ではなく、画像の px 座標
   const py: number[] = [];
   const pz: number[] = []; // 格子の単位 (後で px に直す)
@@ -350,19 +349,6 @@ export function buildPartGeometry(key: PartKey, part: CleanedPart, ax: number, a
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setIndex(indices);
   geo.computeVertexNormals();
-  // 縁の側面 (法線が横向きの所) は、輪郭の線の色ではなく、少し内側の塗りの色を取る (前面は正確な平面投影のまま)
-  const nor = geo.getAttribute('normal') as THREE.BufferAttribute;
-  const insetPx = Math.min(SIDE_INSET * res, 0.8 * part.inscribedRadius);
-  for (let v = 0; v < nv; v++) {
-    const nxv = nor.getX(v);
-    const nyv = nor.getY(v);
-    const nxy = Math.hypot(nxv, nyv);
-    if (nxy < 1e-4) continue;
-    const k = (1 - Math.pow(Math.abs(nor.getZ(v)), 3)) * insetPx;
-    uv[v * 2] = (px[v] - (nxv / nxy) * k) / res;
-    uv[v * 2 + 1] = 1 - (py[v] + (nyv / nxy) * k) / res;
-  }
-  (geo.getAttribute('uv') as THREE.BufferAttribute).needsUpdate = true;
   geo.computeBoundingBox();
   geo.computeBoundingSphere();
   return {

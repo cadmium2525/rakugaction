@@ -106,7 +106,8 @@ describe('CharacterAnimator: 全ての極端ラクガキで破綻しない', () 
         });
         return r;
       };
-      const reach0 = [rig.armLeft, rig.armRight, rig.legLeft, rig.legRight].map(limbReach);
+      const limbs = rig.parts.filter((p) => p.kind === 'arm' || p.kind === 'leg').map((p) => p.pivot);
+      const reach0 = limbs.map(limbReach);
 
       for (const sc of scenarios) {
         anim.reset();
@@ -123,7 +124,7 @@ describe('CharacterAnimator: 全ての極端ラクガキで破綻しない', () 
           expect(b.maxX - b.minX, `${sc.name}@${i} width`).toBeLessThan(3.6 * H);
         }
         // 手足が伸びていない (回転+スカッシュのみ: 最遠点距離が休止時の 1.25 倍以内)
-        const reach = [rig.armLeft, rig.armRight, rig.legLeft, rig.legRight].map(limbReach);
+        const reach = limbs.map(limbReach);
         reach.forEach((r, i) => expect(r, `${sc.name} limb ${i} reach`).toBeLessThan(reach0[i] * 1.25 + 0.02));
       }
       rig.dispose();

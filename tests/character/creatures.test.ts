@@ -1,0 +1,254 @@
+import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { CharacterAnimator } from '../../src/character/animator';
+import type { AnimInput } from '../../src/character/animator';
+import { buildCharacter } from '../../src/character/builder';
+import { measureDrawing } from '../../src/character/measure';
+import { partsOf } from '../../src/character/rig';
+import { computeStats } from '../../src/character/statGen';
+import { Rng } from '../../src/core/rng';
+import { randomCreature } from '../../src/dev/randomDoodle';
+import { asuraDoodle, birdDoodle, chimeraDoodle, creatureDoodles, insectDoodle, quadrupedDoodle, standardDoodle } from '../../src/dev/doodles';
+import { cloneDrawing, slotOf } from '../../src/drawing/model';
+import { sanitizeDrawing } from '../../src/drawing/sanitize';
+
+const H = 1.6;
+const MAX_SPEED = 7;
+const DT = 1 / 60;
+const inp = (over: Partial<AnimInput> = {}): AnimInput => ({ speed: 0, maxSpeed: MAX_SPEED, grounded: true, vy: 0, landCount: 0, landImpact: 0, ...over });
+
+function vertexBounds(root: THREE.Object3D): { minY: number; maxY: number; finite: boolean } {
+  root.updateMatrixWorld(true);
+  const v = new THREE.Vector3();
+  const b = { minY: Infinity, maxY: -Infinity, finite: true };
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const pos = m.geometry.getAttribute('position');
+    for (let i = 0; i < pos.count; i += 2) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld);
+      if (!Number.isFinite(v.x + v.y + v.z)) b.finite = false;
+      b.minY = Math.min(b.minY, v.y);
+      b.maxY = Math.max(b.maxY, v.y);
+    }
+  });
+  return b;
+}
+
+describe('自由なパーツ構成: 四足・多腕・翼・多足・混成', () => {
+  for (const { name, data } of creatureDoodles()) {
+    it(`${name}: 3D 化でき、パーツの数が合い、足が地面に着き、三角形が妥当`, () => {
+      const built = buildCharacter(data, { targetHeight: H });
+      const { rig, report, layout } = built;
+      // 置かれたパーツ = スロットの数 (ペアは 2 つ)
+      const expected = data.parts.reduce((n, p) => n + (p.pair ? 2 : 1), 0);
+      expect(layout.placed.length).toBe(expected);
+      expect(rig.parts.length).toBe(expected - 1); // 胴体以外
+      expect(report.drawCalls).toBe(expected);
+      for (const p of rig.parts) expect(rig.body.getObjectByName(p.pivot.name), p.pivot.name).toBeTruthy();
+      expect(report.totalTriangles).toBeLessThan(3000 * expected + 500);
+      const b = vertexBounds(rig.root);
+      expect(b.finite).toBe(true);
+      const legs = partsOf(rig, 'leg');
+      if (legs.length > 0) {
+        // 脚が地面に着く (長さが違う脚は浮くことがあるが、いちばん長い脚は着く)
+        expect(b.minY, 'feet').toBeGreaterThan(-0.08 * H);
+        expect(b.minY, 'feet').toBeLessThan(0.1 * H);
+      }
+      expect(Number.isFinite(rig.metrics!.width) && rig.metrics!.width > 0.05).toBe(true);
+      expect(report.ms).toBeLessThan(8000);
+      rig.dispose();
+    });
+  }
+
+  it('四足: 脚が 4 本 (前の組が +z、後ろの組が −z、左右に ±x)', () => {
+    const { rig } = buildCharacter(quadrupedDoodle());
+    rig.root.updateMatrixWorld(true);
+    const legs = partsOf(rig, 'leg');
+    expect(legs.length).toBe(4);
+    const world = (o: THREE.Object3D): THREE.Vector3 => o.getWorldPosition(new THREE.Vector3());
+    const front = legs.filter((l) => l.rank === 0);
+    const back = legs.filter((l) => l.rank === 1);
+    expect(front.length).toBe(2);
+    expect(back.length).toBe(2);
+    for (const f of front) for (const k of back) expect(world(f.pivot).z, 'front legs are in front').toBeGreaterThan(world(k.pivot).z + 0.1);
+    for (const l of legs) expect(Math.abs(world(l.pivot).x), 'legs are apart laterally').toBeGreaterThan(0.03);
+    expect(legs.filter((l) => l.side === 1).length).toBe(2);
+    // 頭は前 (+z)、しっぽは後ろ (−z)
+    expect(world(rig.head!).z).toBeGreaterThan(world(partsOf(rig, 'tail')[0].pivot).z + 0.3);
+    // 長さ (奥行き) > 横幅: 横長の動物
+    const box = new THREE.Box3().setFromObject(rig.root);
+    const size = box.getSize(new THREE.Vector3());
+    expect(size.z).toBeGreaterThan(size.x * 1.5);
+  });
+
+  it('阿修羅: 腕が 6 本。組ごとに高さが違い、2 組目以降は外へ開く', () => {
+    const { rig } = buildCharacter(asuraDoodle());
+    const anim = new CharacterAnimator(rig);
+    anim.reset();
+    rig.root.updateMatrixWorld(true);
+    const arms = partsOf(rig, 'arm');
+    expect(arms.length).toBe(6);
+    const left = arms.filter((a) => a.side === 1).sort((a, b) => a.rank - b.rank);
+    expect(left.length).toBe(3);
+    // 上から順に低くなる
+    expect(left[0].pivot.position.y).toBeGreaterThan(left[1].pivot.position.y);
+    expect(left[1].pivot.position.y).toBeGreaterThan(left[2].pivot.position.y);
+    // 外への開き (rotation.z) は組ごとに大きくなる
+    expect(left[2].pivot.rotation.z).toBeGreaterThan(left[0].pivot.rotation.z + 0.4);
+    // 右は左と逆向き
+    const right = arms.filter((a) => a.side === -1).sort((a, b) => a.rank - b.rank);
+    expect(right[2].pivot.rotation.z).toBeLessThan(right[0].pivot.rotation.z - 0.4);
+  });
+
+  it('鳥: 翼が左右に付き、空中で羽ばたく (地上より大きく動く)', () => {
+    const { rig } = buildCharacter(birdDoodle());
+    const anim = new CharacterAnimator(rig);
+    const wings = partsOf(rig, 'wing');
+    expect(wings.length).toBe(2);
+    expect(wings.map((w) => w.side).sort()).toEqual([-1, 1]);
+    const range = (input: AnimInput): number => {
+      anim.reset();
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let i = 0; i < 120; i++) {
+        anim.update(DT, input);
+        const z = wings.find((w) => w.side === 1)!.pivot.rotation.z;
+        if (i > 30) {
+          lo = Math.min(lo, z);
+          hi = Math.max(hi, z);
+        }
+      }
+      return hi - lo;
+    };
+    expect(range(inp({ grounded: false, vy: 8 }))).toBeGreaterThan(range(inp()) + 0.3);
+  });
+
+  it('足並み: 2 本足は左右が逆位相、4 本足は対角が同位相 (トロット)、6 本足は三脚歩行', () => {
+    const phaseOf = (d: ReturnType<typeof quadrupedDoodle>): Map<string, number> => {
+      const { rig } = buildCharacter(d);
+      const anim = new CharacterAnimator(rig);
+      anim.reset();
+      const legs = partsOf(rig, 'leg');
+      // 同じ入力を与えて、各脚の回転 x の符号を集める (位相の同じ脚は同じ値になる)
+      const out = new Map<string, number>();
+      for (let i = 0; i < 40; i++) anim.update(DT, inp({ speed: MAX_SPEED * 0.4 }));
+      for (const l of legs) out.set(`${l.rank}:${l.side}`, l.pivot.rotation.x);
+      return out;
+    };
+    const biped = phaseOf(standardDoodle());
+    expect(biped.get('0:1')! * biped.get('0:-1')!).toBeLessThanOrEqual(0); // 左右は逆位相 (符号が逆)
+    const quad = phaseOf(quadrupedDoodle());
+    // 対角 (前左と後ろ右 / 前右と後ろ左) は同じ位相、前左と前右は逆位相
+    expect(quad.get('0:1')!).toBeCloseTo(quad.get('1:-1')!, 2);
+    expect(quad.get('0:-1')!).toBeCloseTo(quad.get('1:1')!, 2);
+    expect(quad.get('0:1')! * quad.get('0:-1')!).toBeLessThanOrEqual(0);
+    const six = phaseOf(insectDoodle());
+    // 三脚: 前左・中右・後ろ左 が同位相
+    expect(six.get('0:1')!).toBeCloseTo(six.get('1:-1')!, 2);
+    expect(six.get('0:1')!).toBeCloseTo(six.get('2:1')!, 2);
+  });
+
+  it('全ての動作 (歩く・走る・跳ぶ・落ちる・攻撃・着地) で破綻しない: 有限・地面に埋まらない・手足が伸びない', () => {
+    for (const { name, data } of creatureDoodles()) {
+      const { rig } = buildCharacter(data, { targetHeight: H });
+      const anim = new CharacterAnimator(rig);
+      const limbs = rig.parts.map((p) => p.pivot);
+      const reach = (pivot: THREE.Object3D): number => {
+        rig.root.updateMatrixWorld(true);
+        const p = pivot.getWorldPosition(new THREE.Vector3());
+        let r = 0;
+        const v = new THREE.Vector3();
+        pivot.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          const pos = m.geometry.getAttribute('position');
+          for (let i = 0; i < pos.count; i += 3) r = Math.max(r, v.fromBufferAttribute(pos, i).applyMatrix4(m.matrixWorld).distanceTo(p));
+        });
+        return r;
+      };
+      const reach0 = limbs.map(reach);
+      const hasLegs = partsOf(rig, 'leg').length > 0;
+      const scenarios: AnimInput[] = [
+        inp(),
+        inp({ speed: MAX_SPEED * 0.4 }),
+        inp({ speed: MAX_SPEED }),
+        inp({ grounded: false, vy: 9, speed: 5 }),
+        inp({ grounded: false, vy: -9, speed: 5 }),
+        inp({ attacking: true, speed: 6 }),
+        inp({ landCount: 1, landImpact: 20 }),
+      ];
+      for (const s of scenarios) {
+        anim.reset();
+        for (let i = 0; i < 90; i++) {
+          anim.update(DT, s);
+          expect(anim.isFinite(), `${name} finite`).toBe(true);
+        }
+        const b = vertexBounds(rig.root);
+        expect(b.finite, `${name} vertices finite`).toBe(true);
+        if (hasLegs) expect(b.minY, `${name} min y`).toBeGreaterThan(-0.08 * H);
+        expect(b.maxY, `${name} max y`).toBeLessThan(2.4 * H);
+        limbs.forEach((l, i) => expect(reach(l), `${name} limb ${i} reach`).toBeLessThan(reach0[i] * 1.3 + 0.03));
+      }
+      rig.dispose();
+    }
+  });
+
+  it('能力: 腕が増えると POWER、脚が増えると安定性、翼があると JUMP が上がる (同じ絵を基準に比べる)', () => {
+    const stats = (d: ReturnType<typeof asuraDoodle>): ReturnType<typeof computeStats> => {
+      const m = measureDrawing(d);
+      return computeStats(m.body, m.color);
+    };
+    // 腕: 6 本 vs 2 本 (残りは同じ)
+    const six = asuraDoodle();
+    const two = cloneDrawing(six);
+    two.parts = two.parts.filter((p) => p.id !== 'arms2' && p.id !== 'arms3');
+    expect(stats(six).stats.power).toBeGreaterThan(stats(two).stats.power);
+    // 脚: 4 本 vs 2 本
+    const quad = quadrupedDoodle();
+    const biped = cloneDrawing(quad);
+    biped.parts = biped.parts.filter((p) => p.id !== 'legsB');
+    expect(stats(quad).traits.stability).toBeGreaterThan(stats(biped).traits.stability);
+    // 翼: あり vs なし
+    const bird = birdDoodle();
+    const noWing = cloneDrawing(bird);
+    noWing.parts = noWing.parts.filter((p) => p.kind !== 'wing');
+    expect(stats(bird).stats.jump).toBeGreaterThan(stats(noWing).stats.jump);
+    // 全部入りでも全能力が高くなることはない (予算制約)
+    for (const { data } of creatureDoodles()) {
+      const s = stats(data).stats;
+      expect(Math.min(s.hp, s.power, s.defense, s.speed, s.jump, s.weight), 'min stat').toBeLessThan(100);
+    }
+  });
+
+  it('保存形式: サニタイズしても (ペア・向き・反転・取り付け位置を含めて) 構造が変わらない', () => {
+    const d = chimeraDoodle();
+    const s = sanitizeDrawing(JSON.parse(JSON.stringify(d)));
+    expect(s.parts.map((p) => [p.id, p.kind, p.view, p.side, p.pair, p.flip])).toEqual(d.parts.map((p) => [p.id, p.kind, p.view, p.side, p.pair, p.flip]));
+    expect(slotOf(s, 'armX')!.mount).toEqual({ u: 0.85, v: 0.6 });
+    expect(slotOf(s, 'legs')!.view).toBe('side');
+  });
+});
+
+describe('ランダムな自由スケッチ: 3D 化と動き', () => {
+  it('どの構成でも 3D 化でき (有限・三角形が妥当)、全アニメーション状態で姿勢が壊れない', () => {
+    const rng = new Rng(77);
+    for (let i = 0; i < 14; i++) {
+      const data = randomCreature(rng, i % 2 === 0 ? 'plausible' : 'wild');
+      const built = buildCharacter(data, { targetHeight: H });
+      const { rig, report } = built;
+      const label = `#${i} ${data.parts.map((p) => `${p.kind}:${p.view[0]}${p.pair ? '2' : ''}`).join(',')}`;
+      expect(rig.parts.length, label).toBe(built.layout.placed.length - 1);
+      expect(report.totalTriangles, label).toBeLessThan(26000);
+      expect(vertexBounds(rig.root).finite, label).toBe(true);
+      const anim = new CharacterAnimator(rig);
+      for (const [speed, grounded, vy] of [[0, true, 0], [6, true, 0], [3, false, 5], [3, false, -6]] as const) {
+        for (let t = 0; t < 30; t++) anim.update(DT, inp({ speed, grounded, vy }));
+        const b = vertexBounds(rig.root);
+        expect(b.finite, `${label} speed=${speed}`).toBe(true);
+        expect(b.maxY - b.minY, `${label} speed=${speed}`).toBeLessThan(H * 3);
+      }
+      rig.dispose();
+    }
+  }, 120_000);
+});

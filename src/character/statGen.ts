@@ -65,30 +65,48 @@ export interface BodyFeatures {
   head: number;
   com: number;
   foot: number;
+  /** 腕の本数 (2 本 = 0, 6 本 = +1.1, 1 本 = −0.7, 無し = −0.7) */
+  armCount: number;
+  /** 脚の本数 (2 本 = 0, 4 本 = +0.7, 6 本 = +1.1, 無し = −0.7) */
+  legCount: number;
+  /** 翼・しっぽ・飾りの大きさ (無ければ 0) */
+  wing: number;
+  tail: number;
+  ornament: number;
 }
 
+/** 本数 → 対数 (2 本を基準)。0 本は −0.7 (1 本と同じ扱い)。 */
+const countLog = (n: number): number => clamp(Math.log(Math.max(1, n) / 2), -0.7, FEATURE_LIMIT);
+
 export function bodyFeatures(b: BodyMeasures): BodyFeatures {
-  const arms = (b.parts.armLeft.area + b.parts.armRight.area) / 2;
-  const armT = (b.parts.armLeft.thickness + b.parts.armRight.thickness) / 2;
-  const armLen = (b.parts.armLeft.height + b.parts.armRight.height) / 2;
   const h = Math.max(1e-3, b.height);
-  const legT = (b.parts.legLeft.thickness + b.parts.legRight.thickness) / 2;
-  const bw = Math.max(1e-3, b.parts.body.width);
-  const bh = Math.max(1e-3, b.parts.body.height);
+  const bw = Math.max(1e-3, b.body.width);
+  const bh = Math.max(1e-3, b.body.height);
+  const hasArms = b.arms.count > 0;
+  const hasLegs = b.legs.count > 0;
+  // パーツが無い時の特徴量: 腕が無ければ攻撃力が低く、脚が無ければ足が遅い (でも「極端に」ではなく、描き足せば取り戻せる程度)
+  const none = -0.8;
+  // 腕が無い生きもの (四足の動物など) は、頭突き・体当たりで戦える。腕が有る場合よりは弱いが、最低値まで張り付かない
+  const noArm = -0.55;
   return {
     size: lr(b.totalArea, REF.totalArea),
     height: lrCap(b.height, REF.height, 2.9, 0.6),
-    legRel: lrCap(b.legLength / h, REF.legLength / REF.height, 0.62, 0.7),
-    legAbs: lrCap(b.legLength, REF.legLength, 1.0, 0.7),
-    armThickness: lr(armT, REF.armThickness),
-    armArea: lr(arms, REF.armArea),
-    armLength: lrCap(armLen, REF.armLength, 1.0, 0.7),
-    legThickness: lr(legT, REF.legThickness),
+    legRel: hasLegs ? lrCap(b.legLength / h, REF.legLength / REF.height, 0.62, 0.7) : none,
+    legAbs: hasLegs ? lrCap(b.legLength, REF.legLength, 1.0, 0.7) : none,
+    armThickness: hasArms ? lr(b.arms.thickness, REF.armThickness) : noArm,
+    armArea: hasArms ? lr(b.arms.area, REF.armArea) : noArm,
+    armLength: hasArms ? lrCap(b.arms.length, REF.armLength, 1.0, 0.7) : -FEATURE_LIMIT,
+    legThickness: hasLegs ? lr(b.legs.thickness, REF.legThickness) : -0.4,
     bodyAspect: lr(bh / bw, REF.bodyHeight / REF.bodyWidth),
-    body: lr(b.parts.body.area, REF.bodyArea),
-    head: lr(b.parts.head.area, REF.headArea),
+    body: lr(b.body.area, REF.bodyArea),
+    head: b.head ? lr(b.head.area, REF.headArea) : -0.9,
     com: lr(b.comY / h, REF.comY / REF.height),
     foot: lr(b.footprint, REF.footprint),
+    armCount: hasArms ? countLog(b.arms.count) : -0.7,
+    legCount: hasLegs ? countLog(b.legs.count) : -0.7,
+    wing: b.wingArea > 0 ? Math.log(1 + (3 * b.wingArea) / REF.totalArea) : 0,
+    tail: b.tailArea > 0 ? Math.log(1 + (2 * b.tailArea) / REF.totalArea) : 0,
+    ornament: b.ornamentArea > 0 ? Math.log(1 + (3 * b.ornamentArea) / REF.totalArea) : 0,
   };
 }
 
@@ -124,12 +142,14 @@ export function computeStats(body: BodyMeasures, color: ColorMeasures): StatGenR
 export function statsFromFeatures(f: BodyFeatures, color: ColorMeasures): StatGenResult {
   const raw: Record<StatKey, number> = {
     hp: 0.5 * f.size + 0.25 * f.body,
-    defense: 0.3 * f.size + 0.35 * f.body,
-    power: 0.55 * f.armThickness + 0.2 * f.armArea + 0.1 * f.size,
-    // SPEED: 歩幅 (脚の長さ) と流線型 (縦長で小さい体)。JUMP: 脚の長さ + 脚の太さ (バネ)。
-    speed: 0.55 * f.legRel + 0.2 * f.legAbs + 0.15 * f.bodyAspect - 0.3 * f.size - 0.1 * f.head,
-    jump: 0.35 * f.legRel + 0.25 * f.legAbs + 0.35 * f.legThickness - 0.25 * f.size,
-    weight: 0.6 * f.size + 0.2 * f.armThickness + 0.15 * f.legThickness + 0.1 * f.body,
+    // 飾り (角・トゲ) は少し守りが固くなる
+    defense: 0.3 * f.size + 0.35 * f.body + 0.25 * f.ornament,
+    // 腕が多いほど力が出る (6 本で約 +25%)
+    power: 0.55 * f.armThickness + 0.2 * f.armArea + 0.1 * f.size + 0.22 * Math.max(f.armCount, -0.7),
+    // SPEED: 歩幅 (脚の長さ) と流線型 (縦長で小さい体)。脚が多いと少し安定して速い。JUMP: 脚の長さ + 脚の太さ (バネ)。翼は跳躍を助ける。
+    speed: 0.55 * f.legRel + 0.2 * f.legAbs + 0.15 * f.bodyAspect - 0.3 * f.size - 0.1 * f.head + 0.1 * f.legCount,
+    jump: 0.35 * f.legRel + 0.25 * f.legAbs + 0.35 * f.legThickness - 0.25 * f.size + 0.5 * f.wing,
+    weight: 0.6 * f.size + 0.2 * f.armThickness + 0.15 * f.legThickness + 0.1 * f.body - 0.2 * f.wing,
   };
 
   // 色の補正 (インクに占める割合 × 最大補正)
@@ -164,7 +184,8 @@ export function statsFromFeatures(f: BodyFeatures, color: ColorMeasures): StatGe
     size: clamp(Math.exp(0.45 * f.height + 0.2 * f.size), 0.68, 1.5),
     reach: clamp(Math.exp(0.8 * f.armLength), 0.6, 1.8),
     // 脚が長い (高い位置に重心がある) ほど不安定、足幅が広く体が大きいほど安定
-    stability: clamp(Math.exp(0.5 * f.foot - 0.4 * f.com - 0.35 * f.legRel + 0.15 * f.size), 0.5, 2),
+    // 脚が多いほど、しっぽ (バランサー) があるほど安定する
+    stability: clamp(Math.exp(0.5 * f.foot - 0.4 * f.com - 0.35 * f.legRel + 0.15 * f.size + 0.3 * f.legCount + 0.2 * f.tail), 0.5, 2),
   };
   return { stats, traits, special, debug: { features: f, raw, colorDelta } };
 }

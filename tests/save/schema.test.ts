@@ -75,6 +75,56 @@ describe('マイグレーション', () => {
     expect(r.result.from).toBe(0);
   });
 
+  it('v1 (ラクガキが固定の 6 パーツ) → v2: 人型のスロットに変換され、能力値・見た目に関わる設定は変わらない', () => {
+    const stroke = { kind: 'pen', color: '#202124', width: 0.04, pts: [0.4, 0.1, 0.6, 0.1, 0.6, 0.8, 0.4, 0.8, 0.4, 0.1] };
+    const v1 = {
+      schemaVersion: 1,
+      savedAt: 1,
+      gameVersion: '0.2.1',
+      profile: {
+        characters: [
+          {
+            id: 'c1',
+            name: 'おうち',
+            createdAt: 5,
+            // 腕は左右コピー ON (ペア)、脚は OFF (左右別々の絵)
+            drawing: { v: 1, mirrorArms: true, mirrorLegs: false, parts: { body: { ops: [stroke] }, head: { ops: [stroke] }, armLeft: { ops: [stroke] }, armRight: { ops: [] }, legLeft: { ops: [stroke] }, legRight: { ops: [stroke, stroke] } } },
+            stats: { hp: 110, power: 90, defense: 100, speed: 105, jump: 95, weight: 100 },
+            traits: { size: 1, reach: 1, stability: 1 },
+            special: 0,
+            formulaVersion: 1,
+          },
+        ],
+        selectedId: 'c1',
+        stages: {},
+        allStagesBest: null,
+        allStagesRuns: 0,
+        exp: 0,
+      },
+      settings: { quality: 'auto' },
+    };
+    const m = migrate(v1);
+    expect(m.ok && m.from).toBe(1);
+    const r = parseSave(JSON.stringify(v1));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const c = r.result.data.profile.characters[0];
+    expect(r.result.data.schemaVersion).toBe(SAVE_SCHEMA_VERSION);
+    expect(c.drawing.v).toBe(2);
+    expect(c.drawing.parts.map((p) => [p.id, p.kind, p.pair, p.side])).toEqual([
+      ['body', 'body', false, 'C'],
+      ['head', 'head', false, 'C'],
+      ['arms', 'arm', true, 'C'],
+      ['legL', 'leg', false, 'L'],
+      ['legR', 'leg', false, 'R'],
+    ]);
+    expect(c.drawing.parts.find((p) => p.id === 'legR')!.ops.length).toBe(2);
+    expect(c.drawing.parts.every((p) => p.view === 'front' && p.mount === null && !p.flip)).toBe(true);
+    // 能力の計算式のバージョンが古いので、再計算の対象になる
+    expect(r.result.recompute).toEqual(['c1']);
+    expect(c.stats.hp).toBe(110);
+  });
+
   it('v0 でも中身が壊れていれば、使える部分だけ読む', () => {
     const r = parseSave(JSON.stringify({ characters: 'x', stages: 5 }));
     expect(r.ok && r.result.data.profile.characters).toEqual([]);

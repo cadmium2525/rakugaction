@@ -257,6 +257,11 @@ export class ShowcaseView {
     (this.particles.geometry.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
   }
 
+  /** 横向きの胴体は、絵の面がカメラに向く (前が画面の右になる) ように 90° 回して見せる。 */
+  private baseYaw(): number {
+    return this.rig?.bodyView === 'side' ? Math.PI / 2 : 0;
+  }
+
   /** 経過時間 t に応じた姿勢を設定する。 */
   private applyPose(t: number): void {
     const rig = this.rig;
@@ -293,8 +298,10 @@ export class ShowcaseView {
       this.idleT = t;
     }
     root.position.set(0, y, 0);
-    root.rotation.y = yaw + this.yawOffset;
-    root.scale.set(1 + sq * 0.6, 1 - sq, zs * (1 + sq * 0.6));
+    root.rotation.y = this.baseYaw() + yaw + this.yawOffset;
+    // 横向きの胴体は +x 方向 (絵の面がカメラを向く) に置くので、「平らなラクガキ」は x 軸 (左右) をつぶす
+    if (rig.bodyView === 'side') root.scale.set(zs * (1 + sq * 0.6), 1 - sq, 1 + sq * 0.6);
+    else root.scale.set(1 + sq * 0.6, 1 - sq, zs * (1 + sq * 0.6));
     // 丸影
     const sh = this.shadow;
     sh.position.set(0, 0.01, 0);
@@ -323,7 +330,7 @@ export class ShowcaseView {
       this.idleT += dt;
       if (this.autoRotate) this.yawOffset += dt * 0.5;
       this.driveDemo(dt);
-      this.rig.root.rotation.y = this.yawOffset;
+      this.rig.root.rotation.y = this.baseYaw() + this.yawOffset;
       this.rig.root.position.y = 0;
     }
     this.updateParticles(dt);

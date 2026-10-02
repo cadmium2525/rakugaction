@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { clamp, damp } from '../core/math';
-import type { CharacterRig } from './rig';
+import type { CharacterRig, RigPart } from './rig';
 
 /** アニメーションの入力 (シミュレーション状態の要約)。 */
 export interface AnimInput {
@@ -21,79 +21,63 @@ export interface AnimInput {
 
 export type AnimState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'land' | 'attack';
 
-interface Pose {
+/** 体全体のポーズ (手足は個別に持つ)。 */
+interface BodyPose {
   bodyY: number;
   lean: number;
   squashY: number;
   squashXZ: number;
   headX: number;
   headZ: number;
-  armLX: number;
-  armLZ: number;
-  armRX: number;
-  armRZ: number;
+}
+
+/** 外から見える現在のポーズ (デバッグ/テスト用)。左/右の脚・腕は、最初に見つかった左右 1 本ずつの値。 */
+export interface PoseView extends BodyPose {
   legLX: number;
-  legLZ: number;
   legRX: number;
+  legLZ: number;
   legRZ: number;
+  armLX: number;
+  armRX: number;
+  armLZ: number;
+  armRZ: number;
 }
 
-const POSE_KEYS: (keyof Pose)[] = [
-  'bodyY',
-  'lean',
-  'squashY',
-  'squashXZ',
-  'headX',
-  'headZ',
-  'armLX',
-  'armLZ',
-  'armRX',
-  'armRZ',
-  'legLX',
-  'legLZ',
-  'legRX',
-  'legRZ',
-];
-
-function newPose(): Pose {
-  return {
-    bodyY: 0,
-    lean: 0,
-    squashY: 1,
-    squashXZ: 1,
-    headX: 0,
-    headZ: 0,
-    armLX: 0,
-    armLZ: 0,
-    armRX: 0,
-    armRZ: 0,
-    legLX: 0,
-    legLZ: 0,
-    legRX: 0,
-    legRZ: 0,
-  };
-}
-
-const REST_POSE: Readonly<Pose> = newPose();
-
-function resetPose(p: Pose): void {
-  for (const k of POSE_KEYS) p[k] = REST_POSE[k];
-}
+const newBodyPose = (): BodyPose => ({ bodyY: 0, lean: 0, squashY: 1, squashXZ: 1, headX: 0, headZ: 0 });
+const BODY_KEYS: (keyof BodyPose)[] = ['bodyY', 'lean', 'squashY', 'squashXZ', 'headX', 'headZ'];
 
 /** 手足が地面から離れていてほしい最小の余裕 (m) */
 const GROUND_CLEARANCE = 0.03;
 /** 標準的な脚/腕の長さ (m)。これより長いと振れ角を抑える。 */
 const REF_LIMB = 0.62;
 
-interface LimbInfo {
-  pivot: THREE.Object3D;
+/** 1 つの関節 (ピボット) の状態。 */
+interface Limb {
+  part: RigPart;
   /** ピボット座標系での外接箱の 8 隅 (地面との干渉判定用) */
   corners: THREE.Vector3[];
   length: number;
+  /** 立ち姿の外への開き (腕のみ。左 = +, 右 = −) */
+  rest: number;
+  /** 歩行の足並みのグループ (0 / 1)。同じグループは同じ位相で動く */
+  group: 0 | 1;
+  /** なめらかに追従する現在の回転 (rad) */
+  rx: number;
+  ry: number;
+  rz: number;
+  /** 今回の目標 */
+  tx: number;
+  ty: number;
+  tz: number;
+  /** 揺れの位相のずれ (しっぽ・翼・飾りが全部同じ動きにならないように) */
+  jitter: number;
 }
 
 /**
  * 手続きアニメーション。リグの各ピボットを回転させるだけなので、ラクガキの形が何であっても破綻しない。
+ *  - 脚が何本でも足並みを組む: 前から数えた「組」と左右で、交互の位相 (2 本 = 左右交互、4 本 = 対角、6 本 = 三脚歩行)
+ *  - 腕は同じ側の脚と逆位相で振る。多腕でも組ごとに交互
+ *  - しっぽは左右に振り、翼は羽ばたき (空中で大きく)、飾り (角・耳) はゆれる
  *  - 振れ角は手足の長さで補正 (長い手足は小さく、短い手足は大きく振る)
  *  - 脚の最下点が地面より下に潜ったら体を持ち上げる (corners ベースの保守的な判定)
  *  - 長すぎる腕は最初から少し外へ開いて、立ち姿で地面に刺さらないようにする
@@ -106,16 +90,20 @@ export class CharacterAnimator {
   /** root.scale の基準 (見た目スケール)。スカッシュはこれに掛ける。 */
   baseScale = 1;
 
-  private readonly pose = newPose();
-  private readonly target = newPose();
+  private readonly pose = newBodyPose();
+  private readonly target = newBodyPose();
+  private readonly view: PoseView = { ...newBodyPose(), legLX: 0, legRX: 0, legLZ: 0, legRZ: 0, armLX: 0, armRX: 0, armLZ: 0, armRZ: 0 };
   private phase = 0;
   private t = 0;
   private landEnv = 0;
   private landStrength = 0;
   private lastLandCount = 0;
-  private readonly legs: LimbInfo[];
-  private readonly arms: LimbInfo[];
-  private readonly armRestSplay = [0, 0];
+  private readonly legs: Limb[] = [];
+  private readonly arms: Limb[] = [];
+  private readonly tails: Limb[] = [];
+  private readonly wings: Limb[] = [];
+  private readonly orns: Limb[] = [];
+  private readonly heads: Limb[] = [];
   private readonly legLen: number;
   private readonly armLen: number;
   private readonly rootInv = new THREE.Matrix4();
@@ -125,33 +113,62 @@ export class CharacterAnimator {
   constructor(private readonly rig: CharacterRig) {
     this.bodyBaseY = rig.body.position.y;
     rig.root.updateMatrixWorld(true);
-    this.legs = [this.measure(rig.legLeft), this.measure(rig.legRight)];
-    this.arms = [this.measure(rig.armLeft), this.measure(rig.armRight)];
-    this.legLen = Math.max(0.15, (this.legs[0].length + this.legs[1].length) / 2);
-    this.armLen = Math.max(0.15, (this.arms[0].length + this.arms[1].length) / 2);
+    let n = 0;
+    for (const part of rig.parts) {
+      const limb = this.measure(part, n++);
+      switch (part.kind) {
+        case 'leg':
+          this.legs.push(limb);
+          break;
+        case 'arm':
+          this.arms.push(limb);
+          break;
+        case 'tail':
+          this.tails.push(limb);
+          break;
+        case 'wing':
+          this.wings.push(limb);
+          break;
+        case 'ornament':
+          this.orns.push(limb);
+          break;
+        case 'head':
+          this.heads.push(limb);
+          break;
+        default:
+          break;
+      }
+    }
+    const meanLen = (l: Limb[]): number => (l.length === 0 ? REF_LIMB : l.reduce((s, x) => s + x.length, 0) / l.length);
+    this.legLen = Math.max(0.15, meanLen(this.legs));
+    this.armLen = Math.max(0.15, meanLen(this.arms));
+    // 足並みのグループ: 前から数えた組 (rank) と左右の組み合わせで交互にする
+    for (const l of this.legs) l.group = ((l.part.rank + (l.part.side > 0 ? 0 : 1)) % 2) as 0 | 1;
+    for (const l of this.arms) l.group = ((l.part.rank + (l.part.side > 0 ? 1 : 0)) % 2) as 0 | 1;
     this.computeArmRestSplay();
     this.reset();
   }
 
   /** ポーズを待機状態へ即座に戻す。 */
   reset(): void {
-    resetPose(this.pose);
-    this.pose.armLZ = this.armRestSplay[0];
-    this.pose.armRZ = this.armRestSplay[1];
+    for (const k of BODY_KEYS) this.pose[k] = newBodyPose()[k];
+    for (const l of [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns]) {
+      l.rx = l.ry = l.rz = 0;
+      if (l.part.kind === 'arm') l.rz = l.rest;
+    }
     this.phase = 0;
     this.landEnv = 0;
     this.state = 'idle';
     this.apply();
   }
 
-  private measure(pivot: THREE.Object3D): LimbInfo {
+  private measure(part: RigPart, index: number): Limb {
+    const pivot = part.pivot;
     const box = new THREE.Box3().setFromObject(pivot);
     const inv = new THREE.Matrix4().copy(pivot.matrixWorld).invert();
     const corners: THREE.Vector3[] = [];
     for (let i = 0; i < 8; i++) {
-      corners.push(
-        new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).applyMatrix4(inv),
-      );
+      corners.push(new THREE.Vector3(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).applyMatrix4(inv));
     }
     // 長さはピボット座標系の高さ (root のスケールに依存しない)
     let minY = Infinity;
@@ -161,35 +178,38 @@ export class CharacterAnimator {
       maxY = Math.max(maxY, c.y);
     }
     const length = Number.isFinite(maxY - minY) ? Math.max(0.05, maxY - minY) : 0.5;
-    return { pivot, corners, length };
+    return { part, corners, length, rest: 0, group: 0, rx: 0, ry: 0, rz: 0, tx: 0, ty: 0, tz: 0, jitter: index * 1.7 };
   }
 
   /** 腕が地面に刺さるほど長い場合に、外側へ開く角度 (rad) を求める (立ち姿で clearance を確保)。 */
   private computeArmRestSplay(): void {
-    const sides = [1, -1];
-    for (let s = 0; s < 2; s++) {
-      const arm = this.arms[s];
-      arm.pivot.rotation.set(0, 0, 0);
-      let splay = 0;
-      for (let k = 0; k < 40; k++) {
-        arm.pivot.rotation.z = sides[s] * splay;
-        this.rig.root.updateMatrixWorld(true);
-        const minY = this.lowestY(arm);
-        if (minY >= GROUND_CLEARANCE || splay > 1.45) break;
-        splay += 0.04;
+    for (const arm of this.arms) {
+      const sign = arm.part.side;
+      const pivot = arm.part.pivot;
+      pivot.rotation.set(0, 0, 0);
+      // 多腕: 組ごとに開く角度を変える (2 組目以降は斜めに広げて、腕が重なって 1 組に見えないようにする)
+      let splay = sign !== 0 ? Math.min(1.1, 0.5 * arm.part.rank) : 0;
+      if (sign !== 0) {
+        for (let k = 0; k < 40; k++) {
+          pivot.rotation.z = sign * splay;
+          this.rig.root.updateMatrixWorld(true);
+          const minY = this.lowestY(arm);
+          if (minY >= GROUND_CLEARANCE || splay > 1.45) break;
+          splay += 0.04;
+        }
       }
-      this.armRestSplay[s] = splay * sides[s];
-      arm.pivot.rotation.set(0, 0, 0);
+      arm.rest = sign * splay;
+      pivot.rotation.set(0, 0, 0);
     }
     this.rig.root.updateMatrixWorld(true);
   }
 
   /** 手足の外接箱の最下点 (root 座標系での y, m)。事前に matrixWorld が更新されていること。 */
-  private lowestY(limb: LimbInfo): number {
+  private lowestY(limb: Limb): number {
     this.rootInv.copy(this.rig.root.matrixWorld).invert();
     let min = Infinity;
     for (const c of limb.corners) {
-      this.tmp.copy(c).applyMatrix4(limb.pivot.matrixWorld).applyMatrix4(this.rootInv);
+      this.tmp.copy(c).applyMatrix4(limb.part.pivot.matrixWorld).applyMatrix4(this.rootInv);
       if (this.tmp.y < min) min = this.tmp.y;
     }
     return min;
@@ -221,25 +241,34 @@ export class CharacterAnimator {
     const state = this.decide(inp);
     this.state = state;
     const g = this.target;
-    resetPose(g); // 毎フレームの allocation を避ける
+    const fresh = newBodyPose();
+    for (const k of BODY_KEYS) g[k] = fresh[k];
+    for (const l of [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns]) {
+      l.tx = 0;
+      l.ty = 0;
+      l.tz = l.part.kind === 'arm' ? l.rest : 0;
+    }
     const frac = clamp(inp.speed / Math.max(1, inp.maxSpeed), 0, 1.3);
     const legScale = clamp(REF_LIMB / this.legLen, 0.45, 1.25);
     const armScale = clamp(REF_LIMB / this.armLen, 0.45, 1.25);
-    const restL = this.armRestSplay[0];
-    const restR = this.armRestSplay[1];
     // 腕の外側への開き (左 = +, 右 = -)
     const sway = Math.sin(this.t * 2.2);
-
+    const fl = Math.sin(this.t * 16);
     let smooth = 14;
+
     switch (state) {
       case 'idle': {
         const breathe = Math.sin(this.t * 2.4);
         g.squashY = 1 + breathe * 0.012;
         g.squashXZ = 1 - breathe * 0.006;
-        g.armLZ = restL + 0.08 + sway * 0.03;
-        g.armRZ = restR - 0.08 - sway * 0.03;
+        for (const a of this.arms) a.tz = a.rest + a.part.side * (0.08 + sway * 0.03);
         g.headZ = Math.sin(this.t * 1.3) * 0.03;
         g.headX = Math.sin(this.t * 1.7) * 0.02;
+        for (const w of this.wings) w.tz = w.part.side * (0.15 + Math.sin(this.t * 2.6 + w.jitter) * 0.05);
+        for (const tl of this.tails) {
+          tl.ty = Math.sin(this.t * 1.9 + tl.jitter) * 0.18;
+          tl.tx = Math.sin(this.t * 1.2) * 0.05;
+        }
         smooth = 8;
         break;
       }
@@ -250,70 +279,83 @@ export class CharacterAnimator {
         const stride = 2 * this.legLen * Math.sin(0.55) * 2;
         const freq = clamp(inp.speed / Math.max(0.3, stride), 0.9, 3.4);
         this.phase += dt * freq * Math.PI * 2;
-        const s = Math.sin(this.phase);
         const legA = (0.42 + runT * 0.5) * legScale * clamp(frac * 1.4, 0.35, 1);
         const armA = (0.4 + runT * 0.55) * armScale * clamp(frac * 1.4, 0.35, 1);
-        // swing は「前が正」。回転は x 軸負方向が前なので符号を反転して使う
-        g.legLX = -legA * s;
-        g.legRX = legA * s;
-        g.armLX = armA * s;
-        g.armRX = -armA * s;
-        g.armLZ = restL + 0.1 + runT * 0.18;
-        g.armRZ = restR - 0.1 - runT * 0.18;
+        // swing は「前が正」。回転は x 軸負方向が前なので符号を反転して使う。同じグループの手足は同位相、グループ同士は逆位相
+        for (const l of this.legs) l.tx = -legA * Math.sin(this.phase + Math.PI * l.group);
+        for (const a of this.arms) {
+          a.tx = -armA * Math.sin(this.phase + Math.PI * a.group);
+          a.tz = a.rest + a.part.side * (0.1 + runT * 0.18);
+        }
         g.lean = (0.06 + runT * 0.16) * clamp(frac, 0.3, 1);
         // 体の上下 (1 周期に 2 回)
         g.bodyY = Math.abs(Math.cos(this.phase)) * (0.018 + runT * 0.02) * this.legLen * 1.5;
         g.headX = -g.lean * 0.7;
         g.headZ = Math.sin(this.phase) * 0.05 * frac;
         g.squashY = 1 + Math.cos(this.phase * 2) * 0.012;
+        for (const w of this.wings) w.tz = w.part.side * (0.2 + Math.sin(this.phase * 2 + w.jitter) * (0.1 + runT * 0.15));
+        for (const tl of this.tails) {
+          tl.ty = Math.sin(this.phase + tl.jitter) * (0.25 + runT * 0.25);
+          tl.tx = -0.1 - runT * 0.15;
+        }
         smooth = 18;
         break;
       }
       case 'jump': {
-        g.legLX = -0.7;
-        g.legRX = 0.35;
-        g.legLZ = 0.1;
-        g.legRZ = -0.1;
-        g.armLX = -2.3 * armScale;
-        g.armRX = -2.1 * armScale;
-        g.armLZ = restL + 0.35;
-        g.armRZ = restR - 0.35;
+        for (const l of this.legs) {
+          l.tx = l.group === 0 ? -0.7 : 0.35;
+          l.tz = l.part.side * 0.1;
+        }
+        for (const a of this.arms) {
+          a.tx = (-2.2 - 0.1 * a.part.side) * armScale;
+          a.tz = a.rest + a.part.side * 0.35;
+        }
         g.lean = 0.1;
         g.squashY = 1.07;
         g.squashXZ = 0.96;
         g.headX = -0.15;
+        for (const w of this.wings) w.tz = w.part.side * (0.5 + Math.sin(this.t * 22 + w.jitter) * 0.5);
+        for (const tl of this.tails) {
+          tl.tx = 0.35;
+          tl.ty = Math.sin(this.t * 6 + tl.jitter) * 0.12;
+        }
         smooth = 20;
         break;
       }
       case 'fall': {
-        const fl = Math.sin(this.t * 16);
-        g.legLX = -0.25 + fl * 0.18;
-        g.legRX = -0.25 - fl * 0.18;
-        g.legLZ = 0.32;
-        g.legRZ = -0.32;
-        g.armLX = -1.2 * armScale + fl * 0.3;
-        g.armRX = -1.2 * armScale - fl * 0.3;
-        g.armLZ = restL + 1.0 + fl * 0.2;
-        g.armRZ = restR - 1.0 - fl * 0.2;
+        for (const l of this.legs) {
+          l.tx = -0.25 + (l.group === 0 ? fl * 0.18 : -fl * 0.18);
+          l.tz = l.part.side * 0.32;
+        }
+        for (const a of this.arms) {
+          a.tx = -1.2 * armScale + (a.group === 1 ? fl * 0.3 : -fl * 0.3);
+          a.tz = a.rest + a.part.side * (1.0 + fl * 0.2);
+        }
         g.lean = 0.05;
         g.squashY = 1.04;
         g.squashXZ = 0.98;
         g.headX = 0.12;
+        for (const w of this.wings) w.tz = w.part.side * (0.4 + Math.sin(this.t * 20 + w.jitter) * 0.45);
+        for (const tl of this.tails) {
+          tl.tx = -0.3;
+          tl.ty = Math.sin(this.t * 9 + tl.jitter) * 0.2;
+        }
         smooth = 12;
         break;
       }
       case 'attack': {
-        // 両腕を前へ突き出し、体を前傾 (パンチ/ダッシュ)
-        g.armLX = -1.65 * armScale;
-        g.armRX = -1.45 * armScale;
-        g.armLZ = restL + 0.12;
-        g.armRZ = restR - 0.12;
-        g.legLX = -0.55 * legScale;
-        g.legRX = 0.45 * legScale;
-        g.lean = 0.28;
+        // 両腕を前へ突き出し、体を前傾 (パンチ/ダッシュ)。腕が無いキャラは、体をより大きく前傾して突進する
+        for (const a of this.arms) {
+          a.tx = (-1.55 - 0.1 * a.part.side) * armScale;
+          a.tz = a.rest + a.part.side * 0.12;
+        }
+        for (const l of this.legs) l.tx = (l.group === 0 ? -0.55 : 0.45) * legScale;
+        g.lean = this.arms.length > 0 ? 0.28 : 0.4;
         g.headX = -0.12;
         g.squashY = 0.96;
         g.squashXZ = 1.04;
+        for (const w of this.wings) w.tz = w.part.side * 0.1;
+        for (const tl of this.tails) tl.tx = 0.3;
         smooth = 34;
         break;
       }
@@ -322,21 +364,28 @@ export class CharacterAnimator {
         const amt = (0.5 + this.landStrength * 0.5) * k;
         g.squashY = 1 - 0.28 * amt;
         g.squashXZ = 1 + 0.14 * amt;
-        g.legLX = -0.5 * amt;
-        g.legRX = -0.5 * amt;
-        g.armLX = -0.2;
-        g.armRX = -0.2;
-        g.armLZ = restL + 0.3 * amt;
-        g.armRZ = restR - 0.3 * amt;
+        for (const l of this.legs) l.tx = -0.5 * amt;
+        for (const a of this.arms) {
+          a.tx = -0.2;
+          a.tz = a.rest + a.part.side * 0.3 * amt;
+        }
         g.lean = 0.12 * amt;
         g.headX = 0.1 * amt;
+        for (const w of this.wings) w.tz = w.part.side * (0.1 + 0.3 * amt);
         smooth = 30;
         break;
       }
     }
+    // 飾り (角・耳) は、どの状態でも少しゆれる
+    for (const o of this.orns) o.tz = o.part.side * 0.04 + Math.sin(this.t * 2.1 + o.jitter) * 0.05 + g.headZ;
 
     const p = this.pose;
-    for (const key of POSE_KEYS) p[key] = damp(p[key], g[key], smooth, dt);
+    for (const key of BODY_KEYS) p[key] = damp(p[key], g[key], smooth, dt);
+    for (const l of [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns]) {
+      l.rx = damp(l.rx, l.tx, smooth, dt);
+      l.ry = damp(l.ry, l.ty, smooth, dt);
+      l.rz = damp(l.rz, l.tz, smooth, dt);
+    }
     this.apply();
   }
 
@@ -346,27 +395,58 @@ export class CharacterAnimator {
     const p = this.pose;
     rig.body.position.y = this.bodyBaseY + p.bodyY;
     rig.body.rotation.x = p.lean;
-    rig.head.rotation.set(p.headX, 0, p.headZ);
-    rig.armLeft.rotation.set(p.armLX, 0, p.armLZ);
-    rig.armRight.rotation.set(p.armRX, 0, p.armRZ);
+    for (const h of this.heads) h.part.pivot.rotation.set(p.headX, 0, p.headZ);
+    for (const a of this.arms) a.part.pivot.rotation.set(a.rx, a.ry, a.rz);
     // 体を前傾させると脚も一緒に倒れるので、脚は逆回転で着地させる
-    rig.legLeft.rotation.set(p.legLX - p.lean * 0.9, 0, p.legLZ);
-    rig.legRight.rotation.set(p.legRX - p.lean * 0.9, 0, p.legRZ);
+    for (const l of this.legs) l.part.pivot.rotation.set(l.rx - p.lean * 0.9, l.ry, l.rz);
+    for (const t of this.tails) t.part.pivot.rotation.set(t.rx, t.ry, t.rz);
+    for (const w of this.wings) w.part.pivot.rotation.set(w.rx, w.ry, w.rz);
+    for (const o of this.orns) o.part.pivot.rotation.set(o.rx, o.ry, o.rz);
     const s = this.baseScale;
     rig.root.scale.set(s * p.squashXZ, s * p.squashY, s * p.squashXZ);
 
-    // 脚が地面より下へ出たら体ごと持ち上げる
+    // 脚が地面より下へ出たら体ごと持ち上げる (脚が無ければ、体のどこかが下へ出た時)
     rig.root.updateMatrixWorld(true);
-    const lowest = Math.min(this.lowestY(this.legs[0]), this.lowestY(this.legs[1]));
+    let lowest = Infinity;
+    for (const l of this.legs) lowest = Math.min(lowest, this.lowestY(l));
+    if (this.legs.length === 0) lowest = this.lowestOfBody();
     if (lowest < 0) rig.body.position.y += -lowest;
+
+    // 外から見えるポーズ
+    const v = this.view;
+    for (const k of BODY_KEYS) v[k] = p[k];
+    const pick = (list: Limb[], sign: number): Limb | undefined => list.find((l) => l.part.side === sign);
+    const ll = pick(this.legs, 1);
+    const lr = pick(this.legs, -1);
+    const al = pick(this.arms, 1);
+    const ar = pick(this.arms, -1);
+    v.legLX = ll ? ll.rx : 0;
+    v.legRX = lr ? lr.rx : 0;
+    v.legLZ = ll ? ll.rz : 0;
+    v.legRZ = lr ? lr.rz : 0;
+    v.armLX = al ? al.rx : 0;
+    v.armRX = ar ? ar.rx : 0;
+    v.armLZ = al ? al.rz : 0;
+    v.armRZ = ar ? ar.rz : 0;
+  }
+
+  /** 体のメッシュ (胴体) の最下点。脚の無いキャラの接地用。 */
+  private lowestOfBody(): number {
+    const box = new THREE.Box3().setFromObject(this.rig.body.children[0] ?? this.rig.body);
+    this.rootInv.copy(this.rig.root.matrixWorld).invert();
+    const corners = [box.min, box.max];
+    let min = Infinity;
+    for (const c of corners) min = Math.min(min, this.tmp.copy(c).applyMatrix4(this.rootInv).y);
+    return min;
   }
 
   /** 全チャンネルが有限か (テスト用)。 */
   isFinite(): boolean {
-    return POSE_KEYS.every((k) => Number.isFinite(this.pose[k]));
+    const limbs = [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns];
+    return BODY_KEYS.every((k) => Number.isFinite(this.pose[k])) && limbs.every((l) => Number.isFinite(l.rx + l.ry + l.rz));
   }
 
-  get currentPose(): Readonly<Pose> {
-    return this.pose;
+  get currentPose(): Readonly<PoseView> {
+    return this.view;
   }
 }

@@ -99,3 +99,21 @@ export function bandWidth(mask: Uint8Array, res: number, ya: number, yb: number)
   }
   return best;
 }
+
+/** 列範囲 [xa, xb] に含まれる塗りの重心 y。無ければ null。 */
+export function bandCenterY(mask: Uint8Array, res: number, xa: number, xb: number): number | null {
+  let s = 0;
+  let n = 0;
+  const a = Math.max(0, Math.floor(xa));
+  const b = Math.min(res - 1, Math.ceil(xb));
+  for (let y = 0; y < res; y++) {
+    const row = y * res;
+    for (let x = a; x <= b; x++) {
+      if (mask[row + x]) {
+        s += y;
+        n++;
+      }
+    }
+  }
+  return n === 0 ? null : s / n + 0.5;
+}

@@ -341,10 +341,10 @@ export class App {
 
   // ===== 開発用ショートカット (?doodle=名前 / ?stage= / ?hub / ?birth=) =====
 
-  /** テスト用ラクガキを読み込み、キャラクターとして登録する。名前は extremeDoodles の名前か TEST_BUILDS の ID。 */
+  /** テスト用ラクガキを読み込み、キャラクターとして登録する。名前は extremeDoodles / creatureDoodles の名前か TEST_BUILDS の ID。 */
   private async loadDevDoodle(name: string): Promise<void> {
-    const { extremeDoodles, testBuildDoodle } = await import('../dev/doodles');
-    let data: DrawingData | undefined = extremeDoodles().find((d) => d.name === name)?.data;
+    const { extremeDoodles, creatureDoodles, testBuildDoodle } = await import('../dev/doodles');
+    let data: DrawingData | undefined = [...extremeDoodles(), ...creatureDoodles()].find((d) => d.name === name)?.data;
     if (!data && /^[A-Z]+$/.test(name)) data = testBuildDoodle(name);
     if (!data) return;
     this.drawing = cloneDrawing(data);

@@ -7,7 +7,7 @@ import { STAT_KEYS, TEST_BUILDS } from '../../src/character/stats';
 import type { CharacterStats } from '../../src/character/stats';
 import { Rng } from '../../src/core/rng';
 import { extremeDoodles, referenceDoodle, testBuildDoodle, variantDoodle } from '../../src/dev/doodles';
-import { randomDoodle } from '../../src/dev/randomDoodle';
+import { randomCreature, randomDoodle } from '../../src/dev/randomDoodle';
 import type { DoodleProfile } from '../../src/dev/randomDoodle';
 import { statsToParams } from '../../src/game/params';
 import { TEST_ARENA } from '../../src/stages/testArena';
@@ -143,7 +143,7 @@ describe('予算制約: 最強形状が存在しない', () => {
     let minOfMinMax = 0;
     let bad = 0;
     let sumLog = 0;
-    const keys: (keyof BodyFeatures)[] = ['size', 'height', 'legRel', 'legAbs', 'armThickness', 'armArea', 'armLength', 'legThickness', 'bodyAspect', 'body', 'head', 'com', 'foot'];
+    const keys: (keyof BodyFeatures)[] = ['size', 'height', 'legRel', 'legAbs', 'armThickness', 'armArea', 'armLength', 'legThickness', 'bodyAspect', 'body', 'head', 'com', 'foot', 'armCount', 'legCount', 'wing', 'tail', 'ornament'];
     for (let i = 0; i < 20000; i++) {
       const f = {} as BodyFeatures;
       for (const k of keys) f[k] = rng.range(-1.1, 1.1);
@@ -245,6 +245,44 @@ describe('ランダム形状での能力分布 (実パイプライン)', () => {
       ids.set(id, (ids.get(id) ?? 0) + 1);
     }
     expect(ids.size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('ランダムな自由スケッチ (四足・多腕・翼…) での能力分布', () => {
+  const N = 90;
+  const sets: CharacterStats[][] = [];
+  beforeAll(() => {
+    for (const [profile, seed] of [['plausible', 31], ['wild', 32]] as const) {
+      const rng = new Rng(seed);
+      const out: CharacterStats[] = [];
+      for (let i = 0; i < N; i++) out.push(evalDoodle(randomCreature(rng, profile)).stats);
+      sets.push(out);
+    }
+  }, 120_000);
+
+  it('全能力が 40〜230 で有限。全能力で有利なビルドは出ない', () => {
+    for (const set of sets) {
+      for (const s of set) {
+        for (const k of STAT_KEYS) {
+          expect(Number.isFinite(s[k])).toBe(true);
+          expect(s[k]).toBeGreaterThanOrEqual(40);
+          expect(s[k]).toBeLessThanOrEqual(230);
+        }
+        expect(STAT_KEYS.every((k) => s[k] >= 100)).toBe(false);
+        const g = Math.exp(STAT_KEYS.reduce((a, k) => a + Math.log(s[k] / 100), 0) / 6);
+        expect(g).toBeGreaterThan(0.8);
+        // 人型より少し緩い: 腕が無い/腕が多い生きものは、片方の能力が下限/上限のソフトクランプに張り付くぶん合計が少し膨らむ
+        expect(g).toBeLessThan(1.05);
+      }
+    }
+  });
+
+  it('腕や脚が多くても、能力値の総量 (予算) は人型と同じ範囲に収まる', () => {
+    const geo = (s: CharacterStats): number => Math.exp(STAT_KEYS.reduce((a, k) => a + Math.log(s[k] / 100), 0) / 6);
+    const all = sets.flat();
+    const mean = all.reduce((a, s) => a + geo(s), 0) / all.length;
+    expect(mean).toBeGreaterThan(0.85);
+    expect(mean).toBeLessThan(1.02);
   });
 });
 

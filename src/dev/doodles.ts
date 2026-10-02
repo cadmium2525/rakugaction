@@ -1,6 +1,7 @@
-import { emptyDrawing } from '../drawing/model';
-import type { DrawOp, DrawingData, PartKey } from '../drawing/model';
+import { LEGACY_PART_KEYS, upgradeLegacy } from '../drawing/model';
+import type { DrawOp, DrawingData, LegacyDrawingData, LegacyPartKey } from '../drawing/model';
 import { Rng } from '../core/rng';
+import { templateOf } from '../drawing/templates';
 
 /** テスト用: 極端なラクガキを大量に作るヘルパー。PHASE 2〜5 のテストで共有する。 */
 
@@ -18,12 +19,14 @@ export const rectPts = (x0: number, y0: number, x1: number, y1: number): number[
 export const pen = (color: string, width: number, pts: number[]): DrawOp => ({ kind: 'pen', color, width, pts });
 export const fill = (color: string, x: number, y: number): DrawOp => ({ kind: 'fill', color, x, y });
 
-export function drawing(parts: Partial<Record<PartKey, DrawOp[]>>, opts: { mirrorArms?: boolean; mirrorLegs?: boolean } = {}): DrawingData {
-  const d = emptyDrawing();
-  for (const [k, ops] of Object.entries(parts)) d.parts[k as PartKey] = { ops: ops as DrawOp[] };
-  if (opts.mirrorArms !== undefined) d.mirrorArms = opts.mirrorArms;
-  if (opts.mirrorLegs !== undefined) d.mirrorLegs = opts.mirrorLegs;
-  return d;
+/**
+ * 旧来の 6 パーツ (胴体・頭・腕 L/R・脚 L/R) の形でラクガキを作る簡易ヘルパー (テスト/QA 用)。
+ * 左右コピー (mirrorArms / mirrorLegs、既定は ON) は、ペアのパーツ 1 つ (ON) か、左右別々のパーツ 2 つ (OFF) に変換される。
+ */
+export function drawing(parts: Partial<Record<LegacyPartKey, DrawOp[]>>, opts: { mirrorArms?: boolean; mirrorLegs?: boolean } = {}): DrawingData {
+  const legacy: LegacyDrawingData = { v: 1, mirrorArms: opts.mirrorArms ?? true, mirrorLegs: opts.mirrorLegs ?? true, parts: {} as LegacyDrawingData['parts'] };
+  for (const k of LEGACY_PART_KEYS) legacy.parts[k] = { ops: (parts[k] as DrawOp[] | undefined) ?? [] };
+  return upgradeLegacy(legacy);
 }
 
 /** 輪郭 + 塗りの閉図形 */
@@ -306,4 +309,106 @@ export function extremeDoodles(): NamedDoodle[] {
   });
 
   return list;
+}
+
+// ===== 自由なパーツ構成のキャラクター (四足・多腕・翼・多足) =====
+
+/** 楕円の閉じた輪郭 */
+export const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 48): number[] => {
+  const pts: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    pts.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry);
+  }
+  return pts;
+};
+
+const INK = '#202124';
+const shape = (fillColor: string, pts: number[], seed: [number, number]): DrawOp[] => blob(INK, fillColor, pts, seed);
+
+/** テンプレートの順に、パーツの絵 (id → ops) を入れて DrawingData にする。 */
+function fromTemplate(templateId: string, ops: Record<string, DrawOp[]>): DrawingData {
+  const parts = templateOf(templateId)!.make();
+  return { v: 2, parts: parts.map((p) => ({ ...p, ops: ops[p.id] ?? [] })) };
+}
+
+/** 四足の動物 (横向き・右向き): 横長の胴体、頭、前脚・後ろ脚、しっぽ */
+export function quadrupedDoodle(): DrawingData {
+  return fromTemplate('quadruped', {
+    body: shape('#fb8c00', ellipse(0.5, 0.5, 0.42, 0.26), [0.5, 0.5]),
+    head: shape('#fdd835', ellipse(0.55, 0.5, 0.34, 0.3), [0.55, 0.5]),
+    legsF: shape('#8d5a2b', roundRectPts(0.4, 0.1, 0.62, 0.9, 0.08), [0.5, 0.5]),
+    legsB: shape('#8d5a2b', roundRectPts(0.38, 0.1, 0.62, 0.9, 0.08), [0.5, 0.5]),
+    tail: [pen('#fb8c00', 0.07, [0.92, 0.5, 0.7, 0.4, 0.5, 0.55, 0.3, 0.45, 0.15, 0.3])],
+  });
+}
+
+/** 多腕 (阿修羅): 人型 + 腕が 3 組 (6 本) */
+export function asuraDoodle(): DrawingData {
+  const arm = (c: string): DrawOp[] => shape(c, roundRectPts(0.4, 0.1, 0.6, 0.75, 0.08), [0.5, 0.4]);
+  return fromTemplate('asura', {
+    body: shape('#e53935', roundRectPts(0.25, 0.12, 0.75, 0.88, 0.12), [0.5, 0.5]),
+    head: shape('#fdd835', circle(0.5, 0.5, 0.3), [0.5, 0.5]),
+    arms1: arm('#fdd835'),
+    arms2: arm('#fb8c00'),
+    arms3: arm('#f06292'),
+    legs: shape('#1e63d6', roundRectPts(0.38, 0.1, 0.62, 0.88, 0.08), [0.5, 0.5]),
+  });
+}
+
+/** 鳥 (正面): 丸い胴体・頭・翼・細い脚・しっぽ */
+export function birdDoodle(): DrawingData {
+  return fromTemplate('bird', {
+    body: shape('#29b6f6', ellipse(0.5, 0.5, 0.34, 0.38), [0.5, 0.5]),
+    head: shape('#29b6f6', circle(0.5, 0.5, 0.28), [0.5, 0.5]),
+    wings: shape('#ffffff', [0.1, 0.5, 0.35, 0.2, 0.9, 0.35, 0.8, 0.6, 0.35, 0.78, 0.1, 0.5], [0.5, 0.5]),
+    legs: [pen('#fb8c00', 0.05, [0.5, 0.1, 0.5, 0.9])],
+    tail: shape('#1e63d6', ellipse(0.5, 0.5, 0.14, 0.38), [0.5, 0.5]),
+  });
+}
+
+/** 虫 (横向き): 細長い胴体・頭・脚 3 組 (6 本)・しっぽ */
+export function insectDoodle(): DrawingData {
+  const leg = (): DrawOp[] => [pen('#202124', 0.05, [0.5, 0.08, 0.6, 0.5, 0.45, 0.92])];
+  return fromTemplate('insect', {
+    body: shape('#43a047', ellipse(0.5, 0.5, 0.44, 0.2), [0.5, 0.5]),
+    head: shape('#fdd835', circle(0.5, 0.5, 0.3), [0.5, 0.5]),
+    legs1: leg(),
+    legs2: leg(),
+    legs3: leg(),
+    tail: shape('#43a047', ellipse(0.5, 0.5, 0.36, 0.12), [0.5, 0.5]),
+  });
+}
+
+/** 全部入り: 正面の胴体に、横向きの脚、翼、しっぽ、角、取り付け位置を手で指定した腕 (組み合わせの極端な例) */
+export function chimeraDoodle(): DrawingData {
+  const d = fromTemplate('human', {
+    body: shape('#8e24aa', roundRectPts(0.25, 0.12, 0.75, 0.88, 0.12), [0.5, 0.5]),
+    head: shape('#f06292', circle(0.5, 0.5, 0.3), [0.5, 0.5]),
+    arms: shape('#fdd835', roundRectPts(0.4, 0.1, 0.6, 0.8, 0.08), [0.5, 0.4]),
+    legs: shape('#1e63d6', roundRectPts(0.38, 0.1, 0.62, 0.88, 0.08), [0.5, 0.5]),
+  });
+  const legs = d.parts.find((p) => p.id === 'legs')!;
+  legs.view = 'side';
+  d.parts.push(
+    { id: 'wings', kind: 'wing', view: 'front', side: 'C', pair: true, flip: false, mount: null, ops: shape('#ffffff', [0.1, 0.5, 0.4, 0.15, 0.9, 0.4, 0.4, 0.8, 0.1, 0.5], [0.5, 0.5]) },
+    { id: 'tail', kind: 'tail', view: 'front', side: 'C', pair: false, flip: false, mount: null, ops: [pen('#8e24aa', 0.08, [0.5, 0.1, 0.4, 0.4, 0.6, 0.7])] },
+    { id: 'horns', kind: 'ornament', view: 'front', side: 'C', pair: true, flip: false, mount: null, ops: shape('#fdd835', [0.5, 0.9, 0.3, 0.2, 0.7, 0.9], [0.5, 0.7]) },
+    { id: 'armX', kind: 'arm', view: 'side', side: 'L', pair: false, flip: true, mount: { u: 0.85, v: 0.6 }, ops: [pen('#43a047', 0.07, [0.5, 0.1, 0.6, 0.9])] },
+  );
+  return d;
+}
+
+/** 新しいパーツ構成のキャラクター一覧 (自動テスト用)。 */
+export function creatureDoodles(): NamedDoodle[] {
+  return [
+    { name: 'quadruped', data: quadrupedDoodle() },
+    { name: 'asura', data: asuraDoodle() },
+    { name: 'bird', data: birdDoodle() },
+    { name: 'insect', data: insectDoodle() },
+    { name: 'chimera', data: chimeraDoodle() },
+    { name: 'bodyOnlySide', data: fromTemplate('free', { body: shape('#e53935', ellipse(0.5, 0.5, 0.4, 0.3), [0.5, 0.5]) }) },
+    { name: 'allDefaults(quadruped)', data: fromTemplate('quadruped', {}) },
+    { name: 'allDefaults(insect)', data: fromTemplate('insect', {}) },
+  ];
 }

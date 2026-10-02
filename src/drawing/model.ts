@@ -1,14 +1,54 @@
 /**
- * ラクガキのデータモデル。ベクターのストローク列で保持する (Undo/Redo・保存・反転・再生成が容易)。
+ * ラクガキのデータモデル (v2: 自由なパーツ構成)。ベクターのストローク列で保持する (Undo/Redo・保存・反転・再生成が容易)。
  * 座標は各パーツのキャンバス内の正規化座標 (0..1, 左上原点, y 下向き)。
+ *
+ * キャラクター = 胴体 (必須) + 任意の数のパーツ (頭・腕・脚・しっぽ・翼・飾り)。
+ * 各パーツは「どの向きから見た絵か」(正面 / 横向き)・「左右ペアか」・「胴体のどこにつなぐか」を持つ。
+ * 四足の動物 (脚 2 組)・阿修羅 (腕 3 組)・翼のある鳥・虫 (脚 3 組) などは、パーツの組み合わせで作る。
  */
 
-/** キャラクターの左 = 正面から見て画像の右側 (+x)。 */
-export const PART_KEYS = ['body', 'head', 'armLeft', 'armRight', 'legLeft', 'legRight'] as const;
-export type PartKey = (typeof PART_KEYS)[number];
+/** パーツの種類 */
+export type PartKind = 'body' | 'head' | 'arm' | 'leg' | 'tail' | 'wing' | 'ornament';
 
-/** ユーザーが最初に描くメイン 4 スロット。左右ペアは armLeft/legLeft が元で、右は反転コピー (任意で個別に描ける)。 */
-export const PRIMARY_PARTS = ['body', 'head', 'armLeft', 'legLeft'] as const;
+export const PART_KINDS: readonly PartKind[] = ['body', 'head', 'arm', 'leg', 'tail', 'wing', 'ornament'];
+
+/** 絵の向き: front = 正面から見た絵 (キャラの向きと垂直な面) / side = 横から見た絵 (右を向いて描く) */
+export type PartView = 'front' | 'side';
+
+/** ペアでない時の置き場所: L = キャラクターの左 (正面から見て画像の右側 +x) / R = 右 / C = 中央 */
+export type PartSide = 'L' | 'R' | 'C';
+
+/** ユーザーに見せる種類の名前 (絵文字つきのボタン用と、文中用) */
+export const KIND_LABEL: Record<PartKind, string> = {
+  body: '胴体',
+  head: '頭',
+  arm: '腕',
+  leg: '脚',
+  tail: 'しっぽ',
+  wing: '翼',
+  ornament: '飾り',
+};
+
+export const KIND_ICON: Record<PartKind, string> = {
+  body: '🟫',
+  head: '🙂',
+  arm: '💪',
+  leg: '🦵',
+  tail: '〰️',
+  wing: '🪽',
+  ornament: '🎀',
+};
+
+/** 種類ごとに付けられるパーツ (スロット) の最大数。腕・脚は「ペア 1 組 = 1 スロット」なので、脚 3 組 = 6 本まで。 */
+export const KIND_MAX: Record<PartKind, number> = {
+  body: 1,
+  head: 1,
+  arm: 4,
+  leg: 4,
+  tail: 1,
+  wing: 1,
+  ornament: 3,
+};
 
 export interface PenOp {
   kind: 'pen';
@@ -36,18 +76,32 @@ export interface FillOp {
 
 export type DrawOp = PenOp | EraseOp | FillOp;
 
-export interface PartDrawing {
+/** 胴体のキャンバス上の取り付け位置 (0..1)。 */
+export interface Mount {
+  u: number;
+  v: number;
+}
+
+export interface PartSlot {
+  /** 一意な名前 (英数字)。胴体は 'body'。編集の履歴などのキーになる。 */
+  id: string;
+  kind: PartKind;
+  view: PartView;
+  side: PartSide;
+  /** true: 胴体の中心面をはさんで、左右に同じ形 (鏡像) を 1 組つける */
+  pair: boolean;
+  /** true: 絵を左右反転して使う (横向きの絵で、向きを逆にしたい時) */
+  flip: boolean;
+  /** 胴体の絵のどこにつなぐか。null = 種類ごとの標準の位置に自動で決める。胴体自身は使わない */
+  mount: Mount | null;
   ops: DrawOp[];
 }
 
 export interface DrawingData {
-  /** データ形式バージョン (将来の変更に備える) */
-  v: 1;
-  /** true: 右腕は左腕の左右反転 (描かなくてよい) */
-  mirrorArms: boolean;
-  /** true: 右脚は左脚の左右反転 */
-  mirrorLegs: boolean;
-  parts: Record<PartKey, PartDrawing>;
+  /** データ形式バージョン */
+  v: 2;
+  /** parts[0] は常に胴体 (id = 'body') */
+  parts: PartSlot[];
 }
 
 /** 入力の上限。巨大/悪意あるデータで端末を重くしない。 */
@@ -59,6 +113,8 @@ export const LIMITS = {
   maxWidth: 0.3,
   /** 座標の保存精度 (1/4096) */
   coordQuant: 4096,
+  /** 胴体を含むスロットの最大数 (ペアは 1 スロットで 2 つ分) */
+  maxSlots: 12,
 } as const;
 
 /** ラスタライズ解像度 (正方形)。エディタ表示と 3D 化で同じものを使う。 */
@@ -82,21 +138,57 @@ export const BASE_PALETTE: readonly { name: string; hex: string }[] = [
   { name: '灰', hex: '#9e9e9e' },
 ];
 
+/** 新しいスロット (絵は空)。 */
+export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'id' | 'kind'>> = {}): PartSlot {
+  return {
+    id,
+    kind,
+    view: o.view ?? 'front',
+    side: o.side ?? 'C',
+    pair: o.pair ?? false,
+    flip: o.flip ?? false,
+    mount: o.mount ?? null,
+    ops: o.ops ?? [],
+  };
+}
+
+/** 胴体だけの空のラクガキ。 */
 export function emptyDrawing(): DrawingData {
-  const parts = {} as Record<PartKey, PartDrawing>;
-  for (const k of PART_KEYS) parts[k] = { ops: [] };
-  return { v: 1, mirrorArms: true, mirrorLegs: true, parts };
+  return { v: 2, parts: [newSlot('body', 'body')] };
 }
 
 export function cloneDrawing(d: DrawingData): DrawingData {
   return JSON.parse(JSON.stringify(d)) as DrawingData;
 }
 
-/** 実際に使われるパーツ (左右コピーの場合は反転した元データを返す側で処理する)。 */
-export function mirroredSource(key: PartKey, d: DrawingData): PartKey | null {
-  if (key === 'armRight' && d.mirrorArms) return 'armLeft';
-  if (key === 'legRight' && d.mirrorLegs) return 'legLeft';
-  return null;
+export function slotOf(d: DrawingData, id: string): PartSlot | undefined {
+  return d.parts.find((p) => p.id === id);
+}
+
+export function bodyOf(d: DrawingData): PartSlot {
+  return d.parts[0];
+}
+
+/** そのスロットが作る実際のパーツの数 (ペアなら 2)。 */
+export function instanceCount(p: PartSlot): number {
+  return p.pair ? 2 : 1;
+}
+
+/** ある種類のスロット数。 */
+export function countKind(d: DrawingData, kind: PartKind): number {
+  return d.parts.filter((p) => p.kind === kind).length;
+}
+
+/** その種類をもう 1 つ足せるか (種類ごとの上限と、全体の上限)。 */
+export function canAdd(d: DrawingData, kind: PartKind): boolean {
+  return d.parts.length < LIMITS.maxSlots && countKind(d, kind) < KIND_MAX[kind];
+}
+
+/** 使われていない id を作る ('p1', 'p2', ...)。 */
+export function freshId(d: DrawingData): string {
+  const used = new Set(d.parts.map((p) => p.id));
+  for (let i = 1; i < 1000; i++) if (!used.has(`p${i}`)) return `p${i}`;
+  return `p${used.size + 1}`;
 }
 
 const mirrorX = (x: number): number => Math.round((1 - x) * LIMITS.coordQuant) / LIMITS.coordQuant;
@@ -113,11 +205,37 @@ export function mirrorOps(ops: readonly DrawOp[]): DrawOp[] {
 
 /** 描画済み (何か 1 つでも op がある) パーツがあるか。 */
 export function hasAnyInk(d: DrawingData): boolean {
-  return PART_KEYS.some((k) => d.parts[k].ops.length > 0);
+  return d.parts.some((p) => p.ops.length > 0);
 }
 
 export function opCount(d: DrawingData): number {
   let n = 0;
-  for (const k of PART_KEYS) n += d.parts[k].ops.length;
+  for (const p of d.parts) n += p.ops.length;
   return n;
+}
+
+// ===== 旧形式 (v1: 固定の 6 パーツ) =====
+
+export const LEGACY_PART_KEYS = ['body', 'head', 'armLeft', 'armRight', 'legLeft', 'legRight'] as const;
+export type LegacyPartKey = (typeof LEGACY_PART_KEYS)[number];
+
+/** 旧形式のラクガキ (保存データの変換と、テスト用の簡易な作り方で使う)。 */
+export interface LegacyDrawingData {
+  v: 1;
+  mirrorArms: boolean;
+  mirrorLegs: boolean;
+  parts: Record<LegacyPartKey, { ops: DrawOp[] }>;
+}
+
+/**
+ * 旧形式 (人型の 6 パーツ) → 新形式。見た目・能力が変わらないよう、標準の取り付け位置 (自動) のまま変換する。
+ * 左右コピー ON は「ペア」1 スロット、OFF は左右それぞれ 1 スロット (絵はそのまま使う)。
+ */
+export function upgradeLegacy(old: LegacyDrawingData): DrawingData {
+  const parts: PartSlot[] = [newSlot('body', 'body', { ops: old.parts.body.ops }), newSlot('head', 'head', { ops: old.parts.head.ops })];
+  if (old.mirrorArms) parts.push(newSlot('arms', 'arm', { pair: true, ops: old.parts.armLeft.ops }));
+  else parts.push(newSlot('armL', 'arm', { side: 'L', ops: old.parts.armLeft.ops }), newSlot('armR', 'arm', { side: 'R', ops: old.parts.armRight.ops }));
+  if (old.mirrorLegs) parts.push(newSlot('legs', 'leg', { pair: true, ops: old.parts.legLeft.ops }));
+  else parts.push(newSlot('legL', 'leg', { side: 'L', ops: old.parts.legLeft.ops }), newSlot('legR', 'leg', { side: 'R', ops: old.parts.legRight.ops }));
+  return { v: 2, parts };
 }

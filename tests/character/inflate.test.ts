@@ -31,6 +31,7 @@ function partOf(fn: (x: number, y: number) => boolean): CleanedPart {
     dilateRadius: 0,
     inscribedRadius: 40,
     halfWidth: 40,
+    outline: [32, 33, 36],
   };
 }
 
@@ -75,8 +76,8 @@ describe('膨らませ (インフレーション)', () => {
 
   it('細長い帯 → 断面はほぼ円 (厚み ≈ 幅)。幅が 2 倍なら厚みも約 2 倍', () => {
     const strip = (half: number) => partOf((x, y) => Math.abs(x - 192) <= half && y >= 40 && y <= 340);
-    const a = buildPartGeometry('armLeft', strip(20), 192, 40, SCALE);
-    const b = buildPartGeometry('armLeft', strip(40), 192, 40, SCALE);
+    const a = buildPartGeometry('arm', strip(20), 192, 40, SCALE);
+    const b = buildPartGeometry('arm', strip(40), 192, 40, SCALE);
     const widthA = ((2 * 20 + 1) / RES) * SCALE;
     expect(a.thickness / widthA).toBeGreaterThan(0.85);
     expect(a.thickness / widthA).toBeLessThan(1.5);

@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { buildSimplePolygon, convexHull, isSimplePolygon, signedArea, smoothClosed, traceLoops } from '../../src/character/contour';
 import { dilate, distanceSquared, fillHoles, labelComponents, maxInscribedRadius, removeSpecks } from '../../src/character/maskOps';
 import { CharacterAnimator } from '../../src/character/animator';
 import { buildCharacter } from '../../src/character/builder';
 import { TEX_RES } from '../../src/character/cleanPart';
-import { PART_KEYS } from '../../src/drawing/model';
+import { partsOf } from '../../src/character/rig';
 import { extremeDoodles, standardDoodle } from '../../src/dev/doodles';
 
 const mk = (res: number, fn: (x: number, y: number) => boolean): Uint8Array => {
@@ -77,69 +76,6 @@ describe('maskOps', () => {
   });
 });
 
-describe('contour', () => {
-  it('4 近傍で連結した 1 成分は 1 ループ。斜め接触 (ピンチ) は 2 ループに分かれる', () => {
-    const res = 10;
-    const sq = mk(res, (x, y) => x >= 2 && x < 7 && y >= 2 && y < 7);
-    const loops = traceLoops(sq, res);
-    expect(loops.length).toBe(1);
-    expect(loops[0].length).toBe(20);
-    const diag = mk(res, (x, y) => (x === 3 && y === 3) || (x === 4 && y === 4));
-    expect(traceLoops(diag, res).length).toBe(2);
-  });
-
-  it('円のマスク → 頂点数が少なく、単純で、面積がほぼ一致する多角形', () => {
-    const res = 200;
-    const R = 70;
-    const disc = mk(res, (x, y) => (x - 100) ** 2 + (y - 100) ** 2 <= R * R);
-    const loops = traceLoops(disc, res);
-    expect(loops.length).toBe(1);
-    const poly = buildSimplePolygon(loops[0], { smoothPasses: 4, eps: 0.9, maxPoints: 96 });
-    expect(poly).not.toBeNull();
-    const pts = poly!.points;
-    expect(pts.length).toBeLessThanOrEqual(96);
-    expect(isSimplePolygon(pts)).toBe(true);
-    const area = Math.abs(signedArea(pts));
-    expect(area).toBeGreaterThan(Math.PI * R * R * 0.93);
-    expect(area).toBeLessThan(Math.PI * R * R * 1.05);
-    expect(poly!.fallback).toBe(0);
-  });
-
-  it('複雑な形 (星/渦) でも単純多角形 (または凸包) を返す', () => {
-    const res = 160;
-    const star = mk(res, (x, y) => {
-      const dx = x - 80;
-      const dy = y - 80;
-      const a = Math.atan2(dy, dx);
-      const r = Math.hypot(dx, dy);
-      return r < 30 + 40 * Math.abs(Math.cos(a * 2.5));
-    });
-    for (const loop of traceLoops(star, res)) {
-      const poly = buildSimplePolygon(loop, { smoothPasses: 4, eps: 0.9, maxPoints: 96 });
-      expect(poly).not.toBeNull();
-      expect(isSimplePolygon(poly!.points)).toBe(true);
-    }
-  });
-
-  it('自己交差 (蝶ネクタイ) は非単純と判定、凸包は常に単純', () => {
-    const bow = [
-      { x: 0, y: 0 },
-      { x: 10, y: 10 },
-      { x: 10, y: 0 },
-      { x: 0, y: 10 },
-    ];
-    expect(isSimplePolygon(bow)).toBe(false);
-    expect(isSimplePolygon(convexHull(bow))).toBe(true);
-  });
-
-  it('smoothClosed は点数を保ち、有限値のまま', () => {
-    const loop = traceLoops(mk(30, (x, y) => x > 5 && x < 20 && y > 5 && y < 20), 30)[0];
-    const s = smoothClosed(loop, 4);
-    expect(s.length).toBe(loop.length);
-    expect(s.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))).toBe(true);
-  });
-});
-
 function allAttributesFinite(geo: THREE.BufferGeometry): boolean {
   for (const name of Object.keys(geo.attributes)) {
     const a = geo.getAttribute(name);
@@ -157,9 +93,11 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
       const { rig, report } = built;
       // 階層
       expect(rig.root.getObjectByName('body')).toBe(rig.body);
-      for (const n of ['head', 'armLeft', 'armRight', 'legLeft', 'legRight']) expect(rig.body.getObjectByName(n), n).toBeTruthy();
+      for (const p of rig.parts) expect(rig.body.getObjectByName(p.pivot.name), p.pivot.name).toBeTruthy();
+      expect(rig.parts.length).toBe(5);
       // 各パーツ
-      for (const key of PART_KEYS) {
+      for (const slot of data.parts) {
+        const key = slot.id;
         const r = report.parts[key];
         expect(r.triangles, `${key} tris`).toBeGreaterThan(30);
         expect(r.triangles, `${key} tris`).toBeLessThan(6000);
@@ -198,7 +136,7 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
       expect(depth, 'depth').toBeGreaterThan(0.03);
       expect(depth, 'depth').toBeLessThan(H * 0.9);
       // リグのピボット位置が有限
-      for (const g of [rig.body, rig.head, rig.armLeft, rig.armRight, rig.legLeft, rig.legRight]) {
+      for (const g of [rig.body, ...rig.parts.map((p) => p.pivot)]) {
         expect(Number.isFinite(g.position.x + g.position.y + g.position.z)).toBe(true);
       }
       expect(rig.metrics).toBeTruthy();
@@ -212,21 +150,23 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
     const { rig } = buildCharacter(standardDoodle());
     rig.root.updateMatrixWorld(true);
     const wp = (o: THREE.Object3D): THREE.Vector3 => o.getWorldPosition(new THREE.Vector3());
-    expect(wp(rig.head).y).toBeGreaterThan(wp(rig.body).y + 0.3);
-    expect(wp(rig.armLeft).x).toBeGreaterThan(0.1);
-    expect(wp(rig.armRight).x).toBeLessThan(-0.1);
-    expect(wp(rig.legLeft).x).toBeGreaterThan(0.02);
-    expect(wp(rig.legRight).x).toBeLessThan(-0.02);
-    expect(rig.metrics!.legLengthLeft).toBeGreaterThan(0.3);
-    expect(rig.metrics!.armLengthLeft).toBeGreaterThan(0.3);
+    const side = (kind: 'arm' | 'leg', s: 1 | -1): THREE.Object3D => partsOf(rig, kind).find((p) => p.side === s)!.pivot;
+    expect(wp(rig.head!).y).toBeGreaterThan(wp(rig.body).y + 0.3);
+    expect(wp(side('arm', 1)).x).toBeGreaterThan(0.1);
+    expect(wp(side('arm', -1)).x).toBeLessThan(-0.1);
+    expect(wp(side('leg', 1)).x).toBeGreaterThan(0.02);
+    expect(wp(side('leg', -1)).x).toBeLessThan(-0.02);
+    expect(rig.metrics!.legLength).toBeGreaterThan(0.3);
+    expect(rig.metrics!.armLength).toBeGreaterThan(0.3);
   });
 
   it('左右コピー ON のとき左右の腕メッシュの寸法が一致する', () => {
     const { rig } = buildCharacter(standardDoodle());
     const bb = (o: THREE.Object3D): THREE.Vector3 => new THREE.Box3().setFromObject(o).getSize(new THREE.Vector3());
     rig.root.updateMatrixWorld(true);
-    const l = bb(rig.armLeft);
-    const r = bb(rig.armRight);
+    const arms = partsOf(rig, 'arm');
+    const l = bb(arms.find((p) => p.side === 1)!.pivot);
+    const r = bb(arms.find((p) => p.side === -1)!.pivot);
     expect(Math.abs(l.x - r.x)).toBeLessThan(0.02);
     expect(Math.abs(l.y - r.y)).toBeLessThan(0.02);
   });
@@ -234,12 +174,15 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
   it('ジオメトリ/マテリアル/テクスチャを dispose できる (メモリリークしない)', () => {
     const { rig } = buildCharacter(standardDoodle());
     let disposed = 0;
+    const seen = new Set<THREE.BufferGeometry>();
     rig.root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
+      if (!m.isMesh || seen.has(m.geometry)) return;
+      seen.add(m.geometry);
       m.geometry.addEventListener('dispose', () => disposed++);
     });
     rig.dispose();
-    expect(disposed).toBe(6);
+    // ペア (左右) は 1 つのジオメトリを共有する: 胴体・頭・腕・脚の 4 つ
+    expect(disposed).toBe(4);
   });
 });

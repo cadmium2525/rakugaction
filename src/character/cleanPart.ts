@@ -1,7 +1,7 @@
 import type { DrawingRaster } from '../drawing/raster';
 import { COLOR_CLASSES, classifyColor, emptyWeights } from './colorClass';
 import type { ColorWeights } from './colorClass';
-import { dilate, fillHoles, maxInscribedRadius, medianHalfWidth, removeSpecks } from './maskOps';
+import { dilate, distanceSquared, fillHoles, maxInscribedRadius, medianHalfWidth, removeSpecks } from './maskOps';
 
 /** 3D 化で使うテクスチャの解像度 (正方形)。ラスタ解像度の約数であること。 */
 export const TEX_RES = 192;
@@ -35,6 +35,8 @@ export interface CleanedPart {
   inscribedRadius: number;
   /** 典型的な半幅 (px) */
   halfWidth: number;
+  /** 輪郭の線の色 (0..255)。テクスチャの縁の帯は内側の塗りの色に置き換えてあり、縁の線はこの色で材質が引く */
+  outline: [number, number, number];
 }
 
 /** 実際に描かれたピクセルを色分類して集計する (同じ色は結果を再利用)。 */
@@ -92,6 +94,7 @@ export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean } = {
   const halfWidth = opts.texture === false ? rIn : medianHalfWidth(mask, res);
 
   const texture = opts.texture === false ? new Uint8ClampedArray(0) : buildTexture(raster, src, base, res, dilateRadius);
+  const outline = opts.texture === false ? DEFAULT_OUTLINE : stripOutline(texture, mask, res);
   const { inkPixels, colorWeights } = measureInk(raster, src);
   return {
     res,
@@ -107,6 +110,7 @@ export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean } = {
     // 膨張で内接円半径は dilateRadius だけ増える (EDT の再計算を省く)
     inscribedRadius: rIn + dilateRadius,
     halfWidth,
+    outline,
   };
 }
 
@@ -210,4 +214,125 @@ function buildTexture(raster: DrawingRaster, srcMask: Uint8Array, shape: Uint8Ar
     out[i * 4 + 3] = 255;
   }
   return out;
+}
+
+/** 輪郭の線の色が分からない時 (線が無い・細すぎる) の既定: 墨色。 */
+const DEFAULT_OUTLINE: [number, number, number] = [32, 33, 36];
+/** 色が近いか (各チャンネルの差の最大) */
+const SIMILAR = 56;
+
+/**
+ * テクスチャの縁にある輪郭の線を、線のすぐ内側の塗りの色で置き換える。
+ * 立体にすると縁の側面が見える向き (横から・薄いパーツの断面) で、輪郭の線が太い黒い帯になってしまうため、
+ * 線の色は取り出して (戻り値) 材質の縁取りに使い、テクスチャ自体は塗りの色だけにする。
+ * 輪郭の線 = 縁から内側へ、縁のすぐ内側の色 (輪郭の色) と近い色でつながった所。太さは面積 ÷ 周長で見積もる。
+ * 全体が同じ色 (線と塗りが同じ色) の時や、細いパーツ (線より内側が無い) では何もしない。
+ */
+function stripOutline(tex: Uint8ClampedArray, mask: Uint8Array, res: number): [number, number, number] {
+  const tr = TEX_RES;
+  const factor = Math.max(1, Math.round(res / tr));
+  const inside = new Uint8Array(tr * tr);
+  for (let y = 0; y < res; y++) {
+    for (let x = 0; x < res; x++) {
+      if (mask[y * res + x]) inside[Math.min(tr - 1, Math.floor(y / factor)) * tr + Math.min(tr - 1, Math.floor(x / factor))] = 1;
+    }
+  }
+  const outside = new Uint8Array(tr * tr);
+  for (let i = 0; i < outside.length; i++) outside[i] = inside[i] ? 0 : 1;
+  const d2 = distanceSquared(outside, tr);
+  const level = new Int16Array(tr * tr);
+  let maxLevel = 0;
+  for (let i = 0; i < level.length; i++) {
+    if (!inside[i]) continue;
+    level[i] = Math.max(1, Math.round(Math.sqrt(d2[i])));
+    if (level[i] > maxLevel) maxLevel = level[i];
+  }
+  // 輪郭の色: 縁のすぐ内側 (level 1..2) の平均
+  let sr = 0;
+  let sg = 0;
+  let sb = 0;
+  let n = 0;
+  for (let i = 0; i < level.length; i++) {
+    if (level[i] >= 1 && level[i] <= 2) {
+      sr += tex[i * 4];
+      sg += tex[i * 4 + 1];
+      sb += tex[i * 4 + 2];
+      n++;
+    }
+  }
+  if (n === 0) return DEFAULT_OUTLINE;
+  const oc: [number, number, number] = [sr / n, sg / n, sb / n];
+  const close = (i: number): boolean => Math.abs(tex[i * 4] - oc[0]) <= SIMILAR && Math.abs(tex[i * 4 + 1] - oc[1]) <= SIMILAR && Math.abs(tex[i * 4 + 2] - oc[2]) <= SIMILAR;
+  // 縁から、輪郭の色に近い色でつながった所を広げる
+  const stroke = new Uint8Array(tr * tr);
+  const queue: number[] = [];
+  let edgeCount = 0;
+  for (let i = 0; i < level.length; i++) {
+    if (level[i] === 1 && close(i)) {
+      stroke[i] = 1;
+      queue.push(i);
+      edgeCount++;
+    }
+  }
+  if (edgeCount === 0) return oc;
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q];
+    const y = Math.floor(i / tr);
+    const x = i - y * tr;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= tr || ny >= tr) continue;
+      const j = ny * tr + nx;
+      if (stroke[j] || !inside[j] || !close(j)) continue;
+      stroke[j] = 1;
+      queue.push(j);
+    }
+  }
+  // 太さの見積り (面積 ÷ 周長)。大きすぎる (全体が同じ色) ならそのまま
+  const thickness = queue.length / edgeCount;
+  if (thickness > 0.45 * maxLevel || maxLevel < thickness + 2) return oc;
+  // 線 (とその周りのアンチエイリアスの混ざった色) を含む縁の帯を、内側の塗りの色で置き換える。
+  // 縁は立体の急な側面で、テクスチャが放射状に引き伸ばされるので、帯の中に色のばらつきが残ると筋になる
+  const cap = Math.ceil(thickness * 1.5) + 3;
+  const byLevel: number[][] = Array.from({ length: cap + 1 }, () => []);
+  const inBand = new Uint8Array(tr * tr);
+  for (let i = 0; i < level.length; i++) {
+    if (level[i] >= 1 && level[i] <= cap) {
+      inBand[i] = 1;
+      byLevel[level[i]].push(i);
+    }
+  }
+  const replaced = new Uint8Array(tr * tr);
+  for (let l = cap; l >= 1; l--) {
+    for (const i of byLevel[l]) {
+      const y = Math.floor(i / tr);
+      const x = i - y * tr;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let c = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= tr) continue;
+        for (let dx = -1; dx <= 1; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= tr || (dx === 0 && dy === 0)) continue;
+          const j = ny * tr + nx;
+          if (!inside[j] || level[j] <= l || (inBand[j] && !replaced[j])) continue;
+          r += tex[j * 4];
+          g += tex[j * 4 + 1];
+          b += tex[j * 4 + 2];
+          c++;
+        }
+      }
+      if (c > 0) {
+        tex[i * 4] = r / c;
+        tex[i * 4 + 1] = g / c;
+        tex[i * 4 + 2] = b / c;
+        replaced[i] = 1;
+      }
+    }
+  }
+  return oc;
 }

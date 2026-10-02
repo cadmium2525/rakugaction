@@ -350,3 +350,218 @@
     display: none;
   }
 }
+
+/* ---------- 自由なパーツ構成 ---------- */
+.ed-bar-mid {
+  display: flex;
+  align-items: center;
+}
+.ed-chips {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 3px 2px;
+  scrollbar-width: none;
+}
+.ed-chips::-webkit-scrollbar {
+  display: none;
+}
+.chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  padding: 0 10px 0 8px;
+  border: 2px solid #e6d8bb;
+  border-radius: 17px;
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.chip-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+.chip-mark {
+  font-size: 11px;
+  color: #b0763c;
+}
+.chip.done {
+  background: #fff8ec;
+  border-color: #f2c79b;
+}
+.chip.on {
+  border-color: var(--accent);
+  background: #fff1e6;
+  box-shadow: 0 0 0 2px rgba(255, 122, 61, 0.25);
+}
+.chip-add {
+  border-style: dashed;
+  color: #8a6a3c;
+}
+.chip:disabled {
+  opacity: 0.4;
+}
+.ed-templ-btn {
+  white-space: nowrap;
+}
+
+/* 右: このパーツの設定 */
+.ed-side {
+  overflow-y: auto;
+}
+.ed-part {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.seg {
+  display: flex;
+  gap: 3px;
+}
+.seg-btn {
+  flex: 1;
+  height: 30px;
+  border: 2px solid #e6d8bb;
+  border-radius: 9px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  padding: 0;
+}
+.seg-btn.on {
+  border-color: var(--accent);
+  background: #fff1e6;
+}
+.opt {
+  height: 30px;
+  border: 2px solid #e6d8bb;
+  border-radius: 9px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink);
+  padding: 0 6px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.opt.on {
+  border-color: var(--accent);
+  background: #fff1e6;
+}
+.opt-danger {
+  color: #b23b2e;
+}
+.ed-part-note {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7a6a4c;
+  line-height: 1.4;
+}
+
+/* つなぐ位置を決める: 紙の上に土台の絵を出して、ドラッグで動かす */
+.ed-mount {
+  display: none;
+  cursor: grab;
+}
+.ed-paper.mounting .ed-mount {
+  display: block;
+}
+.ed-paper.mounting .ed-canvas,
+.ed-paper.mounting .ed-guides {
+  visibility: hidden;
+}
+
+/* ひな形 / パーツを足す */
+.ed-picker {
+  width: min(94vw, 640px);
+  max-height: 96%;
+  overflow-y: auto;
+}
+.templ-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+.templ-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 8px 10px;
+  border: 2px solid #e6d8bb;
+  border-radius: 14px;
+  background: #fff;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: center;
+}
+.templ-card:disabled {
+  opacity: 0.4;
+}
+.templ-card:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.templ-icon {
+  font-size: 26px;
+  line-height: 1.1;
+}
+.templ-label {
+  font-size: 14px;
+  font-weight: 800;
+}
+.templ-desc {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7a6a4c;
+  line-height: 1.35;
+}
+.ed-picker-note {
+  font-size: 12px;
+  color: #7a6a4c;
+  font-weight: 700;
+}
+
+@media (max-height: 420px) {
+  .chip {
+    height: 30px;
+    font-size: 11px;
+    padding: 0 8px 0 6px;
+  }
+  .ed-bar {
+    gap: 5px;
+  }
+  .ed-templ-btn,
+  .ed-prev-btn {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .seg-btn,
+  .opt {
+    height: 26px;
+    font-size: 11px;
+  }
+  .templ-grid {
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    gap: 6px;
+  }
+  .templ-icon {
+    font-size: 20px;
+  }
+  .templ-desc {
+    display: none;
+  }
+}

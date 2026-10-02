@@ -1,6 +1,7 @@
-import { LIMITS, PART_KEYS, cloneDrawing, emptyDrawing, mirrorOps, mirroredSource } from './model';
-import type { DrawOp, DrawingData, PartKey } from './model';
+import { LIMITS, canAdd, cloneDrawing, emptyDrawing, freshId, mirrorOps, newSlot, slotOf } from './model';
+import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from './model';
 import { sanitizeDrawing, sanitizeOp } from './sanitize';
+import type { Template } from './templates';
 
 export type Tool = 'pen' | 'eraser' | 'fill';
 
@@ -8,147 +9,188 @@ export type CommitResult = 'ok' | 'rejected' | 'limit';
 
 const HISTORY_LIMIT = 80;
 
+/** パーツの設定の変更 (向き・ペア・置き場所・反転・取り付け位置)。 */
+export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount'>>;
+
 /**
  * エディタの状態 (DOM 非依存)。パーツごとに Undo/Redo 履歴を持つ。
  * 履歴は op 配列のスナップショット (イミュータブル更新) なので Undo/Redo は参照の差し替えだけで済む。
  */
 export class EditorState {
   drawing: DrawingData;
-  current: PartKey = 'body';
+  /** 今描いているパーツの id */
+  currentId = 'body';
   tool: Tool = 'pen';
   color = '#202124';
   sizeIndex = 1;
 
-  private readonly undoStacks = {} as Record<PartKey, DrawOp[][]>;
-  private readonly redoStacks = {} as Record<PartKey, DrawOp[][]>;
+  private readonly undoStacks = new Map<string, DrawOp[][]>();
+  private readonly redoStacks = new Map<string, DrawOp[][]>();
 
   constructor(initial?: DrawingData) {
     this.drawing = initial ? sanitizeDrawing(cloneDrawing(initial)) : emptyDrawing();
-    for (const k of PART_KEYS) {
-      this.undoStacks[k] = [];
-      this.redoStacks[k] = [];
-    }
   }
 
-  /** 現在のパーツが編集可能か (左右コピー中の「右」は編集不可)。 */
-  isEditable(key: PartKey = this.current): boolean {
-    return mirroredSource(key, this.drawing) === null;
-  }
-
-  /** ミラー解決後の実際の ops (右腕が左腕の反転なら反転した ops を返す)。 */
-  effectiveOps(key: PartKey): readonly DrawOp[] {
-    const src = mirroredSource(key, this.drawing);
-    if (src) return mirrorOps(this.drawing.parts[src].ops);
-    return this.drawing.parts[key].ops;
+  /** 今のパーツ。 */
+  get current(): PartSlot {
+    return slotOf(this.drawing, this.currentId) ?? this.drawing.parts[0];
   }
 
   get ops(): readonly DrawOp[] {
-    return this.drawing.parts[this.current].ops;
+    return this.current.ops;
+  }
+
+  private undoOf(id: string): DrawOp[][] {
+    let s = this.undoStacks.get(id);
+    if (!s) this.undoStacks.set(id, (s = []));
+    return s;
+  }
+
+  private redoOf(id: string): DrawOp[][] {
+    let s = this.redoStacks.get(id);
+    if (!s) this.redoStacks.set(id, (s = []));
+    return s;
   }
 
   get canUndo(): boolean {
-    return this.isEditable() && this.undoStacks[this.current].length > 0;
+    return this.undoOf(this.current.id).length > 0;
   }
 
   get canRedo(): boolean {
-    return this.isEditable() && this.redoStacks[this.current].length > 0;
+    return this.redoOf(this.current.id).length > 0;
   }
 
-  private pointsUsed(key: PartKey): number {
+  private pointsUsed(slot: PartSlot): number {
     let n = 0;
-    for (const op of this.drawing.parts[key].ops) if (op.kind !== 'fill') n += op.pts.length / 2;
+    for (const op of slot.ops) if (op.kind !== 'fill') n += op.pts.length / 2;
     return n;
   }
 
-  private pushHistory(key: PartKey): void {
-    const u = this.undoStacks[key];
-    u.push(this.drawing.parts[key].ops);
+  private setOps(slot: PartSlot, ops: DrawOp[]): void {
+    const i = this.drawing.parts.findIndex((p) => p.id === slot.id);
+    if (i >= 0) this.drawing.parts[i] = { ...slot, ops };
+  }
+
+  private pushHistory(slot: PartSlot): void {
+    const u = this.undoOf(slot.id);
+    u.push(slot.ops);
     if (u.length > HISTORY_LIMIT) u.shift();
-    this.redoStacks[key] = [];
+    this.redoStacks.set(slot.id, []);
   }
 
   /** ストローク/塗りを確定する。不正な op は破棄 ('rejected')、上限超過は 'limit'。 */
   commitOp(raw: DrawOp): CommitResult {
-    const key = this.current;
-    if (!this.isEditable(key)) return 'rejected';
-    const ops = this.drawing.parts[key].ops;
-    if (ops.length >= LIMITS.maxOpsPerPart) return 'limit';
-    const budget = LIMITS.maxTotalPointsPerPart - this.pointsUsed(key);
+    const slot = this.current;
+    if (slot.ops.length >= LIMITS.maxOpsPerPart) return 'limit';
+    const budget = LIMITS.maxTotalPointsPerPart - this.pointsUsed(slot);
     if (budget <= 0) return 'limit';
     const op = sanitizeOp(raw, budget);
     if (!op) return 'rejected';
-    this.pushHistory(key);
-    this.drawing.parts[key] = { ops: [...ops, op] };
+    this.pushHistory(slot);
+    this.setOps(slot, [...slot.ops, op]);
     return 'ok';
   }
 
   undo(): boolean {
-    const key = this.current;
+    const slot = this.current;
     if (!this.canUndo) return false;
-    const prev = this.undoStacks[key].pop() as DrawOp[];
-    this.redoStacks[key].push(this.drawing.parts[key].ops);
-    this.drawing.parts[key] = { ops: prev };
+    const prev = this.undoOf(slot.id).pop() as DrawOp[];
+    this.redoOf(slot.id).push(slot.ops);
+    this.setOps(slot, prev);
     return true;
   }
 
   redo(): boolean {
-    const key = this.current;
+    const slot = this.current;
     if (!this.canRedo) return false;
-    const next = this.redoStacks[key].pop() as DrawOp[];
-    this.undoStacks[key].push(this.drawing.parts[key].ops);
-    this.drawing.parts[key] = { ops: next };
+    const next = this.redoOf(slot.id).pop() as DrawOp[];
+    this.undoOf(slot.id).push(slot.ops);
+    this.setOps(slot, next);
     return true;
   }
 
   /** 現在のパーツを全部消す (Undo で戻せる)。 */
   clearPart(): boolean {
-    const key = this.current;
-    if (!this.isEditable(key) || this.drawing.parts[key].ops.length === 0) return false;
-    this.pushHistory(key);
-    this.drawing.parts[key] = { ops: [] };
+    const slot = this.current;
+    if (slot.ops.length === 0) return false;
+    this.pushHistory(slot);
+    this.setOps(slot, []);
     return true;
   }
 
-  /** 全パーツをリセット (最初からやり直し)。履歴も消える。 */
+  /** 最初からやり直す (胴体だけの空の状態。履歴も消える)。 */
   resetAll(): void {
     this.drawing = emptyDrawing();
-    for (const k of PART_KEYS) {
-      this.undoStacks[k] = [];
-      this.redoStacks[k] = [];
-    }
+    this.currentId = 'body';
+    this.undoStacks.clear();
+    this.redoStacks.clear();
+  }
+
+  /** ひな形を適用する (今の絵は捨てる)。 */
+  applyTemplate(t: Template): void {
+    this.drawing = { v: 2, parts: t.make() };
+    this.currentId = 'body';
+    this.undoStacks.clear();
+    this.redoStacks.clear();
+  }
+
+  setPart(id: string): void {
+    if (slotOf(this.drawing, id)) this.currentId = id;
   }
 
   /**
-   * 左右コピー設定。OFF にする時は左の絵を反転コピーして「右」の出発点にする。
-   * (ON に戻しても右の絵はデータに残るが、使われるのは左の反転)
+   * パーツを足す。上限に達していれば null。向き・ペアの初期値は種類に合わせる
+   * (胴体が横向きなら、横向きの絵で足す。腕・脚・翼・飾りは左右ペアで始める)。
    */
-  setMirror(pair: 'arms' | 'legs', on: boolean): void {
-    const left: PartKey = pair === 'arms' ? 'armLeft' : 'legLeft';
-    const right: PartKey = pair === 'arms' ? 'armRight' : 'legRight';
-    const flag = pair === 'arms' ? 'mirrorArms' : 'mirrorLegs';
-    if (this.drawing[flag] === on) return;
-    if (!on) {
-      this.drawing.parts[right] = { ops: mirrorOps(this.drawing.parts[left].ops) };
-      this.undoStacks[right] = [];
-      this.redoStacks[right] = [];
-    } else if (this.current === right) {
-      this.current = left;
-    }
-    this.drawing[flag] = on;
+  addPart(kind: PartKind, o: Partial<Pick<PartSlot, 'view' | 'pair' | 'side'>> = {}): PartSlot | null {
+    if (kind === 'body' || !canAdd(this.drawing, kind)) return null;
+    const bodyView = this.drawing.parts[0].view;
+    const pairByDefault = kind === 'arm' || kind === 'leg' || kind === 'wing' || kind === 'ornament';
+    const slot = newSlot(freshId(this.drawing), kind, { view: o.view ?? bodyView, pair: o.pair ?? pairByDefault, side: o.side ?? 'C' });
+    this.drawing.parts.push(slot);
+    this.currentId = slot.id;
+    return slot;
   }
 
-  /** 左 → 右へ反転コピー (個別モード中のワンタップ補助)。 */
-  copyLeftToRight(pair: 'arms' | 'legs'): boolean {
-    const left: PartKey = pair === 'arms' ? 'armLeft' : 'legLeft';
-    const right: PartKey = pair === 'arms' ? 'armRight' : 'legRight';
-    if (mirroredSource(right, this.drawing)) return false;
-    this.undoStacks[right].push(this.drawing.parts[right].ops);
-    this.redoStacks[right] = [];
-    this.drawing.parts[right] = { ops: mirrorOps(this.drawing.parts[left].ops) };
+  /** パーツを消す (胴体は消せない)。 */
+  removePart(id: string): boolean {
+    if (id === 'body') return false;
+    const i = this.drawing.parts.findIndex((p) => p.id === id);
+    if (i < 0) return false;
+    this.drawing.parts.splice(i, 1);
+    this.undoStacks.delete(id);
+    this.redoStacks.delete(id);
+    if (this.currentId === id) this.currentId = 'body';
     return true;
   }
 
-  setPart(key: PartKey): void {
-    this.current = key;
+  /** パーツの設定を変える。ペアをやめる時は、置き場所 (side) が C のままなら L にする。 */
+  updatePart(id: string, patch: SlotPatch): boolean {
+    const i = this.drawing.parts.findIndex((p) => p.id === id);
+    if (i < 0) return false;
+    const slot = this.drawing.parts[i];
+    const next: PartSlot = { ...slot, ...patch };
+    if (patch.pair === false && slot.pair && next.side === 'C' && slot.kind !== 'head' && slot.kind !== 'tail') next.side = 'L';
+    if (id === 'body') {
+      next.pair = false;
+      next.side = 'C';
+      next.mount = null;
+    }
+    this.drawing.parts[i] = next;
+    return true;
+  }
+
+  /** 取り付け位置を変える (null で自動に戻す)。 */
+  setMount(id: string, mount: Mount | null): boolean {
+    return this.updatePart(id, { mount });
+  }
+
+  /** 左右反転した絵に置き換える (「向きを逆にする」の補助。Undo できる)。 */
+  flipDrawing(id: string = this.currentId): boolean {
+    const slot = slotOf(this.drawing, id);
+    if (!slot || slot.ops.length === 0) return false;
+    this.pushHistory(slot);
+    this.setOps(slot, mirrorOps(slot.ops));
+    return true;
   }
 }
