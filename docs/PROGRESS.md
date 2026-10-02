@@ -593,5 +593,5 @@ SPEED ≈ 191s / JUMP ≈ 221s / STANDARD ≈ 244s / POWER ≈ 255s / HEAVY ≈ 
 **未検証 (実機・実サービスが必要)**:
 1. 本物の iPhone / Android での操作感・遅延・発熱・フレームレート (動的解像度の効き)、iOS Safari の IndexedDB の消去ルール、全画面/向きロック、ホーム画面追加 (PWA)。
 2. 本物の Firebase (Firestore + 匿名認証) への書き込み・読み込み。モックと、セキュリティルールの値域が `RANK_LIMITS` と一致することのテストのみ。
-3. 実際の GitHub Pages 上での動作 (リモート未設定のため、サブパス配信の再現でのみ確認)。デプロイのワークフローは未実行。
+3. ~~実際の GitHub Pages 上での動作~~ → **確認済み (2026-10-02)**: https://github.com/cadmium2525/rakugaction へ push。CI (lint・391 テスト・build) は GitHub 上の Linux でも成功。最初のデプロイは Pages 未有効化 (Settings → Pages → Source = GitHub Actions) で失敗し、有効化後の再実行 (attempt 2) で成功。公開 URL https://cadmium2525.github.io/rakugaction/ で、全ファイル 200・Console error なし・STAGE 1 をボットでクリアまで動作。
 **既知の問題 (README にも記載)**: 紫 (特殊傾向) はゲーム内の効果が未実装 (値の記録のみ) / 効果音・BGM なし / SPEED 型が強いメタ・EXTREME が遅い / HP・DEF は S5 の炎でしか効かない / 極小画面のボタン 27px / 描きかけの自動保存と名前変更が未実装 / `pagehide` の最後の保存は取りこぼす可能性。
