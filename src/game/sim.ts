@@ -4,8 +4,10 @@ import type { V3 } from '../core/math';
 import { FIXED_DT } from '../core/version';
 import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
+import { terrainHeightAt } from '../stages/terrain';
 import type { BreakableDef, CrumbleDef, EnemyDef, HazardDef, MoverDef, StageDef, SweeperDef } from '../stages/types';
 import { patrolFeetAt, specOf } from './enemies';
+import type { GroundFn } from './enemies';
 import type { EnemySpec } from './enemies';
 import type { SimEvent } from './events';
 import type { PlayerParams } from './params';
@@ -88,6 +90,11 @@ const GUARD_KNOCK_H = 4.2;
 const GUARD_KNOCK_V = 3.2;
 /** chaser: 追っている間 / 待機位置へ戻る時の速さ (m/s) の倍率。戻る時は遅い */
 const CHASER_RETURN_MUL = 0.5;
+/** アイテムを取れる水平の距離 (プレイヤーの半径に足す) と、高さ方向の余裕 (m) */
+const PICKUP_R = 1.3;
+const PICKUP_DY = 0.9;
+/** ゴールが開いていない時の「あと n 個」の通知の間隔 (秒) */
+const GOAL_LOCKED_NOTICE = 2.5;
 
 /**
  * ゲームシミュレーション本体。Rapier + プレイヤー + ステージギミックを保持する。
@@ -118,6 +125,8 @@ export class GameSim {
   maxHp: number;
   /** 無敵の残り時間 (描画の点滅にも使う) */
   invuln = 0;
+  /** 取ったアイテムの id。やられて復活しても戻らない */
+  readonly collected = new Set<string>();
 
   private readonly events: SimEvent[] = [];
   private readonly moverByCollider = new Map<number, MoverRuntime>();
@@ -127,6 +136,9 @@ export class GameSim {
   /** 現在の攻撃で既に処理した対象 (同じ対象に多段ヒットさせない。複数の対象には当たる) */
   private readonly attackHits = new Set<string>();
   private readonly windOut = { x: 0, y: 0, z: 0 };
+  /** 地形があるステージの地面の高さ (敵の足元用)。なければ undefined */
+  private readonly ground: GroundFn | undefined;
+  private goalLockedCooldown = 0;
 
   constructor(
     private readonly R: Rapier,
@@ -136,6 +148,8 @@ export class GameSim {
     this.world = new R.World({ x: 0, y: 0, z: 0 });
     this.world.timestep = FIXED_DT;
     this.ray = new R.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+    const terrain = stage.terrain;
+    this.ground = terrain ? (x, z) => terrainHeightAt(terrain, x, z) ?? terrain.heights[0] : undefined;
     this.buildStatic();
     this.buildMovers();
     this.buildBreakables();
@@ -163,7 +177,17 @@ export class GameSim {
 
   private buildStatic(): void {
     const R = this.R;
-    const { boxes, cylinders } = this.stage;
+    const { boxes, cylinders, terrain } = this.stage;
+    if (terrain) {
+      // 高さフィールド: 行 = z 方向のセル数 / 列 = x 方向のセル数。中心を範囲の中央に置く (stages/terrain.ts と同じ並び・三角形)
+      const desc = R.ColliderDesc.heightfield(terrain.nz, terrain.nx, terrain.heights, {
+        x: terrain.nx * terrain.cell,
+        y: 1,
+        z: terrain.nz * terrain.cell,
+      }).setTranslation(terrain.x0 + (terrain.nx * terrain.cell) / 2, 0, terrain.z0 + (terrain.nz * terrain.cell) / 2);
+      desc.setFriction(0);
+      this.staticColliders.push(this.world.createCollider(desc));
+    }
     for (const b of boxes) {
       const desc = R.ColliderDesc.cuboid(b.size[0] / 2, b.size[1] / 2, b.size[2] / 2).setTranslation(
         b.pos[0],
@@ -345,6 +369,7 @@ export class GameSim {
     this.time = nextTime;
     this.stepCount++;
     this.invuln = Math.max(0, this.invuln - dt);
+    this.goalLockedCooldown = Math.max(0, this.goalLockedCooldown - dt);
 
     this.updateCrumbles(dt);
     this.checkTriggers();
@@ -378,11 +403,12 @@ export class GameSim {
     if (e.def.kind === 'chaser') {
       [fx, fy, fz] = e.def.points[0];
     } else {
-      const f = patrolFeetAt(e.def, t);
+      const f = patrolFeetAt(e.def, t, this.ground);
       fx = f.x;
       fy = f.y;
       fz = f.z;
     }
+    if (e.def.kind === 'chaser' && e.def.onTerrain && this.ground) fy = this.ground(fx, fz);
     e.pos.x = e.prev.x = fx;
     e.pos.y = e.prev.y = fy + half;
     e.pos.z = e.prev.z = fz;
@@ -399,7 +425,7 @@ export class GameSim {
         this.stepChaser(e, dt);
         continue;
       }
-      const f = patrolFeetAt(e.def, nextTime);
+      const f = patrolFeetAt(e.def, nextTime, this.ground);
       const dx = f.x - e.pos.x;
       const dz = f.z - e.pos.z;
       if (dx * dx + dz * dz > 1e-8) e.yaw = Math.atan2(dx, dz);
@@ -416,10 +442,11 @@ export class GameSim {
     const leash = def.leash;
     const p = this.player;
     const aggro = (def.aggro ?? 9) * (e.chasing ? 1.4 : 1);
+    const onTerrain = !!def.onTerrain && !!this.ground;
     const inZone =
       !this.goalReached &&
       (!leash || (p.pos.x >= leash.min[0] - 1 && p.pos.x <= leash.max[0] + 1 && p.pos.z >= leash.min[2] - 1 && p.pos.z <= leash.max[2] + 1)) &&
-      Math.abs(p.feetY - home[1]) < 2.5;
+      Math.abs(p.feetY - (onTerrain ? this.ground!(e.pos.x, e.pos.z) : home[1])) < 2.5;
     const dxp = p.pos.x - e.pos.x;
     const dzp = p.pos.z - e.pos.z;
     let tx = home[0];
@@ -445,7 +472,7 @@ export class GameSim {
       e.pos.z += (dz / d) * step;
       e.yaw = Math.atan2(dx, dz);
     }
-    e.pos.y = home[1] + e.spec.height / 2;
+    e.pos.y = (onTerrain ? this.ground!(e.pos.x, e.pos.z) : home[1]) + e.spec.height / 2;
   }
 
   /**
@@ -540,6 +567,7 @@ export class GameSim {
         }
       }
     }
+    this.checkPickups();
     const g = this.stage.goal;
     if (g && !this.goalReached) {
       if (
@@ -547,9 +575,47 @@ export class GameSim {
         Math.abs(p.pos.y - g.pos[1]) <= g.size[1] / 2 &&
         Math.abs(p.pos.z - g.pos[2]) <= g.size[2] / 2
       ) {
-        this.goalReached = true;
-        this.events.push({ type: 'goal' });
+        if (this.goalOpen) {
+          this.goalReached = true;
+          this.events.push({ type: 'goal' });
+        } else if (this.goalLockedCooldown <= 0) {
+          this.goalLockedCooldown = GOAL_LOCKED_NOTICE;
+          this.events.push({ type: 'goalLocked', need: this.pickupsRequired - this.collected.size });
+        }
       }
+    }
+  }
+
+  // ===== アイテムとクリア条件 =====
+
+  /** 取ったアイテムの数 */
+  get pickupCount(): number {
+    return this.collected.size;
+  }
+
+  /** ゴールを開くのに必要な数 (条件がなければ 0) */
+  get pickupsRequired(): number {
+    return this.stage.objective?.required ?? 0;
+  }
+
+  /** ゴールが開いているか (条件がない / 必要な数を集めた) */
+  get goalOpen(): boolean {
+    return this.collected.size >= this.pickupsRequired;
+  }
+
+  private checkPickups(): void {
+    const pickups = this.stage.pickups;
+    if (!pickups || pickups.length === 0) return;
+    const p = this.player;
+    const r = PICKUP_R + p.params.radius;
+    const hh = p.params.height / 2;
+    for (const k of pickups) {
+      if (this.collected.has(k.id)) continue;
+      const dx = p.pos.x - k.pos[0];
+      const dz = p.pos.z - k.pos[2];
+      if (dx * dx + dz * dz > r * r || Math.abs(p.pos.y - k.pos[1]) > hh + PICKUP_DY) continue;
+      this.collected.add(k.id);
+      this.events.push({ type: 'pickup', id: k.id, count: this.collected.size, required: this.pickupsRequired, total: pickups.length });
     }
   }
 

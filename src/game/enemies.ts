@@ -40,6 +40,9 @@ export function resolveSpec(def: EnemyDef): EnemySpec {
   };
 }
 
+/** (x, z) の地面の高さ。EnemyDef.onTerrain の敵の足元に使う。 */
+export type GroundFn = (x: number, z: number) => number;
+
 const _out: V3 = v3();
 
 /** 敵ごとの経路 (MoverDef) と性能は 1 回だけ作って使い回す (毎ステップ作ると経路長の計算が毎回走る)。 */
@@ -73,7 +76,7 @@ const HOP_AIR = 0.75;
  * 巡回する敵 (blob / hopper / spiky) の足元の位置を、経過時間から決定的に求める。戻り値は共有バッファ。
  * hopper は跳んでいる間だけ前に進む (地面にいる間は止まる)。
  */
-export function patrolFeetAt(def: EnemyDef, time: number): V3 {
+export function patrolFeetAt(def: EnemyDef, time: number, ground?: GroundFn): V3 {
   if (def.kind === 'hopper') {
     const spec = specOf(def);
     const period = spec.hopPeriod;
@@ -86,13 +89,13 @@ export function patrolFeetAt(def: EnemyDef, time: number): V3 {
     const hop = 4 * spec.hopHeight * g * (1 - g);
     const p = moverPosition(pathOf(def), t);
     _out.x = p.x;
-    _out.y = p.y + hop;
+    _out.y = (def.onTerrain && ground ? ground(p.x, p.z) : p.y) + hop;
     _out.z = p.z;
     return _out;
   }
   const p = moverPosition(pathOf(def), time);
   _out.x = p.x;
-  _out.y = p.y;
+  _out.y = def.onTerrain && ground ? ground(p.x, p.z) : p.y;
   _out.z = p.z;
   return _out;
 }

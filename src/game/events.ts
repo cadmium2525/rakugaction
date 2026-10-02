@@ -12,4 +12,8 @@ export type SimEvent =
   | { type: 'crumble'; id: string; state: 'shake' | 'fall' | 'restore' }
   | { type: 'respawn'; reason: 'fall' | 'hazard' | 'manual' }
   | { type: 'checkpoint'; id: string }
+  /** アイテムを取った。count = 取った数 (この 1 個を含む) */
+  | { type: 'pickup'; id: string; count: number; required: number; total: number }
+  /** アイテムが足りないのでゴールが開かない (ゴールに触れた時。一定間隔で出る) */
+  | { type: 'goalLocked'; need: number }
   | { type: 'goal' };

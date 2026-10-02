@@ -1,4 +1,5 @@
 import type { V3t } from '../core/math';
+import type { TerrainDef } from './terrain';
 
 /** 表面の見た目スタイル。色は render/stageStyles.ts で解決する。 */
 export type SurfaceStyle = 'grass' | 'dirt' | 'stone' | 'wood' | 'sand' | 'brick' | 'metal' | 'cloud' | 'ice';
@@ -109,6 +110,30 @@ export interface EnemyDef {
   /** 種類ごとの既定値の上書き */
   toughness?: number;
   damage?: number;
+  /** true = 足元の高さは経路ではなく地形 (StageDef.terrain) から決める (起伏のあるフィールドを歩く敵) */
+  onTerrain?: boolean;
+}
+
+/** 集めるアイテム。近づくと取れる。取った物は、やられて復活しても戻らない。 */
+export interface PickupDef {
+  id: string;
+  /** 中心の座標 (地面より 1m ほど上) */
+  pos: V3t;
+  /** 見た目 (既定 'star') */
+  kind?: 'star';
+  /** 名前 (地図・演出用。例: '丘の上') */
+  label?: string;
+}
+
+/**
+ * クリア条件。collect = アイテムを required 個集めるとゴールが開く (総数は pickups の数。
+ * 全部を集めなくてよい = どれを取るかがタイムアタックの攻略になる)。条件がないステージはゴールに着けばクリア。
+ */
+export interface ObjectiveDef {
+  kind: 'collect';
+  required: number;
+  /** アイテムの呼び名 (例: 'ラクガキ星') */
+  noun: string;
 }
 
 /** ACTION (ダッシュ攻撃) で壊せる箱。toughness <= 攻撃力 のキャラだけが壊せる。 */
@@ -269,10 +294,15 @@ export interface StageDef {
   /** これより下に落ちたら復活 */
   killY: number;
   boxes: readonly BoxDef[];
+  /** 起伏のある地面 (広いフィールド)。箱・動く床などと混ぜて使える */
+  terrain?: TerrainDef;
   cylinders?: readonly CylinderDef[];
   movers?: readonly MoverDef[];
   checkpoints?: readonly CheckpointDef[];
   goal?: GoalDef;
+  /** 集めるアイテムとクリア条件 (省略 = ゴールに着けばクリア) */
+  pickups?: readonly PickupDef[];
+  objective?: ObjectiveDef;
   hazards?: readonly HazardDef[];
   breakables?: readonly BreakableDef[];
   crumbles?: readonly CrumbleDef[];
