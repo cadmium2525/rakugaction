@@ -20,6 +20,9 @@ const NEW_BEST_BONUS = 10;
 /** 倒した敵 1 体ごとの EXP と、1 回のクリアでの上限 */
 const ENEMY_EXP = 3;
 const ENEMY_EXP_CAP = 30;
+/** 必要な数より多く集めたアイテム 1 個ごとの EXP と上限 */
+const PICKUP_EXP = 8;
+const PICKUP_EXP_CAP = 32;
 
 export interface StageExpInput {
   /** ステージの順番 (1〜5) */
@@ -29,6 +32,8 @@ export interface StageExpInput {
   newBest: boolean;
   /** このクリアで倒した敵の数 (省略 = 0) */
   enemiesDefeated?: number;
+  /** ゴールに必要な数より多く集めたアイテムの数 (省略 = 0) */
+  extraPickups?: number;
 }
 
 /** ステージクリアで貰える EXP。 基本 = 40 + 20 × ステージ番号。内訳は全て 0 以上。 */
@@ -44,6 +49,9 @@ export function stageExp(i: StageExpInput): ExpGain {
   // くりかえしのクリアでは、他の EXP と同じく減らす (周回で稼げないように)
   const killExp = Math.round(Math.min(ENEMY_EXP_CAP, kills * ENEMY_EXP) * (i.firstClear ? 1 : REPEAT_MUL));
   if (killExp > 0) parts.push({ label: '敵を撃破', exp: killExp });
+  const extra = Number.isFinite(i.extraPickups) ? Math.max(0, Math.floor(i.extraPickups ?? 0)) : 0;
+  const pickupExp = Math.round(Math.min(PICKUP_EXP_CAP, extra * PICKUP_EXP) * (i.firstClear ? 1 : REPEAT_MUL));
+  if (pickupExp > 0) parts.push({ label: '星を多く集めた', exp: pickupExp });
   return { total: parts.reduce((s, p) => s + p.exp, 0), parts };
 }
 

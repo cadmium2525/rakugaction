@@ -29,6 +29,10 @@ export interface StageResult {
   /** ゴールした時に倒していた敵の数 / ステージの敵の総数 (敵のいないステージは 0 / 0) */
   enemiesDefeated?: number;
   enemiesTotal?: number;
+  /** 集めたアイテムの数 / ステージの総数 / ゴールに必要な数 (アイテムのないステージは 0) */
+  pickups?: number;
+  pickupsTotal?: number;
+  pickupsRequired?: number;
 }
 
 export interface SessionDeps {
@@ -268,6 +272,9 @@ export class StageSession {
       rank: rankFor(timeMs, this.deps.stage.parTime, sim.deaths),
       enemiesDefeated: sim.enemiesDefeated,
       enemiesTotal: sim.enemies.length,
+      pickups: sim.pickupCount,
+      pickupsTotal: this.deps.stage.pickups?.length ?? 0,
+      pickupsRequired: sim.pickupsRequired,
     };
     this.hud.setBanner('GOAL!', 'clear');
     // 祝福ジャンプ (プレイヤーは操作不能)

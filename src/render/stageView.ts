@@ -21,8 +21,8 @@ export class StageView {
   private readonly chunks: { mesh: THREE.Mesh; cx: number; cz: number; radius: number; layer: 'base' | 'extra' | 'far' }[] = [];
   /** 画質が低い時は飾り (extra) を描かない */
   private showExtra = true;
-  /** この距離より遠い区画は描かない (霧で見えなくなる距離 + 余裕) */
-  private readonly cullDist: number;
+  /** この距離より遠い区画は描かない (霧で見えなくなる距離 + 余裕)。画質の見える距離の倍率で変わる */
+  private cullDist: number;
   private readonly pickupView: PickupView | null = null;
   private goalRing: THREE.Mesh | null = null;
   private goalRingMat: THREE.MeshBasicMaterial | null = null;
@@ -188,6 +188,11 @@ export class StageView {
       this.goal = g;
       this.group.add(g);
     }
+  }
+
+  /** 見える距離の倍率 (画質。霧の距離と同じ倍率で、見えない遠くの区画を描かない)。 */
+  setViewScale(vs: number): void {
+    this.cullDist = this.stage.theme.fogFar * vs + 24;
   }
 
   /** 表面の模様の強さ (画質で切り替える) */

@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial } from './toon';
 
 /** これより遠い看板の文字面は描かない (m) */
-const SIGN_DRAW_DIST = 90;
+const SIGN_DRAW_DIST = 42;
 const FACE_W = 512;
 const FACE_H = 256;
 

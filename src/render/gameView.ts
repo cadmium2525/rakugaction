@@ -67,6 +67,7 @@ export class GameView {
     this.camera.far = 300 * s.viewScale;
     this.camera.updateProjectionMatrix();
     this.stageView?.setDetail(s.detail);
+    this.stageView?.setViewScale(s.viewScale);
     this.applyFog();
   }
 
@@ -94,6 +95,7 @@ export class GameView {
     this.stageView = new StageView(stage, sim);
     this.scene.add(this.stageView.group);
     this.stageView.setDetail(this.host.currentSettings.detail);
+    this.stageView.setViewScale(this.host.currentSettings.viewScale);
     const th = stage.theme;
     this.sky = createSky(th.skyTop, th.skyBottom, th.skySun ? { color: th.skySun.color, dir: new THREE.Vector3(...th.skySun.dir) } : undefined);
     this.scene.add(this.sky);

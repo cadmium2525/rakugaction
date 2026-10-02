@@ -91,6 +91,21 @@ describe('EXP の獲得', () => {
     expect(againKills.total - again.total).toBeLessThan(10);
   });
 
+  it('必要な数より多く集めた星には、少しだけ EXP が付く (上限あり。くりかえしでは減る)', () => {
+    const base = stageExp({ order: 1, rank: 'B', firstClear: true, newBest: false });
+    const withStars = (n: number | undefined): ReturnType<typeof stageExp> => stageExp({ order: 1, rank: 'B', firstClear: true, newBest: false, extraPickups: n });
+    expect(withStars(0).total).toBe(base.total);
+    expect(withStars(undefined).total).toBe(base.total);
+    expect(withStars(NaN).total).toBe(base.total);
+    expect(withStars(-2).total).toBe(base.total);
+    expect(withStars(2).total).toBe(base.total + 16);
+    expect(withStars(2).parts.at(-1)).toEqual({ label: '星を多く集めた', exp: 16 });
+    expect(withStars(50).total).toBe(base.total + 32);
+    const again = stageExp({ order: 1, rank: 'B', firstClear: false, newBest: false });
+    const againStars = stageExp({ order: 1, rank: 'B', firstClear: false, newBest: false, extraPickups: 3 });
+    expect(againStars.total - again.total).toBe(Math.round(24 * 0.35));
+  });
+
   it('後のステージほど多く貰える。範囲外/NaN のステージ番号でも有限な値', () => {
     const e = (order: number): number => stageExp({ order, rank: 'B', firstClear: true, newBest: false }).total;
     expect(e(5)).toBeGreaterThan(e(1));

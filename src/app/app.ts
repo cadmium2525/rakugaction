@@ -549,7 +549,8 @@ export class App {
     if (!entry || !session) return;
     const prevBest = this.profile.stage(stageId).bestMs;
     const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs);
-    const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest, enemiesDefeated: r.enemiesDefeated });
+    const extraPickups = Math.max(0, (r.pickups ?? 0) - (r.pickupsRequired ?? 0));
+    const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest, enemiesDefeated: r.enemiesDefeated, extraPickups });
     const before = this.profile.progress;
     const lv = this.profile.addExp(gain.total);
     const after = this.profile.progress;
@@ -566,7 +567,10 @@ export class App {
         rank: r.rank,
         deaths: r.deaths,
         hits: r.hits,
-        extra: r.enemiesTotal ? [`撃破した敵 ${r.enemiesDefeated ?? 0} 体`] : undefined,
+        extra: [
+          ...(r.pickupsTotal ? [`ラクガキ星 ${r.pickups ?? 0} / ${r.pickupsTotal}`] : []),
+          ...(r.enemiesTotal ? [`撃破した敵 ${r.enemiesDefeated ?? 0} 体`] : []),
+        ],
         progress: { gain, before, after, levelUp },
         onNext: next ? () => void this.startStage(next.id) : undefined,
         nextLabel: next ? `${next.title} ▶` : undefined,

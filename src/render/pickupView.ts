@@ -24,16 +24,6 @@ function starShape(ro: number, ri: number): THREE.Shape {
   return s;
 }
 
-interface Item {
-  id: string;
-  /** 星 (回転・上下する) */
-  star: THREE.Group;
-  /** 光の柱 (遠くからの目印) */
-  beam: THREE.Mesh;
-  base: { x: number; y: number; z: number };
-  phase: number;
-}
-
 interface Burst {
   mesh: THREE.Mesh;
   vx: number;
@@ -44,12 +34,16 @@ interface Burst {
 
 /**
  * 集めるアイテム (ラクガキ星) の見た目。金色の星 + 黒い縁 (インク) + 光の柱。
- * 取ると、星が弾けて消える。取ったアイテムは sim.collected から毎フレーム読む (やられて復活しても戻らない)。
+ * 星・縁・柱はそれぞれ InstancedMesh 1 つ (個数によらず描画 3 回)。取ると、星が弾けて消える。
+ * 取ったアイテムは sim.collected から毎フレーム読む (やられて復活しても戻らない)。
  */
 export class PickupView {
   readonly group = new THREE.Group();
-  private readonly items: Item[] = [];
-  private readonly byId = new Map<string, Item>();
+  private readonly defs: readonly PickupDef[];
+  private readonly index = new Map<string, number>();
+  private readonly stars: THREE.InstancedMesh;
+  private readonly outlines: THREE.InstancedMesh;
+  private readonly beams: THREE.InstancedMesh;
   private readonly bursts: Burst[] = [];
   private readonly starGeo: THREE.BufferGeometry;
   private readonly outlineGeo: THREE.BufferGeometry;
@@ -59,72 +53,90 @@ export class PickupView {
   private readonly inkMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
   private readonly beamMat = new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
   private readonly burstMat = new THREE.MeshBasicMaterial({ color: GOLD, transparent: true });
+  private readonly m = new THREE.Matrix4();
+  private readonly q = new THREE.Quaternion();
+  private readonly e = new THREE.Euler();
+  private readonly p = new THREE.Vector3();
+  private readonly s = new THREE.Vector3();
   private t = 0;
 
   constructor(pickups: readonly PickupDef[]) {
+    this.defs = pickups;
     const shape = starShape(0.62, 0.28);
     this.starGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.2, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 1 });
     this.starGeo.translate(0, 0, -0.1);
     // 縁取り: 同じ形を少し大きくして裏面だけ描く (インクの輪郭線)
     this.outlineGeo = this.starGeo.clone();
     this.outlineGeo.scale(1.22, 1.22, 1.5);
-    for (const p of pickups) {
-      const star = new THREE.Group();
-      star.add(new THREE.Mesh(this.starGeo, this.starMat), new THREE.Mesh(this.outlineGeo, this.inkMat));
-      const beam = new THREE.Mesh(this.beamGeo, this.beamMat);
-      beam.position.set(p.pos[0], p.pos[1] + 4.2, p.pos[2]);
-      const item: Item = { id: p.id, star, beam, base: { x: p.pos[0], y: p.pos[1], z: p.pos[2] }, phase: (this.items.length * 1.7) % 6.28 };
-      star.position.set(p.pos[0], p.pos[1], p.pos[2]);
-      this.group.add(star, beam);
-      this.items.push(item);
-      this.byId.set(p.id, item);
+    const n = Math.max(1, pickups.length);
+    this.stars = new THREE.InstancedMesh(this.starGeo, this.starMat, n);
+    this.outlines = new THREE.InstancedMesh(this.outlineGeo, this.inkMat, n);
+    this.beams = new THREE.InstancedMesh(this.beamGeo, this.beamMat, n);
+    for (const mesh of [this.stars, this.outlines, this.beams]) {
+      mesh.frustumCulled = false; // 光の柱は遠くからも見える。個数が少ないので常に描く
+      mesh.count = pickups.length;
+      this.group.add(mesh);
     }
+    pickups.forEach((p, i) => this.index.set(p.id, i));
     for (let i = 0; i < BURST_COUNT; i++) {
       const mesh = new THREE.Mesh(this.burstGeo, this.burstMat);
       mesh.visible = false;
       this.group.add(mesh);
       this.bursts.push({ mesh, vx: 0, vy: 0, vz: 0, life: 0 });
     }
+    this.layout(null, 0);
+  }
+
+  /** 全アイテムの行列を書く (取った物・遠い星は大きさ 0)。 */
+  private layout(sim: GameSim | null, dt: number): void {
+    this.t += dt;
+    const px = sim?.player.pos.x ?? 0;
+    const pz = sim?.player.pos.z ?? 0;
+    for (let i = 0; i < this.defs.length; i++) {
+      const d = this.defs[i];
+      const taken = sim?.collected.has(d.id) ?? false;
+      const dx = d.pos[0] - px;
+      const dz = d.pos[2] - pz;
+      const near = !sim || dx * dx + dz * dz < STAR_DRAW_DIST * STAR_DRAW_DIST;
+      // 星: 回って、ゆっくり上下する
+      const phase = (i * 1.7) % 6.28;
+      this.e.set(0, this.t * 1.9 + phase, 0);
+      this.q.setFromEuler(this.e);
+      this.p.set(d.pos[0], d.pos[1] + Math.sin(this.t * 2.4 + phase) * 0.14, d.pos[2]);
+      this.s.setScalar(taken || !near ? 0 : 1);
+      this.m.compose(this.p, this.q, this.s);
+      this.stars.setMatrixAt(i, this.m);
+      this.outlines.setMatrixAt(i, this.m);
+      // 光の柱
+      this.p.set(d.pos[0], d.pos[1] + 4.2, d.pos[2]);
+      this.s.setScalar(taken ? 0 : 1);
+      this.m.compose(this.p, this.q.identity(), this.s);
+      this.beams.setMatrixAt(i, this.m);
+    }
+    this.stars.instanceMatrix.needsUpdate = true;
+    this.outlines.instanceMatrix.needsUpdate = true;
+    this.beams.instanceMatrix.needsUpdate = true;
   }
 
   /** アイテムを取った: 星の位置で弾ける。 */
   onPickup(id: string): void {
-    const it = this.byId.get(id);
-    if (!it) return;
-    it.star.visible = false;
-    it.beam.visible = false;
-    for (let i = 0; i < this.bursts.length; i++) {
-      const b = this.bursts[i];
-      const a = (i / this.bursts.length) * Math.PI * 2;
-      b.mesh.position.set(it.base.x, it.base.y, it.base.z);
-      b.vx = Math.cos(a) * (2.5 + (i % 3));
-      b.vz = Math.sin(a) * (2.5 + (i % 3));
-      b.vy = 3 + (i % 4);
+    const i = this.index.get(id);
+    if (i === undefined) return;
+    const d = this.defs[i];
+    for (let k = 0; k < this.bursts.length; k++) {
+      const b = this.bursts[k];
+      const a = (k / this.bursts.length) * Math.PI * 2;
+      b.mesh.position.set(d.pos[0], d.pos[1], d.pos[2]);
+      b.vx = Math.cos(a) * (2.5 + (k % 3));
+      b.vz = Math.sin(a) * (2.5 + (k % 3));
+      b.vy = 3 + (k % 4);
       b.life = BURST_LIFE;
       b.mesh.visible = true;
     }
   }
 
   update(sim: GameSim, dt: number): void {
-    this.t += dt;
-    const p = sim.player.pos;
-    for (const it of this.items) {
-      const taken = sim.collected.has(it.id);
-      if (taken) {
-        it.star.visible = false;
-        it.beam.visible = false;
-        continue;
-      }
-      const dx = it.base.x - p.x;
-      const dz = it.base.z - p.z;
-      const near = dx * dx + dz * dz < STAR_DRAW_DIST * STAR_DRAW_DIST;
-      it.star.visible = near;
-      it.beam.visible = true;
-      if (near) {
-        it.star.rotation.y = this.t * 1.9 + it.phase;
-        it.star.position.y = it.base.y + Math.sin(this.t * 2.4 + it.phase) * 0.14;
-      }
-    }
+    this.layout(sim, dt);
     let alive = 0;
     for (const b of this.bursts) {
       if (b.life <= 0) continue;
@@ -146,6 +158,9 @@ export class PickupView {
   }
 
   dispose(): void {
+    this.stars.dispose();
+    this.outlines.dispose();
+    this.beams.dispose();
     this.starGeo.dispose();
     this.outlineGeo.dispose();
     this.beamGeo.dispose();

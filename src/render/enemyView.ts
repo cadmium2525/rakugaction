@@ -60,7 +60,7 @@ interface Particle {
 
 const MAX_PARTICLES = 80;
 /** これより遠い敵は描かない (m) */
-const ENEMY_DRAW_DIST = 70;
+const ENEMY_DRAW_DIST = 55;
 
 interface PartOptions {
   pos?: readonly [number, number, number];
