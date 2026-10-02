@@ -588,9 +588,12 @@
 .opt-danger {
   margin-top: 6px;
 }
-@media (max-height: 420px) {
+@media (max-height: 460px) {
   .ed-note.show {
     display: block;
+  }
+  .ed-hint {
+    display: none;
   }
   .ed-mini {
     min-height: 96px;
@@ -606,7 +609,7 @@
   }
 }
 /* 幅に余裕がある横画面 (844×390 など): 右の欄を 2 列にして、プレビューを大きく、パーツの設定をスクロールなしで見せる */
-@media (max-height: 420px) and (min-width: 740px) {
+@media (max-height: 460px) and (min-width: 740px) {
   .ed-side {
     display: grid;
     grid-template-columns: 150px 140px;

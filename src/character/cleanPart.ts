@@ -303,44 +303,58 @@ function stripOutline(tex: Uint8ClampedArray, mask: Uint8Array, res: number): [n
   // 線 (とその周りのアンチエイリアスの混ざった色) を含む縁の帯を、内側の塗りの色で置き換える。
   // 縁は立体の急な側面で、テクスチャが放射状に引き伸ばされるので、帯の中に色のばらつきが残ると筋になる
   const cap = Math.ceil(thickness * 1.5) + 3;
-  const byLevel: number[][] = Array.from({ length: cap + 1 }, () => []);
+  // 帯 = 縁から cap の深さまで + 輪郭の線の色でつながった所すべて。
+  // 先端 (楕円の左右の端など) では、線が先端の軸に沿って、周囲の太さより深くまで続く。そこを cap で切ると、黒い短い線が残る
+  const byLevel: number[][] = Array.from({ length: maxLevel + 1 }, () => []);
   const inBand = new Uint8Array(tr * tr);
   for (let i = 0; i < level.length; i++) {
-    if (level[i] >= 1 && level[i] <= cap) {
+    if ((level[i] >= 1 && level[i] <= cap) || (stroke[i] && level[i] >= 1)) {
       inBand[i] = 1;
       byLevel[level[i]].push(i);
     }
   }
   const replaced = new Uint8Array(tr * tr);
-  for (let l = cap; l >= 1; l--) {
-    for (const i of byLevel[l]) {
-      const y = Math.floor(i / tr);
-      const x = i - y * tr;
-      let r = 0;
-      let g = 0;
-      let b = 0;
-      let c = 0;
-      for (let dy = -1; dy <= 1; dy++) {
-        const ny = y + dy;
-        if (ny < 0 || ny >= tr) continue;
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          if (nx < 0 || nx >= tr || (dx === 0 && dy === 0)) continue;
-          const j = ny * tr + nx;
-          if (!inside[j] || level[j] <= l || (inBand[j] && !replaced[j])) continue;
-          r += tex[j * 4];
-          g += tex[j * 4 + 1];
-          b += tex[j * 4 + 2];
-          c++;
-        }
-      }
-      if (c > 0) {
-        tex[i * 4] = r / c;
-        tex[i * 4 + 1] = g / c;
-        tex[i * 4 + 2] = b / c;
-        replaced[i] = 1;
+  /** i の周りの 8 近傍のうち、受け取れる色 (帯の外の画素・置き換え済みの画素。inwardOnly なら level が大きい画素だけ) の平均で置き換える */
+  const replaceFromInside = (i: number, l: number, inwardOnly: boolean): boolean => {
+    const y = Math.floor(i / tr);
+    const x = i - y * tr;
+    let r = 0;
+    let g = 0;
+    let b = 0;
+    let c = 0;
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = y + dy;
+      if (ny < 0 || ny >= tr) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx;
+        if (nx < 0 || nx >= tr || (dx === 0 && dy === 0)) continue;
+        const j = ny * tr + nx;
+        if (!inside[j] || (inwardOnly && level[j] <= l) || (inBand[j] && !replaced[j])) continue;
+        r += tex[j * 4];
+        g += tex[j * 4 + 1];
+        b += tex[j * 4 + 2];
+        c++;
       }
     }
+    if (c === 0) return false;
+    tex[i * 4] = r / c;
+    tex[i * 4 + 1] = g / c;
+    tex[i * 4 + 2] = b / c;
+    replaced[i] = 1;
+    return true;
+  };
+  // 1 回目: 外側から見て内側 (level が大きい) の色だけを使う。
+  // 2 回目以降: 先端 (線が軸に沿って続く所) では、level がほぼ同じ画素が並んで、内側の色を受け取れない画素が残る。
+  //   そこで、すでに置き換えた画素や帯の外の画素 (level は問わない) から色を受け取る。残りが無くなるまで繰り返す
+  for (let pass = 0; pass < 12; pass++) {
+    let pending = 0;
+    for (let l = maxLevel; l >= 1; l--) {
+      for (const i of byLevel[l]) {
+        if (replaced[i]) continue;
+        if (!replaceFromInside(i, l, pass === 0)) pending++;
+      }
+    }
+    if (pending === 0) break;
   }
   return oc;
 }
