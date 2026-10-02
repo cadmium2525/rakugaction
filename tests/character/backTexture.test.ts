@@ -85,6 +85,25 @@ describe('buildBackTexture: 背中側の絵', () => {
     expect(countColor(back2!, mouth.mask, BLACK)).toBe(0);
   });
 
+  it('頭: 上の縁に接する黒髪は残り、下半分 (あご) の縁に接する大きな口は消える。頭以外 (脚の靴など) は下の縁でも残る', () => {
+    const hair = disc((x, y) => (y < 38 ? BLACK : YELLOW)); // 上の縁に接する (円盤の約 9%)
+    const total = hair.mask.reduce((a, b) => a + b, 0);
+    const hairArea = countColor(hair.tex, hair.mask, BLACK);
+    expect(hairArea / total).toBeGreaterThan(0.06);
+    const keepHair = buildBackTexture(hair.tex, hair.mask, T, T, 'head');
+    expect(keepHair === null || countColor(keepHair, hair.mask, BLACK) === hairArea).toBe(true);
+    // あごの縁に接する大きな口 (同じ広さ)
+    const chin = disc((x, y) => (y > 154 ? BLACK : YELLOW));
+    const chinArea = countColor(chin.tex, chin.mask, BLACK);
+    expect(chinArea / chin.mask.reduce((a, b) => a + b, 0)).toBeGreaterThan(0.04);
+    const asHead = buildBackTexture(chin.tex, chin.mask, T, T, 'head');
+    expect(asHead).not.toBeNull();
+    expect(countColor(asHead!, chin.mask, BLACK)).toBe(0);
+    // 脚の靴 (下の縁に接する黒) は、頭ではないので残る
+    const asLeg = buildBackTexture(chin.tex, chin.mask, T, T, 'leg');
+    expect(asLeg === null || countColor(asLeg, chin.mask, BLACK) === chinArea).toBe(true);
+  });
+
   it('全体が黒い絵 (最大の領域が暗い) は、背中側も黒のまま', () => {
     const black = disc((x) => (x < T * 0.3 ? YELLOW : BLACK));
     const back = buildBackTexture(black.tex, black.mask, T, T);

@@ -1,4 +1,5 @@
 import type { DrawingRaster } from '../drawing/raster';
+import type { PartKind } from '../drawing/model';
 import { buildBackTexture } from './backTexture';
 import { COLOR_CLASSES, classifyColor, emptyWeights } from './colorClass';
 import type { ColorWeights } from './colorClass';
@@ -84,7 +85,7 @@ function count(m: Uint8Array): number {
  *  4. テクスチャを作る: 線/塗りの色、囲まれた未塗り部分は紙色、膨らませた部分は近傍色でにじませる
  * 入力のマスクが空の場合は呼び出し側で既定形状に差し替えること。
  */
-export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean; back?: boolean } = {}): CleanedPart {
+export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean; back?: boolean; kind?: PartKind } = {}): CleanedPart {
   const res = raster.res;
   const src = raster.mask();
   const rawArea = count(src);
@@ -102,7 +103,7 @@ export function cleanPart(raster: DrawingRaster, opts: { texture?: boolean; back
   const texture = opts.texture === false ? new Uint8ClampedArray(0) : buildTexture(raster, src, base, res, dilateRadius);
   const outline = opts.texture === false ? DEFAULT_OUTLINE : stripOutline(texture, mask, res);
   if (opts.texture !== false) bleedOutside(texture, mask, res);
-  const backTexture = opts.texture === false || !opts.back ? null : buildBackTexture(texture, mask, res, TEX_RES);
+  const backTexture = opts.texture === false || !opts.back ? null : buildBackTexture(texture, mask, res, TEX_RES, opts.kind);
   const { inkPixels, colorWeights } = measureInk(raster, src);
   return {
     res,

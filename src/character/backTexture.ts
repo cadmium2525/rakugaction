@@ -2,6 +2,8 @@
 const SAME = 48;
 /** 「細かい描き込み」とみなす面積 (パーツの面積に対する比)。これ未満の色の領域は背中側では消す */
 const DETAIL_FRACTION = 0.05;
+import type { PartKind } from '../drawing/model';
+
 /** 暗い色 (黒い輪郭線の目・口) の領域は、顔の大きな口や目のように広くても背中側では消す (パーツの面積に対する比) */
 const DARK_DETAIL_FRACTION = 0.12;
 /** 暗い色とみなす明るさ (0..255) */
@@ -18,9 +20,10 @@ const MIN_CHANGE = 0.004;
  * 大きな領域 (髪・服・靴・手袋など) はそのまま残るので、色の組み合わせは前と背中でつながる。
  *
  * @param tr  テクスチャの一辺 (TEX_RES)
+ * @param kind  パーツの種類。頭は、下半分 (あご) にある暗い領域を、縁に接していても顔の口として消す (黒髪は上、口は下)
  * @returns 背中側の RGBA (TEX_RES の正方形・前と同じ並び)。消す物が無い (前と同じ) なら null
  */
-export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res: number, tr: number): Uint8ClampedArray | null {
+export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res: number, tr: number, kind: PartKind = 'body'): Uint8ClampedArray | null {
   const factor = Math.max(1, Math.round(res / tr));
   const inside = new Uint8Array(tr * tr);
   let total = 0;
@@ -35,6 +38,16 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
     }
   }
   if (total < 64) return null;
+  // シルエットの縦の範囲 (頭の「下半分」を決める)
+  let minY = tr;
+  let maxY = -1;
+  for (let i = 0; i < inside.length; i++) {
+    if (!inside[i]) continue;
+    const y = Math.floor(i / tr);
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  const lowerHalf = (y: number): boolean => y > minY + 0.5 * (maxY - minY);
 
   // 色の領域に分ける: 走査順で最初の未ラベルの点を種にして、種の色に近い色で 4 近傍につながる所を広げる
   const label = new Int32Array(tr * tr).fill(-1);
@@ -42,6 +55,8 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
   const dark: boolean[] = [];
   /** 領域がシルエットの縁に接しているか (黒髪・黒い靴・縞は縁に接する。目・口は縁から離れている) */
   const touches: boolean[] = [];
+  /** 領域の重心が頭の下半分にあるか */
+  const lower: boolean[] = [];
   const stack: number[] = [];
   for (let s = 0; s < inside.length; s++) {
     if (!inside[s] || label[s] >= 0) continue;
@@ -50,6 +65,7 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
     const sg = front[s * 4 + 1];
     const sb = front[s * 4 + 2];
     let area = 0;
+    let sumY = 0;
     let onEdge = false;
     label[s] = id;
     stack.length = 0;
@@ -58,6 +74,7 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
       const i = stack.pop() as number;
       area++;
       const y = Math.floor(i / tr);
+      sumY += y;
       const x = i - y * tr;
       for (let k = 0; k < 4; k++) {
         const nx = k === 0 ? x + 1 : k === 1 ? x - 1 : x;
@@ -76,13 +93,14 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
     areas.push(area);
     dark.push(0.299 * sr + 0.587 * sg + 0.114 * sb < DARK_LUMA);
     touches.push(onEdge);
+    lower.push(lowerHalf(sumY / area));
   }
 
   // 大きな領域 (最大の領域は必ず残す) を種に、小さな領域の点へ色を広げる (近い順)
   const largest = Math.max(...areas);
   const base = Math.min(Math.max(20, DETAIL_FRACTION * total), largest * 0.5);
   // 暗い領域は、最大の領域でも縁に接してもいなければ、広くても (顔の大きな口・目) 細かい描き込みとして扱う (縁に接する黒髪・黒い靴・縞は残す)
-  const need = (id: number): number => (dark[id] && !touches[id] && areas[id] < largest ? Math.max(base, DARK_DETAIL_FRACTION * total) : base);
+  const need = (id: number): number => (dark[id] && (!touches[id] || (kind === 'head' && lower[id])) && areas[id] < largest ? Math.max(base, DARK_DETAIL_FRACTION * total) : base);
   const out = new Uint8ClampedArray(front);
   const resolved = new Uint8Array(tr * tr);
   const queue: number[] = [];

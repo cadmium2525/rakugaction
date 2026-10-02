@@ -373,3 +373,30 @@ describe('自由度の拡張: 飾りを胴体に付ける・しっぽ/翼を 2 �
     }
   });
 });
+
+describe('しっぽの接地補正はなめらか (状態が変わっても、向きが 1 フレームで反転しない)', () => {
+  it('短い脚に長く巻き込んで垂れるしっぽ: 待機・歩行・走行・ジャンプ・着地と切り替えても、1 フレームの回転の変化が 0.6rad 未満', () => {
+    const d = cloneDrawing(birdDoodle());
+    d.parts.find((p) => p.kind === 'leg')!.ops = [pen('#fb8c00', 0.05, [0.5, 0.1, 0.5, 0.3])];
+    d.parts.find((p) => p.kind === 'tail')!.ops = [pen('#1e63d6', 0.08, [0.9, 0.5, 0.6, 0.9, 0.3, 0.97])];
+    const { rig } = buildCharacter(d, { targetHeight: H });
+    const anim = new CharacterAnimator(rig);
+    const tail = rig.parts.find((p) => p.kind === 'tail')!;
+    let prev = tail.pivot.rotation.x;
+    let worstJump = 0;
+    let worstY = Infinity;
+    const phases: Partial<AnimInput>[] = [{ speed: 0 }, { speed: MAX_SPEED * 0.4 }, { speed: MAX_SPEED }, { grounded: false, vy: 6 }, { grounded: false, vy: -6 }, { speed: 0 }, { speed: MAX_SPEED }, { speed: 0 }];
+    for (const ph of phases) {
+      for (let i = 0; i < 45; i++) {
+        anim.update(DT, inp(ph));
+        const x = tail.pivot.rotation.x;
+        worstJump = Math.max(worstJump, Math.abs(x - prev));
+        prev = x;
+        worstY = Math.min(worstY, vertexBounds(rig.root).minY);
+      }
+    }
+    expect(worstJump).toBeLessThan(0.6);
+    // なめらかにした分、一瞬は潜るが、ほんの少し
+    expect(worstY).toBeGreaterThan(-0.12);
+  });
+});

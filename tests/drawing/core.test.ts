@@ -266,6 +266,18 @@ describe('EditorState', () => {
     expect(s.copyOps(a1.id, 'nope')).toBe(false);
   });
 
+  it('undo / redo はパーツの「描いた」状態を戻す (UI が参照する状態: inked)', () => {
+    const s = new EditorState();
+    const a1 = s.addPart('arm')!;
+    s.setPart(a1.id);
+    s.commitOp(pen('#000000', 0.05, [0.5, 0.1, 0.5, 0.8]));
+    expect(slotOf(s.drawing, a1.id)!.ops.length).toBe(1);
+    expect(s.undo()).toBe(true);
+    expect(slotOf(s.drawing, a1.id)!.ops.length).toBe(0);
+    expect(s.redo()).toBe(true);
+    expect(slotOf(s.drawing, a1.id)!.ops.length).toBe(1);
+  });
+
   it('飾りの付け先 (onBody): ornament だけに付き、false にすると消える。保存・読み込みで保たれる', () => {
     const s = new EditorState();
     s.addPart('head');

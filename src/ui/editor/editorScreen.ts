@@ -447,11 +447,19 @@ export class EditorScreen implements Screen {
   }
 
   private undo(): void {
-    if (this.state.undo()) this.refreshPartUi();
+    if (this.state.undo()) this.refreshAfterHistory();
   }
 
   private redo(): void {
-    if (this.state.redo()) this.refreshPartUi();
+    if (this.state.redo()) this.refreshAfterHistory();
+  }
+
+  /** 元に戻す/やり直しの後: 絵の有無で変わる表示 (チップの「描いた」印・「絵を写す」ボタン・次へのラベル) も更新する。 */
+  private refreshAfterHistory(): void {
+    this.layoutCache = null;
+    this.renderChips();
+    this.renderPartBox();
+    this.refreshPartUi();
   }
 
   private clearPart(): void {

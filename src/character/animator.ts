@@ -71,6 +71,10 @@ interface Limb {
   tz: number;
   /** 揺れの位相のずれ (しっぽ・翼・飾りが全部同じ動きにならないように) */
   jitter: number;
+  /** 地面に潜らないための x 軸まわりの補正角 (rad)。なめらかに追従し、向きを覚えておく (しっぽ) */
+  adj: number;
+  /** 立ち姿で地面に潜るしっぽを、潜らない向きへ回しておく固定の角度 (rad)。決めるのは作る時の 1 回だけ (毎フレーム選び直すと反転する) */
+  base: number;
 }
 
 /**
@@ -146,6 +150,7 @@ export class CharacterAnimator {
     this.assignGroups(this.legs, false);
     this.assignGroups(this.arms, true);
     this.computeArmRestSplay();
+    for (const t of this.tails) t.base = this.groundAdjustment(t, 0, 16);
     this.reset();
   }
 
@@ -169,12 +174,13 @@ export class CharacterAnimator {
     for (const k of BODY_KEYS) this.pose[k] = newBodyPose()[k];
     for (const l of [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns]) {
       l.rx = l.ry = l.rz = 0;
+      l.adj = 0;
       if (l.part.kind === 'arm') l.rz = l.rest;
     }
     this.phase = 0;
     this.landEnv = 0;
     this.state = 'idle';
-    this.apply();
+    this.apply(0);
   }
 
   private measure(part: RigPart, index: number): Limb {
@@ -193,7 +199,7 @@ export class CharacterAnimator {
       maxY = Math.max(maxY, c.y);
     }
     const length = Number.isFinite(maxY - minY) ? Math.max(0.05, maxY - minY) : 0.5;
-    return { part, corners, length, rest: 0, group: 0, rx: 0, ry: 0, rz: 0, tx: 0, ty: 0, tz: 0, jitter: index * 1.7 };
+    return { part, corners, length, rest: 0, group: 0, rx: 0, ry: 0, rz: 0, tx: 0, ty: 0, tz: 0, jitter: index * 1.7, adj: 0, base: 0 };
   }
 
   /** 腕が地面に刺さるほど長い場合に、外側へ開く角度 (rad) を求める (立ち姿で clearance を確保)。 */
@@ -405,11 +411,11 @@ export class CharacterAnimator {
       l.ry = damp(l.ry, l.ty, smooth, dt);
       l.rz = damp(l.rz, l.tz, smooth, dt);
     }
-    this.apply();
+    this.apply(dt);
   }
 
   /** 現在のポーズをリグへ反映し、脚が地面に潜らないよう補正する。 */
-  private apply(): void {
+  private apply(dt: number): void {
     const rig = this.rig;
     const p = this.pose;
     rig.body.position.y = this.bodyBaseY + p.bodyY;
@@ -434,7 +440,7 @@ export class CharacterAnimator {
     if (this.legs.length === 0) lowest = this.lowestOfBody();
     if (lowest < 0) rig.body.position.y += -lowest;
     // しっぽが地面に潜る (下向きの長いしっぽ) 時は、潜らない向きへ持ち上げる
-    for (const t of this.tails) this.keepAboveGround(t);
+    for (const t of this.tails) this.keepAboveGround(t, dt);
 
     // 外から見えるポーズ
     const v = this.view;
@@ -455,32 +461,51 @@ export class CharacterAnimator {
   }
 
   /**
-   * 手足が地面 (root の y = 0) より下に出ていたら、x 軸まわりの角度を探して潜らないようにする。
-   * 今の角度からの変化が小さい順 (±0.1rad ずつ、最大 ±1.6rad) に試し、最初に潜らなくなった角度を採る。
+   * しっぽが地面 (root の y = 0) より下に出ていたら、x 軸まわりの補正角を探して潜らないようにする。
+   * 大きな補正 (立ち姿で潜るしっぽ) は作る時に 1 回だけ決め (`base`)、毎フレームの補正は小さな範囲 (±0.8rad) に限る。
+   * 今の角度からの変化が小さい順 (±0.1rad ずつ) に試し、最初に潜らなくなった角度を採る。
    * 見つからなければ、いちばん浅い角度にする。貪欲に少しずつ回す方法だと、外接箱の角の厚みで局所解に止まり、潜ったまま・ちらつく。
+   * 補正角は、前の向き (正負) を先に試し、さらに指数スムージングで追従する (状態が変わった瞬間に、向きが 1 フレームで反転して
+   * しっぽがぱっと跳ばない)。追従の遅れのぶん、一瞬だけ浅く潜ることはある。
    */
-  private keepAboveGround(limb: Limb): void {
+  private keepAboveGround(limb: Limb, dt: number): void {
+    const pivot = limb.part.pivot;
+    // 立ち姿の補正 (固定) を足した角度を基準に、残りの小さな潜りだけを動的に直す
+    const x0 = pivot.rotation.x + limb.base;
+    pivot.rotation.x = x0;
+    const target = this.groundAdjustment(limb, x0, 8);
+    limb.adj = dt > 0 ? damp(limb.adj, target, 14, dt) : target;
+    pivot.rotation.x = x0 + limb.adj;
+    this.rig.root.updateMatrixWorld(true);
+  }
+
+  /** x0 のままでは潜る時、潜らなくなる補正角 (今の補正角と同じ向きを先に試す)。潜らなければ 0。pivot の角度は x0 に戻す。 */
+  private groundAdjustment(limb: Limb, x0: number, maxSteps: number): number {
+    const pivot = limb.part.pivot;
+    pivot.rotation.x = x0;
     this.rig.root.updateMatrixWorld(true);
     const start = this.lowestY(limb);
-    if (start >= 0) return;
-    const pivot = limb.part.pivot;
-    const x0 = pivot.rotation.x;
-    let bestX = x0;
+    if (start >= 0) return 0;
+    const pref = limb.adj < 0 ? -1 : 1;
+    let best = 0;
     let bestLow = start;
-    for (let k = 1; k <= 16; k++) {
-      for (const sign of [1, -1]) {
+    for (let k = 1; k <= maxSteps; k++) {
+      for (const sign of [pref, -pref]) {
         pivot.rotation.x = x0 + sign * 0.1 * k;
         this.rig.root.updateMatrixWorld(true);
         const y = this.lowestY(limb);
-        if (y >= -0.005) return; // 潜らなくなった (この角度のまま)
+        if (y >= -0.005) {
+          pivot.rotation.x = x0;
+          return sign * 0.1 * k;
+        }
         if (y > bestLow) {
           bestLow = y;
-          bestX = pivot.rotation.x;
+          best = sign * 0.1 * k;
         }
       }
     }
-    pivot.rotation.x = bestX;
-    this.rig.root.updateMatrixWorld(true);
+    pivot.rotation.x = x0;
+    return best;
   }
 
   /** 体のメッシュ (胴体) の最下点。脚の無いキャラの接地用。 */
