@@ -1,4 +1,5 @@
 import type { CharacterRecord } from '../character/record';
+import type { SaveProfile } from '../save/schema';
 import { MAX_LEVEL, expForLevel, levelFromExp } from '../progression/level';
 import type { TimeAttackBest } from '../timeattack/run';
 import type { LevelProgress } from '../progression/level';
@@ -12,8 +13,9 @@ export interface StageRecord {
 }
 
 /**
- * プレイヤーの進行状況 (メモリ上の正本)。保存 (PHASE 14) はこの形をそのままスキーマ化する。
+ * プレイヤーの進行状況 (メモリ上の正本)。保存 (src/save) はこの形をそのままスキーマ化する。
  * UI/ゲームロジックはここだけを読み書きするので、保存方式を変えても影響しない。
+ * 変更するメソッドは変更通知 (onChange) を出す → App が自動保存に使う。
  */
 export class Profile {
   characters: CharacterRecord[] = [];
@@ -25,6 +27,48 @@ export class Profile {
   allStagesRuns = 0;
   /** プレイヤーの累計 EXP (レベルはここから決まる。上限レベル以降も貯まる) */
   exp = 0;
+
+  private readonly listeners = new Set<() => void>();
+
+  /** 保存すべき変更があった時に呼ばれる。解除関数を返す。 */
+  onChange(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  /** 外部から (UI が直接変更した後など) 変更を通知する。 */
+  changed(): void {
+    for (const fn of this.listeners) fn();
+  }
+
+  /** 保存データの内容で置き換える (読み込み時。変更通知は出さない)。 */
+  loadFrom(p: SaveProfile): void {
+    this.characters = p.characters.slice();
+    this.selectedId = p.selectedId;
+    for (const k of Object.keys(this.stages)) delete this.stages[k];
+    for (const [id, rec] of Object.entries(p.stages)) this.stages[id] = { ...rec };
+    this.allStagesBest = p.allStagesBest ? { totalMs: p.allStagesBest.totalMs, splitsMs: p.allStagesBest.splitsMs.slice() } : null;
+    this.allStagesRuns = p.allStagesRuns;
+    this.exp = p.exp;
+  }
+
+  /** 保存する形 (キャラクターなどは参照のまま。保存時に JSON にされる)。 */
+  snapshot(): SaveProfile {
+    return {
+      characters: this.characters,
+      selectedId: this.selectedId,
+      stages: this.stages,
+      allStagesBest: this.allStagesBest,
+      allStagesRuns: this.allStagesRuns,
+      exp: this.exp,
+    };
+  }
+
+  /** 全て初期状態に戻す (「データの初期化」)。 */
+  reset(): void {
+    this.loadFrom({ characters: [], selectedId: null, stages: {}, allStagesBest: null, allStagesRuns: 0, exp: 0 });
+    this.changed();
+  }
 
   /** 現在のレベルと進み具合。 */
   get progress(): LevelProgress {
@@ -41,6 +85,7 @@ export class Profile {
     const gained = Number.isFinite(amount) ? Math.max(0, Math.floor(amount)) : 0;
     // 上限レベルを超えて貯めても数値が暴走しないよう、上限レベルの累計 EXP の 100 倍で頭打ち
     this.exp = Math.min(this.exp + gained, expForLevel(MAX_LEVEL) * 100);
+    if (gained > 0) this.changed();
     return { before, after: this.level, gained };
   }
 
@@ -55,12 +100,31 @@ export class Profile {
   addCharacter(rec: CharacterRecord): void {
     this.characters.push(rec);
     this.selectedId = rec.id;
+    this.changed();
   }
 
   select(id: string): boolean {
     if (!this.characters.some((c) => c.id === id)) return false;
     this.selectedId = id;
+    this.changed();
     return true;
+  }
+
+  /** キャラクターを削除する。選択中だったら残りの先頭を選び直す。 */
+  removeCharacter(id: string): boolean {
+    const i = this.characters.findIndex((c) => c.id === id);
+    if (i < 0) return false;
+    this.characters.splice(i, 1);
+    if (this.selectedId === id) this.selectedId = this.characters[0]?.id ?? null;
+    this.changed();
+    return true;
+  }
+
+  /** ALL STAGES タイムアタックの記録 (ベスト更新があれば best を渡す)。完走回数を 1 増やす。 */
+  recordTimeAttack(best: TimeAttackBest | null): void {
+    if (best) this.allStagesBest = best;
+    this.allStagesRuns++;
+    this.changed();
   }
 
   /** ステージ n (1 始まり) は、前のステージをクリアしていれば遊べる。 */
@@ -78,6 +142,7 @@ export class Profile {
     r.clears++;
     const newBest = r.bestMs === null || timeMs < r.bestMs;
     if (newBest) r.bestMs = timeMs;
+    this.changed();
     return { newBest, firstClear };
   }
 }

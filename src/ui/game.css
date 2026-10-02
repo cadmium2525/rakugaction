@@ -392,9 +392,26 @@
   opacity: 0.55;
 }
 .hub-menu {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
+}
+.hub-menu .btn {
+  min-height: 38px;
+  padding: 4px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hub-menu .wide {
+  grid-column: 1 / -1;
+}
+.hub-menu .btn small {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.85;
 }
 @media (max-height: 420px) {
   .hub-panel {
@@ -798,5 +815,245 @@
   }
   .rk-body {
     min-height: 80px;
+  }
+}
+
+/* ---------- キャラクター一覧 / せってい ---------- */
+.cl-screen,
+.st-screen {
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 16, 28, 0.55);
+}
+.cl-card,
+.st-card {
+  width: min(560px, 94vw);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  overflow-y: auto;
+}
+.cl-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cl-title {
+  flex: 1;
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--accent);
+}
+.cl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 60px;
+  overflow-y: auto;
+}
+.cl-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: #8a7c60;
+}
+.cl-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.05);
+}
+.cl-item.selected {
+  background: #fff3c7;
+}
+.cl-info {
+  flex: 1;
+  min-width: 0;
+}
+.cl-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.cl-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-badge {
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.cl-build {
+  font-size: 11px;
+  font-weight: 800;
+  color: #5a6a8a;
+}
+.cl-stats {
+  font: 700 9px/1.4 ui-monospace, Consolas, monospace;
+  color: #8a7c60;
+}
+.cl-pick {
+  min-height: 36px;
+  padding: 4px 12px;
+}
+.cl-del {
+  min-height: 36px;
+  padding: 4px 10px;
+}
+.cl-del.armed,
+.st-reset.armed {
+  background: #ffe0d6;
+  color: #b0401f;
+  font-weight: 800;
+}
+.cl-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+}
+.cl-full {
+  font-size: 11px;
+  font-weight: 700;
+  color: #b0401f;
+  text-align: center;
+}
+.st-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+.st-label {
+  font-size: 12px;
+  font-weight: 900;
+  color: #5a4a2c;
+}
+.st-seg {
+  display: flex;
+  gap: 6px;
+}
+.st-opt {
+  flex: 1;
+  min-height: 38px;
+  padding: 4px 6px;
+}
+.st-opt.on {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.st-note {
+  font-size: 10px;
+  color: #8a7c60;
+}
+.st-note.warn,
+.st-info.warn {
+  color: #b0401f;
+  font-weight: 700;
+}
+.st-info {
+  font-size: 13px;
+  font-weight: 800;
+}
+.st-version {
+  text-align: center;
+  font-size: 10px;
+  color: #a89a7a;
+}
+@media (max-height: 420px) {
+  .cl-card,
+  .st-card {
+    padding: 6px 10px 8px;
+    gap: 5px;
+  }
+  .cl-item {
+    padding: 4px 8px;
+  }
+}
+
+/* ---------- ハブ: 横向きスマホ (高さ 420px 以下) では 1 画面に収める ---------- */
+@media (max-height: 420px) and (orientation: landscape) {
+  .hub-panel {
+    gap: 5px;
+    padding: 6px 8px;
+  }
+  .hub-title {
+    font-size: 13px;
+    line-height: 1.1;
+  }
+  .hub-stages {
+    gap: 3px;
+  }
+  /* ステージカードは 1 行 (絵文字 + 名前 + ベスト) */
+  .stage-card {
+    min-height: 32px;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    border-width: 1px;
+  }
+  .stage-card .sc-emoji {
+    font-size: 17px;
+    width: 22px;
+  }
+  .stage-card .sc-info {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+  }
+  .stage-card .sc-info b {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .stage-card .sc-info small {
+    font-size: 9px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stage-card .sc-clear {
+    font-size: 14px;
+  }
+  /* 能力カードはキャラクターの横 (左上) に出す: パネルの外へ */
+  .hub-panel .stat-card {
+    position: fixed;
+    left: calc(var(--safe-left) + 10px);
+    top: calc(var(--safe-top) + 10px);
+    width: min(166px, 24vw);
+    z-index: 2;
+  }
+  .hub-menu {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+  }
+  .hub-menu .btn {
+    min-height: 30px;
+    padding: 2px 4px;
+    font-size: 11px;
+  }
+  .hub-menu .wide {
+    grid-column: 1 / -1;
+  }
+  .hub-menu .btn small {
+    display: inline;
+    margin-left: 6px;
   }
 }

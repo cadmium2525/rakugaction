@@ -1,4 +1,5 @@
 import type { CharacterStats } from '../character/stats';
+import { hashString, sanitizeName } from '../core/text';
 import { GAME_VERSION } from '../core/version';
 import { MAX_LEVEL } from '../progression/level';
 import type { TimeAttackResult } from '../timeattack/run';
@@ -26,26 +27,8 @@ export const RANK_LIMITS = {
   clockSkewMs: 600_000,
 } as const;
 
-/** 制御文字・改行・ゼロ幅文字・双方向制御文字を除いた、最大 16 文字の表示名。空なら 'NoName'。 */
-export function sanitizeName(raw: string): string {
-  // eslint-disable-next-line no-control-regex -- 制御文字を取り除くために意図的に使う
-  const cleaned = Array.from(String(raw ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, ''))
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const cut = Array.from(cleaned).slice(0, RANK_LIMITS.nameMax).join('').trim();
-  return cut || 'NoName';
-}
-
-/** FNV-1a (32bit) の 16 進 8 桁。改ざん防止ではなく、同じビルドの記録をまとめる目印。 */
-export function hashString(s: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, '0');
-}
+// 表示名の整形とハッシュは保存データと共通なので core/text.ts にある (ここから再公開する)
+export { hashString, sanitizeName };
 
 export function paramsHash(stats: RankStats, level: number, gameVersion = GAME_VERSION): string {
   return hashString(`${gameVersion}|${level}|${stats.hp},${stats.power},${stats.defense},${stats.speed},${stats.jump},${stats.weight}`);

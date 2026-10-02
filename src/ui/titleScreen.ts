@@ -5,6 +5,9 @@ export interface TitleOptions {
   /** あそぶ (キャラクターがいればハブ、いなければお絵かきへ) */
   onPlay(): void;
   onDraw(): void;
+  onSettings?(): void;
+  /** 保存されたキャラクターがいるか (「あそぶ」を「つづきから」にする) */
+  hasSave?: boolean;
   /** 開発用 (?debug / dev サーバーのみ表示) */
   onArena?(): void;
 }
@@ -16,9 +19,10 @@ export class TitleScreen implements Screen {
     const menu = h(
       'div',
       { class: 'title-menu' },
-      h('button', { class: 'btn btn-primary', text: '▶ あそぶ', on: { click: opts.onPlay } }),
+      h('button', { class: 'btn btn-primary', text: opts.hasSave ? '▶ つづきから' : '▶ あそぶ', on: { click: opts.onPlay } }),
       h('button', { class: 'btn btn-ghost', text: '✏️ ラクガキを描く', on: { click: opts.onDraw } }),
     );
+    if (opts.onSettings) menu.appendChild(h('button', { class: 'btn btn-ghost', text: '⚙ せってい', on: { click: opts.onSettings } }));
     if (opts.onArena) {
       menu.appendChild(h('button', { class: 'btn btn-ghost', text: '🧪 テストアリーナ (開発用)', on: { click: opts.onArena } }));
     }

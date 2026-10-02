@@ -25,6 +25,10 @@ export interface HubOptions {
   onPlayStage(id: string): void;
   onDraw(): void;
   onTitle(): void;
+  /** キャラクター一覧 / せってい */
+  onCharacters?(): void;
+  characterCount?: number;
+  onSettings?(): void;
   /** ALL STAGES TIME ATTACK (未実装の間は undefined) */
   onTimeAttack?(): void;
   /** ALL STAGES タイムアタックのベスト (ms)。なければ null */
@@ -73,12 +77,19 @@ export class HubScreen implements Screen {
     const menu = h(
       'div',
       { class: 'hub-menu' },
-      h('button', { class: 'btn btn-ghost', text: '✏️ あたらしく描く', on: { click: () => opts.onDraw() } }),
       opts.onTimeAttack
-        ? h('button', { class: `btn ${allCleared ? 'btn-primary' : 'btn-ghost'}`, text: allCleared ? `⏱ ALL STAGES TIME ATTACK${opts.taBestMs != null ? `  BEST ${formatTime(opts.taBestMs)}` : ''}` : '⏱ TIME ATTACK 🔒 (全ステージをクリア)', attrs: allCleared ? {} : { disabled: '' }, on: { click: () => opts.onTimeAttack?.() } })
+        ? h(
+            'button',
+            { class: `btn wide ${allCleared ? 'btn-primary' : 'btn-ghost'}`, attrs: allCleared ? {} : { disabled: '' }, on: { click: () => opts.onTimeAttack?.() } },
+            '⏱ ALL STAGES TIME ATTACK',
+            h('small', { text: allCleared ? (opts.taBestMs != null ? `BEST ${formatTime(opts.taBestMs)}` : 'ぜんぶ つなげて はしろう！') : '🔒 ぜんぶのステージを クリアすると あそべるよ' }),
+          )
         : null,
+      h('button', { class: 'btn btn-ghost', text: '✏️ 描く', on: { click: () => opts.onDraw() } }),
+      opts.onCharacters ? h('button', { class: 'btn btn-ghost', text: `👤 キャラ (${opts.characterCount ?? 0})`, on: { click: () => opts.onCharacters?.() } }) : null,
       opts.onRanking ? h('button', { class: 'btn btn-ghost', text: '🏆 ランキング', on: { click: () => opts.onRanking?.() } }) : null,
-      h('button', { class: 'btn btn-ghost', text: '← タイトル', on: { click: () => opts.onTitle() } }),
+      opts.onSettings ? h('button', { class: 'btn btn-ghost', text: '⚙ せってい', on: { click: () => opts.onSettings?.() } }) : null,
+      h('button', { class: 'btn btn-ghost wide', text: '← タイトル', on: { click: () => opts.onTitle() } }),
     );
 
     this.el = h(

@@ -24,6 +24,14 @@ import { SplitScreen, TimeAttackResultScreen } from '../ui/timeAttackScreens';
 import { RankingService, createRankingService } from '../ranking/service';
 import type { SubmitOutcome } from '../ranking/types';
 import { RankingScreen } from '../ui/rankingScreen';
+import { SaveManager } from '../save/manager';
+import type { LoadOutcome } from '../save/manager';
+import { MAX_CHARACTERS, emptySave } from '../save/schema';
+import type { QualitySetting, SaveData, SaveSettings } from '../save/schema';
+import { MemoryStore, createSaveStore } from '../save/store';
+import { CharacterListScreen } from '../ui/characterList';
+import { SettingsScreen } from '../ui/settingsScreen';
+import { toast } from '../ui/toast';
 import { formatTime } from '../timeattack/timer';
 import { STAT_KEYS } from '../character/stats';
 import type { CharacterStats, StatKey } from '../character/stats';
@@ -91,6 +99,12 @@ export class App {
   private parCache: Record<string, number | undefined> | null = null;
   /** オンラインランキング。設定がない/読み込み前は available = false (ゲーム本体は影響を受けない) */
   ranking = new RankingService(null);
+  /** セーブデータの読み書き (起動時に作る)。開発用のショートカット起動ではメモリのみ */
+  save: SaveManager | null = null;
+  settings: SaveSettings = { quality: 'auto' };
+  /** 起動時の読み込み結果 (QA 用) */
+  loadOutcome: LoadOutcome | null = null;
+  private notice: string | null = null;
 
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
@@ -109,6 +123,8 @@ export class App {
 
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
     void loadRapier();
+    // セーブデータ: 読み込んでプロフィールを復元する。開発用のショートカット (?doodle=…) 起動では保存しない (?save=1 で保存する)
+    await this.initSave();
     // ランキング設定 (public/ranking-config.json)。無い/無効なら未設定として扱う。?ranking=mock でメモリ上のモック (開発用)
     this.ranking = await createRankingService({ mock: this.devMode && this.params.get('ranking') === 'mock' });
 
@@ -122,6 +138,158 @@ export class App {
     else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') || 'normal');
     else if (this.params.has('editor')) this.showEditor();
     else this.showTitle();
+    this.showNotice();
+  }
+
+  // ===== セーブ / ロード =====
+
+  private async initSave(): Promise<void> {
+    const shortcut = this.devMode && ['doodle', 'stage', 'hub', 'ta', 'arena', 'birth'].some((k) => this.params.has(k));
+    const persistent = !shortcut || this.params.has('save');
+    const store = persistent ? await createSaveStore() : new MemoryStore();
+    this.save = new SaveManager(store, { onError: () => this.onSaveError() });
+    const out = await this.save.load();
+    this.loadOutcome = out;
+    if (out.data) {
+      this.profile.loadFrom(out.data.profile);
+      this.settings = out.data.settings;
+      this.recomputeStats(out.recompute);
+    }
+    this.notice = this.noticeFor(out, store.kind);
+    // 以降の変更は自動で保存する (読み込み時の変更通知は出さない)
+    this.profile.onChange(() => this.requestSave());
+    // 復旧した/古い形式から変換した/能力を再計算した時は、すぐ書き直す (壊れた main や古い形式を残さない)
+    if (out.status === 'recovered' || out.status === 'migrated' || out.recompute.length > 0) this.requestSave();
+    // ページを閉じる/隠れる時は待たずに保存する (非同期の書き込みなので最善努力。通常はデバウンス 0.4 秒で保存済み)
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) void this.save?.flush();
+    });
+    window.addEventListener('pagehide', () => void this.save?.flush());
+  }
+
+  /** 能力の計算式が古い保存データのキャラクターを、ラクガキから再計算する。 */
+  private recomputeStats(ids: readonly string[]): void {
+    for (const id of ids) {
+      const rec = this.profile.characters.find((c) => c.id === id);
+      if (!rec) continue;
+      try {
+        const a = buildCharacter(rec.drawing).analysis;
+        rec.stats = a.stats;
+        rec.traits = a.traits;
+        rec.special = a.special;
+        rec.formulaVersion = STAT_FORMULA_VERSION;
+      } catch (e) {
+        // 再計算に失敗しても、保存されていた能力のまま遊べる (キャラクターを失わない)
+        console.warn('能力の再計算に失敗', id, e);
+      }
+    }
+  }
+
+  private requestSave(): void {
+    this.save?.schedule(() => this.snapshot());
+  }
+
+  /** 保存するデータ (プロフィール + せってい)。 */
+  snapshot(): SaveData {
+    const d = emptySave();
+    d.profile = this.profile.snapshot();
+    d.settings = this.settings;
+    return d;
+  }
+
+  private onSaveError(): void {
+    toast(this.root, 'ほぞんに しっぱいしました (せっていで くわしく見られます)', 4000);
+  }
+
+  /** 読み込み結果をプレイヤーに知らせるメッセージ (問題がなければ null)。 */
+  private noticeFor(out: LoadOutcome, kind: string): string | null {
+    switch (out.status) {
+      case 'recovered':
+        return 'セーブデータが こわれていたので、ひとつ前の データから ふっきゅうしました';
+      case 'reset':
+        return 'セーブデータが こわれていて ふっきゅうできませんでした。さいしょから はじめます';
+      case 'newer':
+        return 'あたらしいバージョンの セーブデータです。うわがき しないよう ほぞんを とめています';
+      case 'unreadable':
+        return 'セーブデータを よみこめませんでした。ほぞんを とめています';
+      default:
+        return kind === 'memory' && !this.params.has('doodle') ? 'このブラウザでは ほぞん できません。とじると きえてしまいます' : null;
+    }
+  }
+
+  private showNotice(): void {
+    if (this.notice) toast(this.root, this.notice, 6000);
+    this.notice = null;
+  }
+
+  // ===== キャラクター一覧 / せってい =====
+
+  showCharacters(): void {
+    this.leaveGame();
+    this.setScreen(
+      new CharacterListScreen({
+        characters: this.profile.characters,
+        selectedId: this.profile.selectedId,
+        onSelect: (id) => {
+          this.profile.select(id);
+          void this.showHub();
+        },
+        onDelete: (id) => {
+          this.profile.removeCharacter(id);
+          // 全部消したら、お絵かきから
+          if (this.profile.characters.length === 0) this.showEditor();
+          else this.showCharacters();
+        },
+        onDraw: () => this.showEditor(),
+        onBack: () => (this.profile.selected ? void this.showHub() : this.showTitle()),
+      }),
+    );
+  }
+
+  showSettings(back: () => void): void {
+    this.leaveGame();
+    const auto = detectDefaultQuality();
+    this.setScreen(
+      new SettingsScreen({
+        quality: this.settings.quality,
+        autoQuality: auto,
+        storage: this.save?.kind ?? 'memory',
+        characterCount: this.profile.characters.length,
+        level: this.profile.level,
+        savedAt: this.loadOutcome?.data?.savedAt || null,
+        saveError: this.save?.lastError?.message ?? null,
+        onQuality: (q) => {
+          this.setQualitySetting(q);
+          this.showSettings(back);
+        },
+        onReset: () => void this.resetAllData(),
+        onBack: back,
+      }),
+    );
+  }
+
+  /** 画質の設定を変える (すぐ反映して保存)。 */
+  setQualitySetting(q: QualitySetting): void {
+    this.settings = { ...this.settings, quality: q };
+    this.host?.setQuality(this.effectiveQuality());
+    this.requestSave();
+  }
+
+  private effectiveQuality(): Quality {
+    const fromUrl = this.params.get('quality');
+    if (isQuality(fromUrl)) return fromUrl;
+    return this.settings.quality === 'auto' ? detectDefaultQuality() : this.settings.quality;
+  }
+
+  /** セーブデータを全て消して、最初の状態に戻す。 */
+  private async resetAllData(): Promise<void> {
+    await this.save?.reset();
+    this.profile.reset();
+    this.settings = { quality: 'auto' };
+    this.host?.setQuality(this.effectiveQuality());
+    this.loadOutcome = null;
+    toast(this.root, 'セーブデータを けしました', 2500);
+    this.showTitle();
   }
 
   // ===== 開発用ショートカット (?doodle=名前 / ?stage= / ?hub / ?birth=) =====
@@ -174,6 +342,8 @@ export class App {
       new TitleScreen({
         onPlay: () => (this.profile.selected ? void this.showHub() : this.showEditor()),
         onDraw: () => this.showEditor(),
+        onSettings: () => this.showSettings(() => this.showTitle()),
+        hasSave: this.profile.characters.length > 0,
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
       }),
     );
@@ -212,7 +382,12 @@ export class App {
         onRetry: () => this.showEditor(this.drawing ?? undefined),
         onPlay: (name) => {
           this.characterName = name;
-          this.registerCharacter(name);
+          if (!this.registerCharacter(name)) {
+            // キャラクターがいっぱい: 一覧で消してもらう
+            toast(this.root, `キャラクターは ${MAX_CHARACTERS} 体までです。いらない子を けしてね`, 3500);
+            this.showCharacters();
+            return;
+          }
           void this.showHub();
         },
       }),
@@ -222,6 +397,7 @@ export class App {
   /** 描いたラクガキ + 能力を CharacterRecord にして、プロフィールへ追加・選択する。 */
   private registerCharacter(name: string): CharacterRecord | null {
     if (!this.drawing) return null;
+    if (this.profile.characters.length >= MAX_CHARACTERS) return null;
     const analysis = this.analysis ?? buildCharacter(this.drawing).analysis;
     this.analysis = analysis;
     const rec: CharacterRecord = {
@@ -286,6 +462,9 @@ export class App {
         taBestMs: this.profile.allStagesBest?.totalMs ?? null,
         onDraw: () => this.showEditor(),
         onTitle: () => this.showTitle(),
+        onCharacters: () => this.showCharacters(),
+        characterCount: this.profile.characters.length,
+        onSettings: () => this.showSettings(() => void this.showHub()),
       }),
     );
   }
@@ -456,13 +635,12 @@ export class App {
   private showTaResult(run: TimeAttackRun): void {
     const result = run.result(this.parSec());
     const cmp = compareWithBest(result, this.profile.allStagesBest);
-    if (cmp.newBest) this.profile.allStagesBest = { totalMs: result.totalMs, splitsMs: result.splits.map((s) => s.timeMs) };
-    // フラグ付きの走りは参考記録: EXP は与えない
+    // フラグ付きの走りは参考記録: ベストにも EXP にもしない
     const clean = result.flags.length === 0;
     const gain = allStagesExp(this.profile.allStagesRuns === 0, cmp.newBest);
     const before = this.profile.progress;
     const lv = clean ? this.profile.addExp(gain.total) : { before: before.level, after: before.level, gained: 0 };
-    if (clean) this.profile.allStagesRuns++;
+    if (clean) this.profile.recordTimeAttack(cmp.newBest ? { totalMs: result.totalMs, splitsMs: result.splits.map((s) => s.timeMs) } : null);
     const after = this.profile.progress;
     const levelUp = lv.after > lv.before ? summarizeLevelUp(lv.before, lv.after) : undefined;
     this.lastTaResult = result;
@@ -521,8 +699,7 @@ export class App {
   // ===== 開発用アリーナ =====
 
   private quality(): Quality {
-    const q = this.params.get('quality');
-    return isQuality(q) ? q : detectDefaultQuality();
+    return this.effectiveQuality();
   }
 
   private ensureHost(): RenderHost {
