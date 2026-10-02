@@ -324,4 +324,11 @@ export interface StageDef {
   routes?: Record<string, readonly WaypointDef[]>;
   /** 想定クリアタイム (秒): 標準ビルドのボット。EXP/評価の目安 */
   parTime?: number;
+  /**
+   * ミス (落下・ダウン・ポーズからの「チェックポイントから再開」) のたびにタイムへ足す秒数の最低値。
+   * 実際の加算は max(この値, ミスした場所からチェックポイントまでの距離 ÷ 6m/s) (`timeattack/penalty.ts`)。
+   * 枝分かれのある広いフィールドでは、チェックポイントへ戻るのが「帰り道を省く近道」になってしまうので、その得を相殺する。
+   * 省略 = 加算なし (直線コースのステージ)
+   */
+  missPenaltySec?: number;
 }

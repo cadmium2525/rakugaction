@@ -355,6 +355,7 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   geo.addGroup(0, frontIdx.length, 0);
   geo.addGroup(frontIdx.length, backIdx.length, 1);
   geo.computeVertexNormals();
+  smoothNormals(geo, 2);
   geo.computeBoundingBox();
   geo.computeBoundingSphere();
   return {
@@ -365,6 +366,46 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
     fallbacks: 0,
     triangles: indices.length / 3,
   };
+}
+
+/**
+ * 法線をなめらかにする: 各頂点の法線を、隣の頂点 (三角形でつながる頂点) の法線と平均する (passes 回)。
+ * マーチングスクエアの三角形は大きさ・形がふぞろいで、そのまま面積で平均すると、輪郭の頂点 (前面と背面が共有) の法線が
+ * ばらつき、縁を暗くするシェーダーで縁に点線や黒い先端が出る。前面と背面は輪郭の頂点だけを共有しているので、
+ * 輪郭の近くでは前後の法線が混ざって、丸い側面になる。
+ */
+function smoothNormals(geo: THREE.BufferGeometry, passes: number): void {
+  const nrm = geo.getAttribute('normal') as THREE.BufferAttribute;
+  const index = geo.getIndex();
+  if (!index) return;
+  const n = nrm.count;
+  let cur = new Float32Array(nrm.array as Float32Array);
+  let next = new Float32Array(cur.length);
+  for (let p = 0; p < passes; p++) {
+    next.set(cur);
+    for (let t = 0; t < index.count; t += 3) {
+      const a = index.getX(t);
+      const b = index.getX(t + 1);
+      const c = index.getX(t + 2);
+      for (let k = 0; k < 3; k++) {
+        next[a * 3 + k] += cur[b * 3 + k] + cur[c * 3 + k];
+        next[b * 3 + k] += cur[a * 3 + k] + cur[c * 3 + k];
+        next[c * 3 + k] += cur[a * 3 + k] + cur[b * 3 + k];
+      }
+    }
+    for (let v = 0; v < n; v++) {
+      const x = next[v * 3];
+      const y = next[v * 3 + 1];
+      const z = next[v * 3 + 2];
+      const len = Math.hypot(x, y, z) || 1;
+      next[v * 3] = x / len;
+      next[v * 3 + 1] = y / len;
+      next[v * 3 + 2] = z / len;
+    }
+    [cur, next] = [next, cur];
+  }
+  (nrm.array as Float32Array).set(cur);
+  nrm.needsUpdate = true;
 }
 
 /** 異常な形 (マスクが空に近い) の最終手段: 小さな球。 */

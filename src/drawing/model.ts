@@ -45,8 +45,8 @@ export const KIND_MAX: Record<PartKind, number> = {
   head: 1,
   arm: 4,
   leg: 4,
-  tail: 1,
-  wing: 1,
+  tail: 2,
+  wing: 2,
   ornament: 3,
 };
 
@@ -94,6 +94,8 @@ export interface PartSlot {
   flip: boolean;
   /** 胴体の絵のどこにつなぐか。null = 種類ごとの標準の位置に自動で決める。胴体自身は使わない */
   mount: Mount | null;
+  /** 飾り (角・背びれ・甲羅など) だけ: true なら、頭があっても胴体に付ける。省略 = 頭があれば頭に付ける */
+  onBody?: boolean;
   ops: DrawOp[];
 }
 
@@ -148,6 +150,7 @@ export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'i
     pair: o.pair ?? false,
     flip: o.flip ?? false,
     mount: o.mount ?? null,
+    ...(o.onBody ? { onBody: true } : {}),
     ops: o.ops ?? [],
   };
 }

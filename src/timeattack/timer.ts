@@ -47,6 +47,11 @@ export class StageTimer {
     this.start();
   }
 
+  /** 経過時間に ms ミリ秒を足す (ミスのペナルティ)。計測中でも一時停止中でもよい。 */
+  addPenalty(ms: number): void {
+    if (Number.isFinite(ms) && ms > 0) this.accMs += ms;
+  }
+
   /** 停止して最終タイム (ms) を返す。 */
   stop(): number {
     this.pause();

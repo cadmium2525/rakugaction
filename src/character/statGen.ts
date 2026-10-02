@@ -73,12 +73,21 @@ export interface BodyFeatures {
   wing: number;
   tail: number;
   ornament: number;
+  /** 突進力 (頭突き・角)。腕が無い生きものだけ。頭が大きい・飾り (角) が大きいほど大きい。腕がある時は 0 */
+  ram: number;
 }
 
 /** 本数 → 対数 (2 本を基準)。0 本は −0.7 (1 本と同じ扱い)。 */
 const countLog = (n: number): number => clamp(Math.log(Math.max(1, n) / 2), -0.7, FEATURE_LIMIT);
 
 export function bodyFeatures(b: BodyMeasures): BodyFeatures {
+  const f = bodyFeaturesBase(b);
+  // 腕が無い生きもの (四足の動物など) は、頭突き・角で戦う: 大きな頭と角があれば、腕のあるキャラに近い攻撃力まで出せる
+  if (b.arms.count === 0) f.ram = 0.45 * Math.max(f.head, 0) + 0.4 * f.ornament;
+  return f;
+}
+
+function bodyFeaturesBase(b: BodyMeasures): BodyFeatures {
   const h = Math.max(1e-3, b.height);
   const bw = Math.max(1e-3, b.body.width);
   const bh = Math.max(1e-3, b.body.height);
@@ -107,6 +116,7 @@ export function bodyFeatures(b: BodyMeasures): BodyFeatures {
     wing: b.wingArea > 0 ? Math.log(1 + (3 * b.wingArea) / REF.totalArea) : 0,
     tail: b.tailArea > 0 ? Math.log(1 + (2 * b.tailArea) / REF.totalArea) : 0,
     ornament: b.ornamentArea > 0 ? Math.log(1 + (3 * b.ornamentArea) / REF.totalArea) : 0,
+    ram: 0,
   };
 }
 
@@ -145,7 +155,7 @@ export function statsFromFeatures(f: BodyFeatures, color: ColorMeasures): StatGe
     // 飾り (角・トゲ) は少し守りが固くなる
     defense: 0.3 * f.size + 0.35 * f.body + 0.25 * f.ornament,
     // 腕が多いほど力が出る (6 本で約 +25%)
-    power: 0.55 * f.armThickness + 0.2 * f.armArea + 0.1 * f.size + 0.22 * Math.max(f.armCount, -0.7),
+    power: 0.55 * f.armThickness + 0.2 * f.armArea + 0.1 * f.size + 0.22 * Math.max(f.armCount, -0.7) + f.ram,
     // SPEED: 歩幅 (脚の長さ) と流線型 (縦長で小さい体)。脚が多いと少し安定して速い。JUMP: 脚の長さ + 脚の太さ (バネ)。翼は跳躍を助ける。
     speed: 0.55 * f.legRel + 0.2 * f.legAbs + 0.15 * f.bodyAspect - 0.3 * f.size - 0.1 * f.head + 0.1 * f.legCount,
     jump: 0.35 * f.legRel + 0.25 * f.legAbs + 0.35 * f.legThickness - 0.25 * f.size + 0.5 * f.wing,

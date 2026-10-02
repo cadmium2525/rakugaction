@@ -11,6 +11,10 @@ export interface CameraPose {
   tz: number;
 }
 
+/** 進行方向の回転の速さの上限 (rad/s) と、カメラに先回りさせる割合 */
+const TURN_RATE_MAX = 1.6;
+const TURN_FEED = 0.7;
+
 /**
  * 三人称追従カメラ。位置 = 注視点 + (sin yaw, ·, cos yaw) * dist。
  * 自動追従は弱めに留め (スティック入力はカメラ基準のため、強い自動回転は操作を狂わせる)、
@@ -26,6 +30,9 @@ export class FollowCamera {
   private ty = 0;
   private tz = 0;
   private manualIdle = 10;
+  /** 進行方向の回転の速さ (rad/s, ならした値) と、前のフレームの進行方向。曲がり続けるコース (渦巻きの塔など) でカメラが遅れないように使う */
+  private turnRate = 0;
+  private prevMoveYaw: number | null = null;
   private curDist = 7.5;
   private inited = false;
 
@@ -62,6 +69,18 @@ export class FollowCamera {
       const ad = Math.abs(diff);
       const w = Math.min(1, ad / 0.5) * (1 - smoothstep(2.4, Math.PI, ad));
       this.yaw = wrapPi(this.yaw + diff * Math.min(1, 0.9 * w * speedFrac * dt));
+      // 曲がり続けている時 (渦巻きの塔など): 進行方向が回る速さの一部を先回りして回す。
+      // 後ろへの回り込みだけだと、進行方向とカメラの向きが約 40° ずれたまま走ることになり、前の道が見えにくい。
+      // ゆっくり (約 0.5 秒) ならした回転の速さだけを使うので、一瞬の方向転換ではカメラは振られない
+      if (dt > 0 && this.prevMoveYaw !== null) {
+        const raw = clamp(angleDelta(this.prevMoveYaw, moveYaw) / dt, -TURN_RATE_MAX, TURN_RATE_MAX);
+        this.turnRate = damp(this.turnRate, raw, 2, dt);
+        this.yaw = wrapPi(this.yaw + this.turnRate * TURN_FEED * dt);
+      }
+      this.prevMoveYaw = moveYaw;
+    } else {
+      this.prevMoveYaw = null;
+      this.turnRate = damp(this.turnRate, 0, 6, dt);
     }
 
     // 注視点の追従 (縦はゆっくり: ジャンプで画面が揺れすぎない)

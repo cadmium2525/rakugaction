@@ -143,6 +143,6 @@ export function partHint(slot: PartSlot): string {
     case 'wing':
       return '左端の「根元」から、右へ広がる翼を描きます。左右の翼は自動でそろいます';
     case 'ornament':
-      return '下の「根元」から上へ伸びる角や耳を描きます。頭に付きます';
+      return '下の「根元」から上へ伸びる角や耳を描きます。頭に付きます (「胴体に」を選ぶと、背びれや甲羅のように胴体に付きます)';
   }
 }

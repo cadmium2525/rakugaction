@@ -170,7 +170,6 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
     if (slot.pair) return [{ twin: 0, side: 1 }, { twin: 1, side: -1 }];
     return [{ twin: 0, side: slot.side === 'L' ? 1 : slot.side === 'R' ? -1 : 0 }];
   };
-  const lateralOf = (side: -1 | 0 | 1): -1 | 0 | 1 => side;
 
   // 胴体
   push(bodyItem, 0, 0, 0, bodyBottomY, 0);
@@ -221,7 +220,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
         const edge = sign === 1 ? U(ext[1] + 1 - bBottomX) : U(ext[0] - bBottomX);
         ja = edge - sign * aw * 0.35;
       }
-      push(arm, twin, side, ja, jy, sideBody || slot.view === 'side' ? lateralOf(side) : 0);
+      push(arm, twin, side, ja, jy, sideBody || slot.view === 'side' ? side : 0);
     }
   }
 
@@ -255,7 +254,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
         ja = (side === 0 ? 0 : side) * legX;
         jy = hipY;
       }
-      push(leg, twin, side, ja, jy, sideBody || slot.view === 'side' ? lateralOf(side) : 0);
+      push(leg, twin, side, ja, jy, sideBody || slot.view === 'side' ? side : 0);
     }
   }
 
@@ -268,10 +267,12 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
       ja = mountA(slot.mount.u);
       jy = bodyBottomY + mountYrel(slot.mount.v);
     } else if (sideBody) {
+      // 2 本目以降は上下に振り分ける (重ならないように)
       ja = A(body.x0 + 0.05 * body.width);
-      jy = bodyBottomY + bodyH * 0.5;
+      jy = bodyBottomY + bodyH * (0.5 - 0.2 * (tail.rank - (tail.count - 1) / 2));
     } else {
-      ja = 0;
+      // 2 本目以降は左右に振り分ける
+      ja = (tail.rank - (tail.count - 1) / 2) * 0.22 * U(body.width);
       jy = bodyBottomY + bodyH * 0.22;
     }
     push(tail, 0, 0, ja, jy, 0);
@@ -288,27 +289,31 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
         jy = bodyBottomY + mountYrel(slot.mount.v);
         if (slot.pair && twin === 1 && !sideBody) ja = -ja;
       } else if (sideBody) {
-        ja = A(body.x0 + 0.45 * body.width);
-        jy = bodyTopY - bodyH * 0.12;
+        // 2 組目以降は後ろ・下へずらす (重ならないように)
+        ja = A(body.x0 + clamp(0.45 - 0.2 * wing.rank, 0.15, 0.8) * body.width);
+        jy = bodyTopY - bodyH * (0.12 + 0.12 * wing.rank);
       } else {
         const row = Math.round(body.y0 + body.height * 0.3);
         const ext = rowExtent(bodyMask, res, row) ?? [body.x0, body.x1];
         const sign = side === 0 ? 1 : side;
         ja = sign === 1 ? U(ext[1] + 1 - bBottomX) * 0.8 : U(ext[0] - bBottomX) * 0.8;
-        jy = bodyTopY - bodyH * 0.28;
+        jy = bodyTopY - bodyH * (0.28 + 0.2 * wing.rank);
       }
-      push(wing, twin, side, ja, jy, sideBody || slot.view === 'side' ? lateralOf(side) : 0);
+      push(wing, twin, side, ja, jy, sideBody || slot.view === 'side' ? side : 0);
     }
   }
 
-  // ---- 飾り (角・耳など): 頭があれば頭の上に、なければ胴体の上に ----
-  const parentOrn: 'body' | 'head' = head ? 'head' : 'body';
+  // ---- 飾り (角・耳・背びれなど): 頭があれば頭の上に (onBody なら胴体の上に)、頭がなければ胴体の上に ----
+  const onHead = (o: Item): boolean => !!head && !o.input.slot.onBody;
+  const bodyOrns = orns.filter((o) => !onHead(o));
   for (const orn of orns) {
     const slot = orn.input.slot;
+    const toHead = onHead(orn);
+    const parentOrn: 'body' | 'head' = toHead ? 'head' : 'body';
     for (const { twin, side } of sidesOf(slot)) {
       let ja: number;
       let jy: number;
-      if (head) {
+      if (toHead && head) {
         const hm = head.m;
         const hc = headJa + U(hm.cx - head.ax); // 頭の中心 (a)
         const hw = U(hm.width);
@@ -326,12 +331,17 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
         ja = mountA(slot.mount.u);
         jy = bodyBottomY + mountYrel(slot.mount.v);
         if (slot.pair && twin === 1 && !sideBody) ja = -ja;
+      } else if (sideBody && !slot.pair && bodyOrns.length > 1) {
+        // 横向きの胴体に単体の飾りが複数: 背中に沿って並べる (背びれ・甲羅のとげなど)
+        const idx = bodyOrns.indexOf(orn);
+        ja = A(body.x0 + (0.25 + (0.5 * idx) / (bodyOrns.length - 1)) * body.width);
+        jy = bodyTopY - 0.01;
       } else {
         const off = slot.pair ? (twin === 0 ? 1 : -1) * U(body.width) * 0.28 : 0;
         ja = U(bTopX - bBottomX) + off;
         jy = bodyTopY - 0.01;
       }
-      push(orn, twin, side, ja, jy, sideBody || slot.view === 'side' ? lateralOf(side) : 0, parentOrn);
+      push(orn, twin, side, ja, jy, sideBody || slot.view === 'side' ? side : 0, parentOrn);
     }
   }
 

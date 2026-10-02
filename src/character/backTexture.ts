@@ -2,6 +2,10 @@
 const SAME = 48;
 /** 「細かい描き込み」とみなす面積 (パーツの面積に対する比)。これ未満の色の領域は背中側では消す */
 const DETAIL_FRACTION = 0.05;
+/** 暗い色 (黒い輪郭線の目・口) の領域は、顔の大きな口や目のように広くても背中側では消す (パーツの面積に対する比) */
+const DARK_DETAIL_FRACTION = 0.12;
+/** 暗い色とみなす明るさ (0..255) */
+const DARK_LUMA = 70;
 /** 背中側が前と違うと言えるピクセル数の下限 (パーツの面積に対する比) */
 const MIN_CHANGE = 0.004;
 
@@ -35,6 +39,7 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
   // 色の領域に分ける: 走査順で最初の未ラベルの点を種にして、種の色に近い色で 4 近傍につながる所を広げる
   const label = new Int32Array(tr * tr).fill(-1);
   const areas: number[] = [];
+  const dark: boolean[] = [];
   const stack: number[] = [];
   for (let s = 0; s < inside.length; s++) {
     if (!inside[s] || label[s] >= 0) continue;
@@ -63,11 +68,14 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
       }
     }
     areas.push(area);
+    dark.push(0.299 * sr + 0.587 * sg + 0.114 * sb < DARK_LUMA);
   }
 
   // 大きな領域 (最大の領域は必ず残す) を種に、小さな領域の点へ色を広げる (近い順)
   const largest = Math.max(...areas);
-  const threshold = Math.min(Math.max(20, DETAIL_FRACTION * total), largest * 0.5);
+  const base = Math.min(Math.max(20, DETAIL_FRACTION * total), largest * 0.5);
+  // 暗い領域は、最大の領域でない限り、広くても (顔の大きな口・目) 細かい描き込みとして扱う
+  const need = (id: number): number => (dark[id] && areas[id] < largest ? Math.max(base, DARK_DETAIL_FRACTION * total) : base);
   const out = new Uint8ClampedArray(front);
   const resolved = new Uint8Array(tr * tr);
   const queue: number[] = [];
@@ -75,7 +83,7 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
   // 目や口のまわりのアンチエイリアスで少し暗くなった画素が残って、うっすら顔の跡が見えるのを防ぐ
   const modes = new Map<number, Map<number, { n: number; r: number; g: number; b: number }>>();
   for (let i = 0; i < inside.length; i++) {
-    if (!inside[i] || areas[label[i]] < threshold) continue;
+    if (!inside[i] || areas[label[i]] < need(label[i])) continue;
     let hist = modes.get(label[i]);
     if (!hist) {
       hist = new Map();
@@ -96,7 +104,7 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
     main.set(id, [Math.round(best.r / best.n), Math.round(best.g / best.n), Math.round(best.b / best.n)]);
   }
   for (let i = 0; i < inside.length; i++) {
-    if (!inside[i] || areas[label[i]] < threshold) continue;
+    if (!inside[i] || areas[label[i]] < need(label[i])) continue;
     const c = main.get(label[i]) as [number, number, number];
     out[i * 4] = c[0];
     out[i * 4 + 1] = c[1];

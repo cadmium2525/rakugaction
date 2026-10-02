@@ -31,8 +31,11 @@ const KIND_NOTE: Record<PartKind, string> = {
   leg: '左右ペアで足す。四足・多足にもできる',
   tail: '後ろにつくしっぽ',
   wing: '左右ペアで足す。羽ばたく',
-  ornament: '角・耳・ひれなど。頭に付く',
+  ornament: '角・耳・背びれなど。頭か胴体に付く',
 };
+
+/** つなぐ位置を決めている間の説明 */
+const MOUNT_HINT = 'ドラッグして、つなぐ位置を動かします。もう一度「位置」を押すと描く画面に戻ります';
 
 /** 向きを選べる種類 / ペアにできる種類 */
 const PAIRABLE: ReadonlySet<PartKind> = new Set(['arm', 'leg', 'wing', 'ornament']);
@@ -57,6 +60,9 @@ export class EditorScreen implements Screen {
   private readonly mountCanvas: HTMLCanvasElement;
   private readonly paper: HTMLElement;
   private readonly hintEl: HTMLElement;
+  /** 低い画面で、ヒントの行の代わりに紙の上に出す短い説明 */
+  private readonly noteEl: HTMLElement;
+  private noteTimer = 0;
   private readonly chips: HTMLElement;
   private readonly toolBtns = new Map<Tool, HTMLButtonElement>();
   private readonly undoBtn: HTMLButtonElement;
@@ -95,7 +101,8 @@ export class EditorScreen implements Screen {
     this.ctx = ctx;
     this.guideCanvas = h('canvas', { class: 'ed-guides', attrs: { width: '512', height: '512' } });
     this.mountCanvas = h('canvas', { class: 'ed-mount', attrs: { width: '512', height: '512' } });
-    this.paper = h('div', { class: 'ed-paper' }, this.guideCanvas, this.canvas, this.mountCanvas);
+    this.noteEl = h('div', { class: 'ed-note', attrs: { 'aria-live': 'polite' } });
+    this.paper = h('div', { class: 'ed-paper' }, this.guideCanvas, this.canvas, this.mountCanvas, this.noteEl);
     this.hintEl = h('div', { class: 'ed-hint' });
     const stage = h('div', { class: 'ed-stage' }, this.paper);
 
@@ -311,9 +318,20 @@ export class EditorScreen implements Screen {
           );
         }
       }
+      if (slot.kind === 'ornament' && st.drawing.parts.some((p) => p.kind === 'head')) {
+        rows.push(
+          seg([
+            { label: '頭に', on: !slot.onBody, click: () => this.updateSlot({ onBody: false }), aria: '頭に付ける (角・耳)' },
+            { label: '胴体に', on: !!slot.onBody, click: () => this.updateSlot({ onBody: true }), aria: '胴体に付ける (背びれ・甲羅)' },
+          ]),
+        );
+      }
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
       rows.push(h('button', { class: `opt${this.mountMode ? ' on' : ''}`, text: this.mountMode ? '📍 位置を決めています' : '📍 つなぐ位置', on: { click: () => this.toggleMountMode() } }));
       if (this.mountMode && slot.mount) rows.push(h('button', { class: 'opt', text: '自動の位置に戻す', on: { click: () => this.resetMount() } }));
+      const dup = h('button', { class: 'opt', text: '⧉ 複製して足す', attrs: { 'aria-label': 'このパーツを複製して足す (同じ絵のコピー)' }, on: { click: () => this.duplicateCurrent() } });
+      if (!canAdd(st.drawing, slot.kind)) dup.setAttribute('disabled', '');
+      rows.push(dup);
       rows.push(h('button', { class: 'opt opt-danger', text: '🗑 このパーツを消す', on: { click: () => this.removeCurrent() } }));
     } else if (st.drawing.parts.length === 1) {
       rows.push(h('div', { class: 'ed-part-note', text: '＋で腕・脚・頭などを足せます' }));
@@ -324,7 +342,9 @@ export class EditorScreen implements Screen {
   private refreshPartUi(): void {
     const slot = this.state.current;
     drawGuides(this.guideCanvas, slot);
-    this.hintEl.textContent = this.mountMode ? 'ドラッグして、つなぐ位置を動かします。もう一度「位置」を押すと描く画面に戻ります' : partHint(slot);
+    this.hintEl.textContent = this.mountMode ? MOUNT_HINT : partHint(slot);
+    if (this.mountMode) this.showNote(MOUNT_HINT, true);
+    else if (this.noteSticky) this.hideNote();
     const parts = this.state.drawing.parts;
     const nextEmpty = parts.some((p) => !this.inked(p));
     this.nextBtn.textContent = nextEmpty ? '次のパーツ →' : '完成 ✓';
@@ -361,6 +381,35 @@ export class EditorScreen implements Screen {
     this.state.setPart(id);
     this.layoutCache = null;
     this.refreshAll();
+    this.showNote(partHint(this.state.current));
+  }
+
+  /** 低い画面 (CSS で .ed-note を出す) で、パーツの描き方の説明を紙の上に数秒出す。persistent なら、消されるまで出す。 */
+  private noteSticky = false;
+  private showNote(text: string, persistent = false): void {
+    window.clearTimeout(this.noteTimer);
+    this.noteEl.textContent = text;
+    this.noteEl.classList.add('show');
+    this.noteSticky = persistent;
+    if (!persistent) this.noteTimer = window.setTimeout(() => this.hideNote(), 5000);
+  }
+
+  private hideNote(): void {
+    window.clearTimeout(this.noteTimer);
+    this.noteEl.classList.remove('show');
+    this.noteSticky = false;
+  }
+
+  private duplicateCurrent(): void {
+    const slot = this.state.duplicatePart(this.state.currentId);
+    if (!slot) {
+      toast(this.opts.host, 'これ以上は足せません');
+      return;
+    }
+    this.layoutCache = null;
+    this.mountMode = false;
+    this.refreshAll();
+    toast(this.opts.host, `${KIND_LABEL[slot.kind]}を複製しました。絵を変えるときは描き直してください`);
   }
 
   private updateSlot(patch: Parameters<EditorState['updatePart']>[1]): void {
@@ -434,6 +483,7 @@ export class EditorScreen implements Screen {
     this.mountMode = false;
     this.picker.setAttribute('hidden', '');
     this.refreshAll();
+    this.showNote(partHint(this.state.current));
   }
 
   private openAddDialog(): void {
@@ -473,6 +523,7 @@ export class EditorScreen implements Screen {
     this.layoutCache = null;
     this.mountMode = false;
     this.refreshAll();
+    this.showNote(partHint(slot));
     toast(this.opts.host, `${KIND_LABEL[kind]}を足しました。絵を描いてください`);
   }
 
@@ -495,7 +546,7 @@ export class EditorScreen implements Screen {
   /** つなぐ位置を決める時の土台になるパーツ (飾りは頭、頭が無ければ胴体。それ以外は胴体)。 */
   private mountParent(slot: PartSlot): PartSlot {
     const d = this.state.drawing;
-    if (slot.kind === 'ornament') {
+    if (slot.kind === 'ornament' && !slot.onBody) {
       const head = d.parts.find((p) => p.kind === 'head');
       if (head) return head;
     }
@@ -503,10 +554,11 @@ export class EditorScreen implements Screen {
   }
 
   /** パーツのつなぐ位置 (土台の絵の上の座標 0..1)。位置を指定していなければ、自動配置の結果から求める。 */
-  private mountPos(slot: PartSlot): Mount | null {
-    if (slot.mount) return slot.mount;
+  private mountPos(slot: PartSlot, twin: 0 | 1 = 0): Mount | null {
+    // 手で決めた位置は、そのまま (反対側のペアは、配置の計算結果から求める = 3D と同じ位置)
+    if (slot.mount && twin === 0) return slot.mount;
     const L = this.layout();
-    const p = L.placed.find((x) => x.slotId === slot.id && x.twin === 0);
+    const p = L.placed.find((x) => x.slotId === slot.id && x.twin === twin);
     if (!p) return null;
     const parent = this.mountParent(slot);
     if (parent.id === 'body') {
@@ -557,10 +609,11 @@ export class EditorScreen implements Screen {
         ctx.textAlign = 'center';
         ctx.fillStyle = '#c24a12';
         ctx.fillText(KIND_LABEL[slot.kind], m.u * S, m.v * S - S * 0.05);
-        if (slot.pair) {
-          // ペアの反対側の位置の目安 (薄く)
+        const m2 = slot.pair ? this.mountPos(slot, 1) : null;
+        if (m2 && Math.hypot(m2.u - m.u, m2.v - m.v) > 0.01) {
+          // ペアの反対側の位置の目安 (薄く)。3D と同じ配置の計算結果なので、胴体が中央でなくても合う
           ctx.beginPath();
-          ctx.arc((1 - m.u) * S, m.v * S, S * 0.02, 0, Math.PI * 2);
+          ctx.arc(m2.u * S, m2.v * S, S * 0.02, 0, Math.PI * 2);
           ctx.fillStyle = 'rgba(255,122,61,0.35)';
           ctx.fill();
         }
@@ -665,6 +718,7 @@ export class EditorScreen implements Screen {
     if (this.activePointer !== -1 || this.mountMode) return; // 2 本目以降の指は無視 (手のひら誤爆対策)
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
+    this.hideNote();
     this.rect = this.canvas.getBoundingClientRect();
     const [x, y] = this.norm(e);
     const st = this.state;
@@ -743,7 +797,7 @@ export class EditorScreen implements Screen {
       const e = this.rasters.get(slot.id);
       if (e) e.ops = null;
       this.blit();
-      toast(this.opts.host, res === 'limit' ? 'これ以上は描けません。「戻す」か「全消去」で整理してください' : '');
+      if (res === 'limit') toast(this.opts.host, 'これ以上は描けません。「戻す」か「全消去」で整理してください');
     }
     this.afterCommit();
   }
@@ -781,6 +835,7 @@ export class EditorScreen implements Screen {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.miniRaf);
+    window.clearTimeout(this.noteTimer);
     window.removeEventListener('keydown', this.onKey);
     this.el.remove();
   }

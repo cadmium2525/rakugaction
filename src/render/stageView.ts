@@ -177,9 +177,10 @@ export class StageView {
       const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd23f });
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.position.y = 1.2;
-      const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 14, 16, 1, true), beamMat);
-      beam.position.y = 7;
+      // 開いたゴールは遠く (80m 以上) からも見えるよう、高く明るい光の柱にする (霧の影響を受けない)
+      const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff2a8, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide, fog: false });
+      const beam = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 44, 16, 1, true), beamMat);
+      beam.position.y = 22;
       this.goalRing = ring;
       this.goalRingMat = ringMat;
       this.goalBeamMat = beamMat;
@@ -238,12 +239,12 @@ export class StageView {
       this.goalShownOpen = open;
       this.goalRingMat.color.setHex(open ? 0xffd23f : 0x7b8494);
       this.goalBeamMat.color.setHex(open ? 0xfff2a8 : 0xb9c2d3);
-      this.goalBeamMat.opacity = open ? 0.28 : 0.1;
+      this.goalBeamMat.opacity = open ? 0.5 : 0.1;
     }
     if (this.goalPulse > 0) {
       this.goalPulse = Math.max(0, this.goalPulse - dt);
       this.goalRing.scale.setScalar(1 + 0.7 * Math.sin(Math.PI * (1 - this.goalPulse / 0.8)));
-    } else this.goalRing.scale.setScalar(1);
+    } else this.goalRing.scale.setScalar(open ? 1.35 : 1);
   }
 
   /** 敵を倒した / 攻撃がはね返された: 煙と星を出す。 */

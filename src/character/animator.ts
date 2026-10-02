@@ -142,11 +142,26 @@ export class CharacterAnimator {
     const meanLen = (l: Limb[]): number => (l.length === 0 ? REF_LIMB : l.reduce((s, x) => s + x.length, 0) / l.length);
     this.legLen = Math.max(0.15, meanLen(this.legs));
     this.armLen = Math.max(0.15, meanLen(this.arms));
-    // 足並みのグループ: 前から数えた組 (rank) と左右の組み合わせで交互にする
-    for (const l of this.legs) l.group = ((l.part.rank + (l.part.side > 0 ? 0 : 1)) % 2) as 0 | 1;
-    for (const l of this.arms) l.group = ((l.part.rank + (l.part.side > 0 ? 1 : 0)) % 2) as 0 | 1;
+    // 足並みのグループ: 同じ側の手足を前から数えて、左右で位相をずらす (脚と腕は逆)
+    this.assignGroups(this.legs, false);
+    this.assignGroups(this.arms, true);
     this.computeArmRestSplay();
     this.reset();
+  }
+
+  /**
+   * 足並み (歩行の位相グループ) を決める。同じ側 (左/右/中央) の手足を、前 (z が大きい方) から順に数え、
+   * 「何番目か + 左右」の偶奇でグループを分ける。2 本 = 左右交互、4 本 = 対角のペア (トロット)、6 本 = 三脚歩行。
+   * スロットの並びではなく位置で決めるので、単体スロットを L, R, L, R と並べても、後ろ向きに足したパーツでも交互になる。
+   */
+  private assignGroups(limbs: Limb[], isArm: boolean): void {
+    for (const side of [1, 0, -1] as const) {
+      const list = limbs.filter((l) => l.part.side === side).sort((a, b) => b.part.pivot.position.z - a.part.pivot.position.z || a.part.rank - b.part.rank);
+      const base = isArm ? (side > 0 ? 1 : 0) : side > 0 ? 0 : 1;
+      list.forEach((l, i) => {
+        l.group = ((i + base) % 2) as 0 | 1;
+      });
+    }
   }
 
   /** ポーズを待機状態へ即座に戻す。 */
@@ -279,7 +294,11 @@ export class CharacterAnimator {
         const stride = 2 * this.legLen * Math.sin(0.55) * 2;
         const freq = clamp(inp.speed / Math.max(0.3, stride), 0.9, 3.4);
         this.phase += dt * freq * Math.PI * 2;
-        const legA = (0.42 + runT * 0.5) * legScale * clamp(frac * 1.4, 0.35, 1);
+        // 脚の振れ角: 1 周期に進む距離の半分 (足が地面についている間に、体に対して後ろへ動く距離) を、脚の長さで振りきる角度。
+        // 昔の経験式と半々で混ぜる (見た目の派手さは残しつつ、足の滑りを減らす)
+        const cycleDist = inp.speed / freq;
+        const legPhys = Math.asin(clamp(cycleDist / (4 * Math.max(0.15, this.legLen)), 0, 0.97));
+        const legA = clamp(0.5 * legPhys + 0.5 * (0.42 + runT * 0.5) * legScale * clamp(frac * 1.4, 0.35, 1), 0.12, 0.9);
         const armA = (0.4 + runT * 0.55) * armScale * clamp(frac * 1.4, 0.35, 1);
         // swing は「前が正」。回転は x 軸負方向が前なので符号を反転して使う。同じグループの手足は同位相、グループ同士は逆位相
         for (const l of this.legs) l.tx = -legA * Math.sin(this.phase + Math.PI * l.group);
@@ -394,11 +413,13 @@ export class CharacterAnimator {
     const rig = this.rig;
     const p = this.pose;
     rig.body.position.y = this.bodyBaseY + p.bodyY;
-    rig.body.rotation.x = p.lean;
+    // 横向きの胴体 (四足など) は前後に長く、傾けると後ろ脚の付け根が持ち上がって脚が浮くので、前傾を弱める
+    const leanK = rig.bodyView === 'side' ? 0.25 : 1;
+    rig.body.rotation.x = p.lean * leanK;
     for (const h of this.heads) h.part.pivot.rotation.set(p.headX, 0, p.headZ);
     for (const a of this.arms) a.part.pivot.rotation.set(a.rx, a.ry, a.rz);
     // 体を前傾させると脚も一緒に倒れるので、脚は逆回転で着地させる
-    for (const l of this.legs) l.part.pivot.rotation.set(l.rx - p.lean * 0.9, l.ry, l.rz);
+    for (const l of this.legs) l.part.pivot.rotation.set(l.rx - p.lean * leanK * 0.9, l.ry, l.rz);
     for (const t of this.tails) t.part.pivot.rotation.set(t.rx, t.ry, t.rz);
     for (const w of this.wings) w.part.pivot.rotation.set(w.rx, w.ry, w.rz);
     for (const o of this.orns) o.part.pivot.rotation.set(o.rx, o.ry, o.rz);
@@ -411,6 +432,8 @@ export class CharacterAnimator {
     for (const l of this.legs) lowest = Math.min(lowest, this.lowestY(l));
     if (this.legs.length === 0) lowest = this.lowestOfBody();
     if (lowest < 0) rig.body.position.y += -lowest;
+    // しっぽが地面に潜る (下向きの長いしっぽ) 時は、潜らない向きへ持ち上げる
+    for (const t of this.tails) this.keepAboveGround(t);
 
     // 外から見えるポーズ
     const v = this.view;
@@ -428,6 +451,32 @@ export class CharacterAnimator {
     v.armRX = ar ? ar.rx : 0;
     v.armLZ = al ? al.rz : 0;
     v.armRZ = ar ? ar.rz : 0;
+  }
+
+  /** 手足が地面 (root の y = 0) より下に出ていたら、潜らなくなるまで x 軸まわりに少しずつ回す (回せる向きの良い方を選ぶ)。 */
+  private keepAboveGround(limb: Limb): void {
+    this.rig.root.updateMatrixWorld(true);
+    let low = this.lowestY(limb);
+    if (low >= 0) return;
+    const pivot = limb.part.pivot;
+    for (let k = 0; k < 12 && low < 0; k++) {
+      const x0 = pivot.rotation.x;
+      let best = low;
+      let bestX = x0;
+      for (const d of [0.12, -0.12]) {
+        pivot.rotation.x = x0 + d;
+        this.rig.root.updateMatrixWorld(true);
+        const y = this.lowestY(limb);
+        if (y > best) {
+          best = y;
+          bestX = x0 + d;
+        }
+      }
+      pivot.rotation.x = bestX;
+      if (bestX === x0) break;
+      low = best;
+    }
+    this.rig.root.updateMatrixWorld(true);
   }
 
   /** 体のメッシュ (胴体) の最下点。脚の無いキャラの接地用。 */

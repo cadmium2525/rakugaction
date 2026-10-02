@@ -11,6 +11,9 @@ function wrap(v: number, size: number): number {
 const BOX_X = 30;
 const BOX_Y = 11;
 const BOX_Z = 30;
+/** 花びらがカメラからこの距離 (m) より近いと見えなくなり、PETAL_FULL で本来の大きさになる */
+const PETAL_NEAR = 2.5;
+const PETAL_FULL = 6;
 
 interface Mote {
   bx: number;
@@ -103,10 +106,16 @@ export class AmbientView {
     if (this.petalMesh) {
       this.petals.forEach((p, i) => {
         const fall = t * 0.5;
-        this.pv.set(center.x + wrap(p.bx + t * p.vx, BOX_X), center.y - 1 + wrap(p.by - fall, BOX_Y), center.z + wrap(p.bz + t * p.vz + Math.sin(t * 1.3 + p.phase) * 1.2, BOX_Z));
+        const ox = wrap(p.bx + t * p.vx, BOX_X);
+        const oy = -1 + wrap(p.by - fall, BOX_Y);
+        const oz = wrap(p.bz + t * p.vz + Math.sin(t * 1.3 + p.phase) * 1.2, BOX_Z);
+        this.pv.set(center.x + ox, center.y + oy, center.z + oz);
         this.e.set(t * 2.1 + p.phase, t * 1.7 + p.phase * 2, t * 2.6);
         this.q.setFromEuler(this.e);
-        this.m.compose(this.pv, this.q, this.sv.setScalar(1));
+        // レンズのすぐ前を通る花びらは、画面に大きな四角として映ってしまうので、カメラに近いほど小さくして消す
+        const d = Math.hypot(ox, oy, oz);
+        const k = Math.min(1, Math.max(0, (d - PETAL_NEAR) / (PETAL_FULL - PETAL_NEAR)));
+        this.m.compose(this.pv, this.q, this.sv.setScalar(k * k * (3 - 2 * k)));
         this.petalMesh?.setMatrixAt(i, this.m);
       });
       this.petalMesh.instanceMatrix.needsUpdate = true;

@@ -102,7 +102,7 @@ export function buildStage1(): StageDef {
   keepOut(0, -80, 7);
   k.sign(5, -86, 0, ['出発'], {
     icon: 'star',
-    hint: ['{move} で移動 ／ {jump} でジャンプ', 'ラクガキ星を 5 個集めると、北のゴールが開く (全 8 個)'],
+    hint: ['{move} で移動 ／ {jump} でジャンプ', 'ラクガキ星 5 個で北のゴールが開く (全 8 個)'],
   });
   k.sign(-6, -62, 0.4, ['プルン'], { icon: 'action', hint: ['プルン: 踏みつけるか {action} で倒せる', '触れるとダメージを受ける'] });
   k.enemy('blob', -8, -78, 8, -76, { speed: 1.6 });
@@ -134,7 +134,7 @@ export function buildStage1(): StageDef {
   k.enemy('hopper', 24, -57, 40, -57, { speed: 2.4, phase: 0.1 });
   k.enemy('hopper', 40, -67, 24, -67, { speed: 2.4, phase: 0.8 });
   k.enemy('hopper', 32, -52, 32, -72, { speed: 2.0, phase: 1.5 });
-  k.sign(20, -69, -0.5, ['ピョンタ'], { icon: 'jump', hint: ['ピョンタ: 跳ねながら動く。着地を待って通るか、踏みつけよう'] });
+  k.sign(20, -69, -0.5, ['ピョンタ'], { icon: 'jump', hint: ['ピョンタ: 跳ねながら動く。着地を待って通るか、踏みつけて倒せる'] });
   for (let i = 0; i < 26; i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(2, 15);
@@ -194,13 +194,13 @@ export function buildStage1(): StageDef {
   k.checkpoint('cp7', 18, 38);
   spikeField(k, rng);
   k.star('トゲ畑の先', 18, 70);
-  k.sign(14, 40, 0.5, ['トゲ'], { icon: 'warn', tone: 'warn', hint: ['トゲの床は触れるとダメージ', 'すき間を縫って進むか、ジャンプで飛び越えよう'] });
+  k.sign(14, 40, 0.5, ['トゲ'], { icon: 'warn', tone: 'warn', hint: ['トゲの床は触れるとダメージ', 'すき間を縫って進むか、ジャンプで飛び越える'] });
 
   // ===== 北東: 浮島の階段 =====
   keepOut(62, 38, 22);
   k.checkpoint('cp8', 56, 26);
   floatingSteps(k);
-  k.sign(52, 30, -1.2, ['浮島'], { icon: 'jump', hint: ['浮島を渡った先に星がある', '高く・遠くへ跳べるキャラ向け'] });
+  k.sign(52, 30, -1.2, ['浮島'], { icon: 'jump', hint: ['浮島を渡った先に星がある', '高く・遠くへ跳べるキャラ向け (助走をつけて端から跳べば、ほかのキャラでも届くことがある)'] });
 
   // ===== 北: ゴール =====
   k.checkpoint('cp9', 5, 78);
@@ -258,7 +258,10 @@ export function buildStage1(): StageDef {
     waters: k.waters,
     ambient: { motes: { count: 70, color: 0xfff6b0, size: 0.1 }, petals: { count: 26, color: 0xffb3c8 }, butterflies: 7 },
     routes,
-    parTime: 120,
+    // 人が最初から最後まで遊んだ時の目安 (標準ビルドのボットが約 64 秒。慣れた人はそれより少し長い)
+    parTime: 90,
+    // 広場や遺跡の往復を、ポーズ → チェックポイントから再開 で省けてしまうのを防ぐ (戻りの移動時間を加算)
+    missPenaltySec: 3,
   };
 }
 

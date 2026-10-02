@@ -126,6 +126,20 @@ describe('ACTION (ダッシュ攻撃) と壊せる箱', () => {
     expect(await trial('SPEED', 0.6)).toBe(true);
   });
 
+  it('攻撃力が足りない箱を殴ると breakGuard (壊せなかった) が 1 回の攻撃につき 1 度出る。壊せる時は出ない', async () => {
+    const hit = async (id: string, tough: number): Promise<SimEvent[]> => {
+      const sim = await makeSim(stage({ breakables: [crate(tough)] }), id);
+      run(sim, 20);
+      return run(sim, 60, (i) => ({ moveX: 1, actionPressed: i === 0 }));
+    };
+    const weak = await hit('STANDARD', 1.3);
+    expect(weak.filter((e) => e.type === 'breakGuard').length).toBe(1);
+    expect(weak.some((e) => e.type === 'break')).toBe(false);
+    const strong = await hit('STANDARD', 0.6);
+    expect(strong.some((e) => e.type === 'breakGuard')).toBe(false);
+    expect(strong.some((e) => e.type === 'break')).toBe(true);
+  });
+
   it('1 回の攻撃で隣り合う複数の箱を壊せる (多段ヒットはしない)', async () => {
     const crates = [crate(0.6, 'a'), { ...crate(0.6, 'b'), pos: [2.2, 0.55, 1.1] as const }, { ...crate(0.6, 'c'), pos: [2.2, 1.65, 0] as const }];
     const sim = await makeSim(stage({ breakables: crates }), 'STANDARD');

@@ -29,6 +29,7 @@ function disc(colorAt: (x: number, y: number) => [number, number, number]): { ma
 const YELLOW: [number, number, number] = [253, 216, 53];
 const BLACK: [number, number, number] = [32, 33, 36];
 const RED: [number, number, number] = [229, 57, 53];
+const BLUE: [number, number, number] = [30, 99, 214];
 const dist = (x: number, y: number, cx: number, cy: number): number => Math.hypot(x - cx, y - cy);
 
 const countColor = (tex: Uint8ClampedArray, mask: Uint8Array, c: [number, number, number], tol = 30): number => {
@@ -54,6 +55,25 @@ describe('buildBackTexture: 背中側の絵', () => {
     // 赤い領域はそのまま、黄色が目・口の分だけ増える
     expect(countColor(back!, mask, RED)).toBe(countColor(tex, mask, RED));
     expect(countColor(back!, mask, YELLOW)).toBeGreaterThan(countColor(tex, mask, YELLOW));
+  });
+
+  it('大きな顔の黒い口 (面積 8%) も背中側では消えるが、黒くない大きな領域 (青) は残る', () => {
+    const { mask, tex } = disc((x, y) => {
+      if (y > 98 && y < 125 && x > 66 && x < 126) return BLACK; // 大きな口 (パーツの面積の約 9%。ふつうの領域なら残る広さ)
+      if (y < 50) return BLUE; // 暗くない大きな領域
+      return YELLOW;
+    });
+    const back = buildBackTexture(tex, mask, T, T);
+    expect(back).not.toBeNull();
+    expect(countColor(back!, mask, BLACK)).toBe(0);
+    expect(countColor(back!, mask, BLUE)).toBe(countColor(tex, mask, BLUE));
+  });
+
+  it('全体が黒い絵 (最大の領域が暗い) は、背中側も黒のまま', () => {
+    const black = disc((x) => (x < T * 0.3 ? YELLOW : BLACK));
+    const back = buildBackTexture(black.tex, black.mask, T, T);
+    // 黄色が一部ある黒いキャラ: 黒は最大の領域なので残る (黄色は 5% を超えれば残る)
+    expect(back === null || countColor(back, black.mask, BLACK) === countColor(black.tex, black.mask, BLACK)).toBe(true);
   });
 
   it('一色だけ・大きな領域だけの絵は、前と同じ (null)', () => {

@@ -172,7 +172,7 @@ describe('EditorState', () => {
     expect(slotOf(s.drawing, 'body')!.ops.length).toBe(1);
   });
 
-  it('全消去は Undo で戻せる。リセットは胴体だけの空の状態にする', () => {
+  it('全消去は Undo で戻せる', () => {
     const s = human();
     s.commitOp(stroke(0.2));
     s.commitOp(stroke(0.4));
@@ -180,10 +180,6 @@ describe('EditorState', () => {
     expect(s.ops.length).toBe(0);
     expect(s.undo()).toBe(true);
     expect(s.ops.length).toBe(2);
-    s.resetAll();
-    expect(s.drawing.parts.length).toBe(1);
-    expect(s.drawing.parts[0].ops.length).toBe(0);
-    expect(s.canUndo).toBe(false);
   });
 
   it('不正な op は rejected、上限は limit', () => {
@@ -226,13 +222,54 @@ describe('EditorState', () => {
     expect(s.drawing.parts.filter((p) => p.kind === 'arm').length).toBeLessThanOrEqual(KIND_MAX.arm);
   });
 
-  it('flipDrawing: 絵を左右反転した絵に置き換え、Undo で戻せる', () => {
+  it('duplicatePart: 同じ種類のスロットを足して、絵・向き・ペアを写す (取り付け位置は自動に戻る)。元の絵とは別物', () => {
     const s = new EditorState();
-    s.commitOp(pen('#000000', 0.05, [0.25, 0.1, 0.5, 0.9]));
-    expect(s.flipDrawing()).toBe(true);
-    expect((s.ops[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.75, 3);
-    expect(s.undo()).toBe(true);
-    expect((s.ops[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.25, 3);
+    const arm = s.addPart('arm')!;
+    s.setPart(arm.id);
+    s.commitOp(pen('#000000', 0.05, [0.5, 0.1, 0.5, 0.8]));
+    s.updatePart(arm.id, { view: 'front', mount: { u: 0.3, v: 0.4 } });
+    const copy = s.duplicatePart(arm.id)!;
+    expect(copy).not.toBeNull();
+    expect(copy.id).not.toBe(arm.id);
+    expect(copy.kind).toBe('arm');
+    expect(copy.pair).toBe(arm.pair);
+    expect(copy.mount).toBeNull();
+    expect(copy.ops.length).toBe(1);
+    expect(s.currentId).toBe(copy.id);
+    // 複製の絵を変えても元は変わらない
+    (copy.ops[0] as { pts: number[] }).pts[0] = 0.9;
+    expect((slotOf(s.drawing, arm.id)!.ops[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.5, 3);
+    // 上限と、胴体は複製できない
+    for (let i = 0; i < 10; i++) s.duplicatePart(arm.id);
+    expect(s.drawing.parts.filter((p) => p.kind === 'arm').length).toBe(KIND_MAX.arm);
+    expect(s.duplicatePart('body')).toBeNull();
+  });
+
+  it('飾りの付け先 (onBody): ornament だけに付き、false にすると消える。保存・読み込みで保たれる', () => {
+    const s = new EditorState();
+    s.addPart('head');
+    const orn = s.addPart('ornament')!;
+    expect(orn.onBody).toBeUndefined();
+    s.updatePart(orn.id, { onBody: true });
+    expect(slotOf(s.drawing, orn.id)!.onBody).toBe(true);
+    const reloaded = sanitizeDrawing(JSON.parse(JSON.stringify(s.drawing)));
+    expect(slotOf(reloaded, orn.id)!.onBody).toBe(true);
+    s.updatePart(orn.id, { onBody: false });
+    expect('onBody' in slotOf(s.drawing, orn.id)!).toBe(false);
+    // 飾り以外には付かない
+    const arm = s.addPart('arm')!;
+    s.updatePart(arm.id, { onBody: true });
+    expect('onBody' in slotOf(s.drawing, arm.id)!).toBe(false);
+  });
+
+  it('しっぽ・翼は 2 スロットまで足せる', () => {
+    const s = new EditorState();
+    expect(s.addPart('tail')).not.toBeNull();
+    expect(s.addPart('tail')).not.toBeNull();
+    expect(s.addPart('tail')).toBeNull();
+    expect(s.addPart('wing')).not.toBeNull();
+    expect(s.addPart('wing')).not.toBeNull();
+    expect(s.addPart('wing')).toBeNull();
   });
 
   it('mirrorOps は 2 回で元に戻る', () => {

@@ -716,6 +716,8 @@ export class GameSim {
         b.broken = true;
         this.world.removeCollider(b.collider, true);
         this.events.push({ type: 'break', id: b.def.id });
+      } else {
+        this.events.push({ type: 'breakGuard', id: b.def.id });
       }
       this.attackHits.add(b.def.id);
     }
@@ -767,8 +769,9 @@ export class GameSim {
     }
     this.hp = this.maxHp;
     this.invuln = 1.0;
+    const dist = Math.hypot(this.player.pos.x - this.checkpoint.x, this.player.pos.z - this.checkpoint.z);
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, this.player.yaw);
-    this.events.push({ type: 'respawn', reason });
+    this.events.push({ type: 'respawn', reason, dist });
   }
 
   /** 下方向などへのレイキャスト。ヒットしたら距離、しなければ null。プレイヤー自身は無視。 */

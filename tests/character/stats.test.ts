@@ -6,11 +6,12 @@ import type { BodyFeatures } from '../../src/character/statGen';
 import { STAT_KEYS, TEST_BUILDS } from '../../src/character/stats';
 import type { CharacterStats } from '../../src/character/stats';
 import { Rng } from '../../src/core/rng';
-import { extremeDoodles, referenceDoodle, testBuildDoodle, variantDoodle } from '../../src/dev/doodles';
+import { ellipse, extremeDoodles, pen, quadrupedDoodle, referenceDoodle, testBuildDoodle, variantDoodle } from '../../src/dev/doodles';
 import { randomCreature, randomDoodle } from '../../src/dev/randomDoodle';
 import type { DoodleProfile } from '../../src/dev/randomDoodle';
 import { statsToParams } from '../../src/game/params';
 import { TEST_ARENA } from '../../src/stages/testArena';
+import { cloneDrawing, newSlot } from '../../src/drawing/model';
 import type { DrawingData } from '../../src/drawing/model';
 import { makeSim, rapier, run } from '../helpers/headless';
 import { emptyColorMeasures } from '../../src/character/measure';
@@ -137,13 +138,55 @@ describe('基準ラクガキ (REF) と式の方向性', () => {
   });
 });
 
+describe('腕の無い生きもの (四足など) の POWER', () => {
+  const quad = quadrupedDoodle();
+  const withHead = (d: DrawingData): DrawingData => {
+    const x = cloneDrawing(d);
+    x.parts.find((p) => p.kind === 'head')!.ops = [pen('#202124', 0.04, ellipse(0.5, 0.5, 0.46, 0.44)), { kind: 'fill', color: '#fdd835', x: 0.5, y: 0.5 }];
+    return x;
+  };
+  const withHorn = (d: DrawingData): DrawingData => {
+    const x = cloneDrawing(d);
+    const o = newSlot('h1', 'ornament', { view: 'side', pair: false });
+    o.ops = [pen('#202124', 0.04, [0.5, 0.9, 0.35, 0.2, 0.65, 0.9, 0.5, 0.9]), { kind: 'fill', color: '#fdd835', x: 0.5, y: 0.7 }];
+    x.parts.push(o);
+    return x;
+  };
+
+  it('標準的な四足は、腕のある人型より攻撃が弱い (最低値には張り付かない)', () => {
+    const power = evalDoodle(quad).stats.power;
+    expect(power).toBeGreaterThan(55);
+    expect(power).toBeLessThan(90);
+  });
+
+  it('頭を大きく・角をつけるほど POWER が上がる (頭突きで戦う型)。赤を使えば木箱 (toughness 0.95) も壊せる', () => {
+    const base = evalDoodle(quad).stats.power;
+    const bigHead = evalDoodle(withHead(quad)).stats.power;
+    const horned = evalDoodle(withHorn(withHead(quad))).stats.power;
+    expect(bigHead).toBeGreaterThan(base + 8);
+    expect(horned).toBeGreaterThan(bigHead + 5);
+    const red = withHorn(withHead(quad));
+    for (const p of red.parts) for (const op of p.ops) if (op.kind === 'fill') op.color = '#e53935';
+    const r = evalDoodle(red);
+    // attackPower = (power/100)^0.8 が 0.95 以上
+    expect(Math.pow(r.stats.power / 100, 0.8)).toBeGreaterThanOrEqual(0.95);
+    // 代わりに SPEED と JUMP が落ちる (全能力は上がらない)
+    expect(r.stats.speed).toBeLessThan(evalDoodle(quad).stats.speed);
+  });
+
+  it('腕があるキャラには、頭の大きさでの POWER の上乗せは無い', () => {
+    const f = bodyFeatures(measureDrawing(referenceDoodle()).body);
+    expect(f.ram).toBe(0);
+  });
+});
+
 describe('予算制約: 最強形状が存在しない', () => {
   it('特徴量を一様ランダムに振っても (2 万通り) 全能力が高いビルドは作れない', () => {
     const rng = new Rng(99);
     let minOfMinMax = 0;
     let bad = 0;
     let sumLog = 0;
-    const keys: (keyof BodyFeatures)[] = ['size', 'height', 'legRel', 'legAbs', 'armThickness', 'armArea', 'armLength', 'legThickness', 'bodyAspect', 'body', 'head', 'com', 'foot', 'armCount', 'legCount', 'wing', 'tail', 'ornament'];
+    const keys: (keyof BodyFeatures)[] = ['size', 'height', 'legRel', 'legAbs', 'armThickness', 'armArea', 'armLength', 'legThickness', 'bodyAspect', 'body', 'head', 'com', 'foot', 'armCount', 'legCount', 'wing', 'tail', 'ornament', 'ram'];
     for (let i = 0; i < 20000; i++) {
       const f = {} as BodyFeatures;
       for (const k of keys) f[k] = rng.range(-1.1, 1.1);

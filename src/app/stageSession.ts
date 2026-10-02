@@ -12,6 +12,8 @@ import { StageTimer } from '../timeattack/timer';
 import { Hud } from '../ui/hud';
 import { Minimap } from '../ui/minimap';
 import { PauseMenu } from '../ui/pauseMenu';
+import type { ObjectiveInfo } from '../ui/pauseMenu';
+import { missPenaltySec } from '../timeattack/penalty';
 import { PlayScene } from './playScene';
 
 export type Rank = 'S' | 'A' | 'B' | 'C';
@@ -33,6 +35,8 @@ export interface StageResult {
   pickups?: number;
   pickupsTotal?: number;
   pickupsRequired?: number;
+  /** ミスのペナルティとして timeMs に加えた時間 (ms)。0 なら加算なし */
+  penaltyMs?: number;
 }
 
 export interface SessionDeps {
@@ -103,6 +107,8 @@ export class StageSession {
   /** 説明を出した看板 (番号)。やり直しで消える */
   private readonly signsShown = new Set<number>();
   private hintCooldown = 0;
+  /** ミスのペナルティとしてタイムに足した時間 (ms) */
+  private penaltyMs = 0;
   private windHintShown = false;
   private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
@@ -161,6 +167,7 @@ export class StageSession {
     this.phase = 'ready';
     this.phaseTime = 0;
     this.goBannerShown = false;
+    this.penaltyMs = 0;
     this.timer.reset();
     this.scene.inputOverride = (si) => {
       Object.assign(si, this.zero);
@@ -191,11 +198,21 @@ export class StageSession {
     if (this.phase === 'goal' || this.phase === 'done') return;
     if (paused) {
       this.timer.pause();
+      this.menu.setObjective(this.objectiveInfo());
       this.menu.show();
     } else {
       this.menu.hide();
       if (this.phase === 'playing') this.timer.resume();
     }
+  }
+
+  /** ポーズ画面に出す、集めるアイテムの一覧 (クリア条件のあるステージだけ)。 */
+  private objectiveInfo(): ObjectiveInfo | null {
+    const obj = this.deps.stage.objective;
+    const pickups = this.deps.stage.pickups;
+    if (!obj || !pickups) return null;
+    const sim = this.scene.sim;
+    return { noun: obj.noun, required: obj.required, count: sim.pickupCount, items: pickups.map((p) => ({ label: p.label ?? p.id, taken: sim.collected.has(p.id) })) };
   }
 
   private syncHud(): void {
@@ -218,12 +235,21 @@ export class StageSession {
           this.hud.setHp(e.hp, e.maxHp);
           this.hud.damageFlash();
           break;
-        case 'respawn':
+        case 'respawn': {
           this.syncHud();
+          // ミスのペナルティ (広いフィールドのステージだけ): チェックポイントまで歩いて戻る時間を足す。操作できるようになってからのミスだけ数える
+          const min = this.deps.stage.missPenaltySec ?? 0;
+          const sec = this.phase === 'playing' && min > 0 ? missPenaltySec(e.dist, min) : 0;
+          if (sec > 0) {
+            this.timer.addPenalty(sec * 1000);
+            this.penaltyMs += Math.round(sec * 1000);
+          }
+          const tail = sec > 0 ? '　+' + sec.toFixed(1) + ' 秒' : '';
           this.hud.toast(
-            e.reason === 'fall' ? '落下　チェックポイントから再開' : e.reason === 'hazard' ? 'ダウン　チェックポイントから再開' : 'チェックポイントから再開',
+            (e.reason === 'fall' ? '落下　チェックポイントから再開' : e.reason === 'hazard' ? 'ダウン　チェックポイントから再開' : 'チェックポイントから再開') + tail,
           );
           break;
+        }
         case 'checkpoint':
           this.hud.toast(events.some((x) => x.type === 'heal') ? '🚩 チェックポイント　HP 全回復' : '🚩 チェックポイント');
           break;
@@ -247,6 +273,9 @@ export class StageSession {
           break;
         case 'break':
           this.hud.toast('木箱を破壊', 700);
+          break;
+        case 'breakGuard':
+          this.hud.toast('攻撃力が足りず、この木箱は壊せません', 1600);
           break;
         case 'goal':
           if (this.phase === 'playing') this.onGoal();
@@ -275,6 +304,7 @@ export class StageSession {
       pickups: sim.pickupCount,
       pickupsTotal: this.deps.stage.pickups?.length ?? 0,
       pickupsRequired: sim.pickupsRequired,
+      penaltyMs: this.penaltyMs,
     };
     this.hud.setBanner('GOAL!', 'clear');
     // 祝福ジャンプ (プレイヤーは操作不能)

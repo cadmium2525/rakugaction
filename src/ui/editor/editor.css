@@ -565,3 +565,76 @@
     display: none;
   }
 }
+
+/* ---------- 低い画面 (横持ちスマホ) の見直し ---------- */
+/* ヒントの行が無いので、描き方の説明は紙の上に数秒だけ出す (高い画面では出さない) */
+.ed-note {
+  position: absolute;
+  z-index: 2;
+  left: 6px;
+  right: 6px;
+  top: 6px;
+  display: none;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(30, 40, 60, 0.84);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+}
+.opt-danger {
+  margin-top: 6px;
+}
+@media (max-height: 420px) {
+  .ed-note.show {
+    display: block;
+  }
+  .ed-mini {
+    min-height: 96px;
+  }
+  /* ひな形・パーツの説明は小さくして残す (どれを選べば良いか分かるように) */
+  .templ-desc {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.25;
+  }
+}
+/* 幅に余裕がある横画面 (844×390 など): 右の欄を 2 列にして、プレビューを大きく、パーツの設定をスクロールなしで見せる */
+@media (max-height: 420px) and (min-width: 740px) {
+  .ed-side {
+    display: grid;
+    grid-template-columns: 150px 140px;
+    grid-template-rows: minmax(0, 1fr) auto auto;
+    column-gap: 8px;
+    row-gap: 5px;
+    width: 298px;
+    overflow: visible;
+  }
+  .ed-mini {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 0;
+    height: 100%;
+  }
+  .ed-palette {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .ed-sizes {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .ed-part {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    align-self: start;
+    max-height: 100%;
+    overflow-y: auto;
+  }
+}

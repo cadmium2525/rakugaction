@@ -1286,3 +1286,47 @@
     font-size: 13px;
   }
 }
+
+/* ポーズ画面: 集めるアイテムの一覧 (広いフィールドのステージ) */
+.pause-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pause-box.has-list {
+  width: min(560px, 94vw);
+  max-height: 94%;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 10px;
+}
+.pause-box.has-list .pause-title {
+  grid-column: 1 / -1;
+}
+.pause-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+}
+.pause-list-head {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+  margin-bottom: 2px;
+}
+.pause-item {
+  color: #7a6a4c;
+}
+.pause-item.taken {
+  color: var(--ink);
+}
+@media (max-width: 520px) {
+  .pause-box.has-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

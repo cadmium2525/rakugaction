@@ -87,7 +87,7 @@ function sanitizeSlot(raw: unknown, index: number): PartSlot | null {
   if (isObj(raw.mount) && typeof raw.mount.u === 'number' && typeof raw.mount.v === 'number' && Number.isFinite(raw.mount.u) && Number.isFinite(raw.mount.v)) {
     mount = { u: Math.round(clamp(raw.mount.u, 0, 1) * 1000) / 1000, v: Math.round(clamp(raw.mount.v, 0, 1) * 1000) / 1000 };
   }
-  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, ops: sanitizeOps(raw.ops) });
+  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: kind === 'ornament' && raw.onBody === true, ops: sanitizeOps(raw.ops) });
 }
 
 /** 旧形式 (固定 6 パーツ) を安全な新形式にする。 */

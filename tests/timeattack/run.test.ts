@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StageTimer, formatTime } from '../../src/timeattack/timer';
+import { MAX_MISS_PENALTY_SEC, RETURN_SPEED, missPenaltySec } from '../../src/timeattack/penalty';
 import { TimeAttackRun, analyzeSplits, compareWithBest, formatDelta } from '../../src/timeattack/run';
 import type { Split } from '../../src/timeattack/run';
 
@@ -25,6 +26,23 @@ describe('StageTimer (単調増加の時計)', () => {
     t2.start();
     now -= 5000;
     expect(t2.elapsedMs).toBe(0);
+  });
+
+  it('addPenalty: 計測中でもポーズ中でも足せる。負・非有限は無視', () => {
+    let now = 0;
+    const t = new StageTimer(() => now);
+    t.start();
+    now += 1000;
+    t.addPenalty(3000);
+    expect(t.elapsedMs).toBe(4000);
+    t.pause();
+    t.addPenalty(500);
+    t.addPenalty(-100);
+    t.addPenalty(Number.NaN);
+    expect(t.elapsedMs).toBe(4500);
+    t.resume();
+    now += 100;
+    expect(t.stop()).toBe(4600);
   });
 
   it('formatTime: 不正な値は --:--.---', () => {
@@ -135,5 +153,17 @@ describe('ベストとの比較', () => {
     expect(formatDelta(0)).toBe('±0.00');
     expect(formatDelta(null)).toBe('');
     expect(formatDelta(NaN)).toBe('');
+  });
+});
+
+describe('missPenaltySec: ミスの加算 (チェックポイントまで歩いて戻る時間)', () => {
+  it('近くなら最低秒数、遠いほど距離 ÷ 6m/s、上限あり。不正な値は最低秒数', () => {
+    expect(missPenaltySec(0, 3)).toBe(3);
+    expect(missPenaltySec(10, 3)).toBe(3); // 10 / 6 = 1.7 < 3
+    expect(missPenaltySec(60, 3)).toBe(10); // 60 / 6
+    expect(missPenaltySec(1000, 3)).toBe(MAX_MISS_PENALTY_SEC);
+    expect(missPenaltySec(Number.NaN, 3)).toBe(3);
+    expect(missPenaltySec(-5, 3)).toBe(3);
+    expect(RETURN_SPEED).toBe(6);
   });
 });

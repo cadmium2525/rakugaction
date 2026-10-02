@@ -8,8 +8,8 @@ import { partsOf } from '../../src/character/rig';
 import { computeStats } from '../../src/character/statGen';
 import { Rng } from '../../src/core/rng';
 import { randomCreature } from '../../src/dev/randomDoodle';
-import { asuraDoodle, birdDoodle, chimeraDoodle, creatureDoodles, insectDoodle, quadrupedDoodle, standardDoodle } from '../../src/dev/doodles';
-import { cloneDrawing, slotOf } from '../../src/drawing/model';
+import { asuraDoodle, birdDoodle, chimeraDoodle, creatureDoodles, insectDoodle, pen, quadrupedDoodle, standardDoodle } from '../../src/dev/doodles';
+import { cloneDrawing, newSlot, slotOf } from '../../src/drawing/model';
 import { sanitizeDrawing } from '../../src/drawing/sanitize';
 
 const H = 1.6;
@@ -251,4 +251,109 @@ describe('ランダムな自由スケッチ: 3D 化と動き', () => {
       rig.dispose();
     }
   }, 120_000);
+});
+
+describe('四足の動き: 足並みと接地', () => {
+  /** 各脚の外接箱の最下点 (m) */
+  const legLows = (rig: ReturnType<typeof buildCharacter>['rig']): number[] => {
+    rig.root.updateMatrixWorld(true);
+    return partsOf(rig, 'leg').map((l) => new THREE.Box3().setFromObject(l.pivot).min.y);
+  };
+
+  it('走っても、前脚と後ろ脚の接地の高さに差が出ない (長い胴体を傾けて後ろ脚が浮かない)', () => {
+    for (const name of ['quadruped', 'insect']) {
+      const data = creatureDoodles().find((d) => d.name === name)!.data;
+      const { rig } = buildCharacter(data, { targetHeight: H });
+      const anim = new CharacterAnimator(rig);
+      const sums = partsOf(rig, 'leg').map(() => 0);
+      let n = 0;
+      for (let i = 0; i < 300; i++) {
+        anim.update(DT, inp({ speed: MAX_SPEED }));
+        if (i < 60) continue;
+        legLows(rig).forEach((y, k) => (sums[k] += y));
+        n++;
+      }
+      const means = sums.map((s) => s / n);
+      expect(Math.max(...means) - Math.min(...means), `${name} 脚ごとの平均の最下点 ${means.map((m) => m.toFixed(3)).join(',')}`).toBeLessThan(0.05);
+    }
+  });
+
+  it('単体のスロットを 左・右・左・右 と並べた 4 本脚も、対角が同位相になる (全部同位相でホッピングしない)', () => {
+    const d = cloneDrawing(quadrupedDoodle());
+    const legOps = d.parts.find((p) => p.id === 'legsF')!.ops;
+    const proto = (id: string): ReturnType<typeof newSlot> => ({ ...newSlot(id, 'leg', { view: 'side', pair: false }), ops: legOps });
+    d.parts = d.parts.filter((p) => p.kind !== 'leg');
+    const mk = (id: string, side: 'L' | 'R', u: number): ReturnType<typeof newSlot> => ({ ...proto(id), side, mount: { u, v: 0.7 } });
+    // 前 (u 大) → 後ろ (u 小) の順ではなく、わざと 前左・前右・後ろ左・後ろ右 の順に並べる
+    d.parts.push(mk('a', 'L', 0.75), mk('b', 'R', 0.75), mk('c', 'L', 0.25), mk('d', 'R', 0.25));
+    const { rig } = buildCharacter(d, { targetHeight: H });
+    const anim = new CharacterAnimator(rig);
+    for (let i = 0; i < 40; i++) anim.update(DT, inp({ speed: MAX_SPEED * 0.4 }));
+    const rx = new Map(rig.parts.filter((p) => p.kind === 'leg').map((p) => [p.slotId, p.pivot.rotation.x]));
+    expect(rx.get('a')!).toBeCloseTo(rx.get('d')!, 2); // 前左と後ろ右
+    expect(rx.get('b')!).toBeCloseTo(rx.get('c')!, 2); // 前右と後ろ左
+    expect(Math.abs(rx.get('a')! - rx.get('b')!)).toBeGreaterThan(0.1); // 前左と前右は逆位相
+  });
+
+  it('下向きの長いしっぽが地面に潜らない', () => {
+    const d = cloneDrawing(quadrupedDoodle());
+    const tail = d.parts.find((p) => p.kind === 'tail')!;
+    tail.ops = [pen('#fb8c00', 0.08, [0.95, 0.1, 0.9, 0.5, 0.88, 0.97])];
+    const { rig } = buildCharacter(d, { targetHeight: H });
+    const anim = new CharacterAnimator(rig);
+    for (const sp of [0, MAX_SPEED * 0.4, MAX_SPEED]) {
+      for (let i = 0; i < 90; i++) {
+        anim.update(DT, inp({ speed: sp }));
+        const b = vertexBounds(rig.root);
+        expect(b.minY, `speed ${sp} frame ${i}`).toBeGreaterThan(-0.03);
+      }
+    }
+  });
+});
+
+describe('自由度の拡張: 飾りを胴体に付ける・しっぽ/翼を 2 つ・複製', () => {
+  const orn = (id: string, onBody: boolean): ReturnType<typeof newSlot> => ({
+    ...newSlot(id, 'ornament', { view: 'side', pair: false, onBody }),
+    ops: [pen('#43a047', 0.06, [0.5, 0.9, 0.35, 0.3, 0.5, 0.1, 0.65, 0.3, 0.5, 0.9])],
+  });
+
+  it('背びれ: 頭があっても、onBody の飾りは胴体に付き、背中に沿って並ぶ。onBody でなければ頭に付く', () => {
+    const d = cloneDrawing(quadrupedDoodle());
+    d.parts.push(orn('f1', true), orn('f2', true), orn('f3', true), orn('horn', false));
+    const { rig, layout } = buildCharacter(d, { targetHeight: H });
+    for (const id of ['f1', 'f2', 'f3']) expect(layout.placed.find((p) => p.slotId === id)!.parent, id).toBe('body');
+    expect(layout.placed.find((p) => p.slotId === 'horn')!.parent).toBe('head');
+    // 胴体の直下 (頭の子ではない) にあり、前後 (z) の位置が全部ちがう
+    const zs = ['f1', 'f2', 'f3'].map((id) => {
+      const pivot = rig.parts.find((p) => p.slotId === id)!.pivot;
+      expect(pivot.parent).toBe(rig.body);
+      return pivot.position.z;
+    });
+    expect(new Set(zs.map((z) => z.toFixed(2))).size).toBe(3);
+    expect(rig.parts.find((p) => p.slotId === 'horn')!.pivot.parent).toBe(rig.head);
+  });
+
+  it('頭が無い生きものの飾りは胴体に付く (onBody の指定に関わらず)', () => {
+    const d = cloneDrawing(quadrupedDoodle());
+    d.parts = d.parts.filter((p) => p.kind !== 'head');
+    d.parts.push(orn('h', false));
+    const { layout } = buildCharacter(d, { targetHeight: H });
+    expect(layout.placed.find((p) => p.slotId === 'h')!.parent).toBe('body');
+  });
+
+  it('しっぽ 2 本・翼 2 組は、重ならない位置に自動で振り分けられる', () => {
+    for (const make of [quadrupedDoodle, birdDoodle]) {
+      const d = cloneDrawing(make());
+      const tail1 = d.parts.find((p) => p.kind === 'tail');
+      d.parts.push({ ...newSlot('t2', 'tail', { view: tail1?.view ?? 'front' }), ops: tail1?.ops ?? [pen('#fb8c00', 0.07, [0.5, 0.1, 0.4, 0.5, 0.5, 0.9])] });
+      d.parts.push({ ...newSlot('w1', 'wing', { view: d.parts[0].view, pair: true }), ops: [pen('#ffffff', 0.12, [0.1, 0.5, 0.5, 0.3, 0.9, 0.5])] });
+      d.parts.push({ ...newSlot('w2', 'wing', { view: d.parts[0].view, pair: true }), ops: [pen('#ffffff', 0.12, [0.1, 0.5, 0.5, 0.3, 0.9, 0.5])] });
+      const { layout } = buildCharacter(d, { targetHeight: H });
+      const key = (p: { ja: number; jy: number }): string => `${p.ja.toFixed(3)},${p.jy.toFixed(3)}`;
+      const tails = layout.placed.filter((p) => p.kind === 'tail');
+      expect(new Set(tails.map(key)).size, `${make.name} tails`).toBe(tails.length);
+      const wings = layout.placed.filter((p) => p.kind === 'wing' && p.twin === 0);
+      expect(new Set(wings.map(key)).size, `${make.name} wings`).toBe(wings.length);
+    }
+  });
 });

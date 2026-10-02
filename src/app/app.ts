@@ -570,6 +570,7 @@ export class App {
         extra: [
           ...(r.pickupsTotal ? [`ラクガキ星 ${r.pickups ?? 0} / ${r.pickupsTotal}`] : []),
           ...(r.enemiesTotal ? [`撃破した敵 ${r.enemiesDefeated ?? 0} 体`] : []),
+          ...(r.penaltyMs ? [`ミスの加算 +${(r.penaltyMs / 1000).toFixed(1)} 秒 (チェックポイントまで戻る時間。タイムに含まれます)`] : []),
         ],
         progress: { gain, before, after, levelUp },
         onNext: next ? () => void this.startStage(next.id) : undefined,

@@ -4,6 +4,7 @@ import { Bot } from '../../src/game/bot';
 import { statsToParams } from '../../src/game/params';
 import { GameSim } from '../../src/game/sim';
 import { emptyInput } from '../../src/input/types';
+import { STAGE_LIST } from '../../src/stages/registry';
 import { buildStage1 } from '../../src/stages/stage1';
 import { terrainHeightAt } from '../../src/stages/terrain';
 import type { WaypointDef } from '../../src/stages/types';
@@ -25,6 +26,21 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     expect(stage.breakables!.length).toBeGreaterThanOrEqual(9);
     expect(stage.hazards!.length).toBeGreaterThanOrEqual(10);
     expect(stage.checkpoints!.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it('ミスのペナルティ: STAGE 1 だけにあり、respawn イベントにチェックポイントまでの距離が入る', async () => {
+    expect(stage.missPenaltySec).toBe(3);
+    for (const e of STAGE_LIST) if (e.id !== 'stage1') expect(e.build().missPenaltySec, e.id).toBeUndefined();
+    const sim = await makeSim(stage);
+    run(sim, 10);
+    const [sx, sy, sz] = stage.spawn;
+    sim.player.placeFeet(sx + 30, sy, sz + 40);
+    sim.respawn('manual');
+    const events: Parameters<typeof sim.drainEvents>[0] = [];
+    sim.drainEvents(events);
+    const r = events.find((e) => e.type === 'respawn');
+    expect(r && r.type === 'respawn' ? r.dist : -1).toBeCloseTo(50, 0);
+    sim.dispose();
   });
 
   it('広い地形があり、島の縁は崖になっている (落ちる)', () => {

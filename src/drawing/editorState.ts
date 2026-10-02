@@ -1,4 +1,4 @@
-import { LIMITS, canAdd, cloneDrawing, emptyDrawing, freshId, mirrorOps, newSlot, slotOf } from './model';
+import { LIMITS, canAdd, cloneDrawing, emptyDrawing, freshId, newSlot, slotOf } from './model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from './model';
 import { sanitizeDrawing, sanitizeOp } from './sanitize';
 import type { Template } from './templates';
@@ -10,7 +10,7 @@ export type CommitResult = 'ok' | 'rejected' | 'limit';
 const HISTORY_LIMIT = 80;
 
 /** パーツの設定の変更 (向き・ペア・置き場所・反転・取り付け位置)。 */
-export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount'>>;
+export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody'>>;
 
 /**
  * エディタの状態 (DOM 非依存)。パーツごとに Undo/Redo 履歴を持つ。
@@ -118,14 +118,6 @@ export class EditorState {
     return true;
   }
 
-  /** 最初からやり直す (胴体だけの空の状態。履歴も消える)。 */
-  resetAll(): void {
-    this.drawing = emptyDrawing();
-    this.currentId = 'body';
-    this.undoStacks.clear();
-    this.redoStacks.clear();
-  }
-
   /** ひな形を適用する (今の絵は捨てる)。 */
   applyTemplate(t: Template): void {
     this.drawing = { v: 2, parts: t.make() };
@@ -152,6 +144,19 @@ export class EditorState {
     return slot;
   }
 
+  /**
+   * パーツを複製する (同じ種類のスロットを 1 つ足し、絵・向き・ペアを写す。取り付け位置は自動に戻す)。
+   * 6 本腕や 6 本脚で、同じ絵を何度も描き直さなくて済むように。上限に達していれば null。
+   */
+  duplicatePart(id: string): PartSlot | null {
+    const src = slotOf(this.drawing, id);
+    if (!src || src.kind === 'body' || !canAdd(this.drawing, src.kind)) return null;
+    const slot: PartSlot = { ...src, id: freshId(this.drawing), mount: null, ops: JSON.parse(JSON.stringify(src.ops)) as DrawOp[] };
+    this.drawing.parts.push(slot);
+    this.currentId = slot.id;
+    return slot;
+  }
+
   /** パーツを消す (胴体は消せない)。 */
   removePart(id: string): boolean {
     if (id === 'body') return false;
@@ -170,6 +175,7 @@ export class EditorState {
     if (i < 0) return false;
     const slot = this.drawing.parts[i];
     const next: PartSlot = { ...slot, ...patch };
+    if (next.onBody === false || next.kind !== 'ornament') delete next.onBody;
     if (patch.pair === false && slot.pair && next.side === 'C' && slot.kind !== 'head' && slot.kind !== 'tail') next.side = 'L';
     if (id === 'body') {
       next.pair = false;
@@ -183,14 +189,5 @@ export class EditorState {
   /** 取り付け位置を変える (null で自動に戻す)。 */
   setMount(id: string, mount: Mount | null): boolean {
     return this.updatePart(id, { mount });
-  }
-
-  /** 左右反転した絵に置き換える (「向きを逆にする」の補助。Undo できる)。 */
-  flipDrawing(id: string = this.currentId): boolean {
-    const slot = slotOf(this.drawing, id);
-    if (!slot || slot.ops.length === 0) return false;
-    this.pushHistory(slot);
-    this.setOps(slot, mirrorOps(slot.ops));
-    return true;
   }
 }
