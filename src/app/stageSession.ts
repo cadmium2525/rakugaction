@@ -59,7 +59,9 @@ const READY_TIME = 1.25;
 const GO_TIME = 0.55;
 const GOAL_TIME = 2.0;
 /** 看板の説明を出す距離 (m) */
-const SIGN_HINT_DIST = 8;
+const SIGN_HINT_DIST = 11;
+/** 説明カードを出したあと、次の説明を出すまでの最短の間隔 (秒)。続けて通る看板の説明が、読み終わる前に入れ替わらないように */
+const SIGN_HINT_GAP = 2.6;
 const SIGN_ICON: Record<string, string> = { arrow: '➤', warn: '⚠', star: '★', jump: '⤴', action: '✊' };
 
 export function rankFor(timeMs: number, parSec: number | undefined, deaths: number): Rank {
@@ -93,6 +95,7 @@ export class StageSession {
   private goBannerShown = false;
   /** 説明を出した看板 (番号)。やり直しで消える */
   private readonly signsShown = new Set<number>();
+  private hintCooldown = 0;
   private windHintShown = false;
   private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
@@ -171,6 +174,7 @@ export class StageSession {
     this.scene.setPaused(false);
     await this.scene.loadStage(this.deps.stage, this.deps.params, this.deps.makeRig());
     this.signsShown.clear();
+    this.hintCooldown = 0;
     this.syncHud();
     this.enterReady();
   }
@@ -277,19 +281,24 @@ export class StageSession {
   }
 
   /** 看板に近づいたら、説明を画面上部に出す (看板の文字は走りながらでは読みにくいので、こちらが本体)。1 回の挑戦で 1 度ずつ。 */
-  private updateSigns(): void {
+  private updateSigns(dt: number): void {
     const signs = this.deps.stage.signs;
     if (!signs || signs.length === 0) return;
+    this.hintCooldown = Math.max(0, this.hintCooldown - dt);
+    if (this.hintCooldown > 0) return; // 前の説明をまだ読んでいる。範囲に残っている間は、あとで出す
     const p = this.scene.sim.player;
     const labels = inputLabels();
-    signs.forEach((s, i) => {
-      if (this.signsShown.has(i)) return;
+    for (let i = 0; i < signs.length; i++) {
+      const s = signs[i];
+      if (this.signsShown.has(i)) continue;
       const dx = s.pos[0] - p.pos.x;
       const dz = s.pos[2] - p.pos.z;
-      if (dx * dx + dz * dz > SIGN_HINT_DIST * SIGN_HINT_DIST || Math.abs(p.feetY - s.pos[1]) > 3) return;
+      if (dx * dx + dz * dz > SIGN_HINT_DIST * SIGN_HINT_DIST || Math.abs(p.feetY - s.pos[1]) > 3) continue;
       this.signsShown.add(i);
+      this.hintCooldown = SIGN_HINT_GAP;
       this.hud.hint((s.hint ?? s.lines).map((t) => fillLabels(t, labels)), s.icon ? SIGN_ICON[s.icon] : '');
-    });
+      break; // 1 度に 1 枚だけ
+    }
   }
 
   private onFrame(dt: number): void {
@@ -301,7 +310,7 @@ export class StageSession {
     this.hud.setSwim(this.scene.sim.player.swimming, this.view.cameraUnderwater);
     if (this.scene.paused) return;
     this.phaseTime += dt;
-    if (this.phase === 'playing') this.updateSigns();
+    if (this.phase === 'playing') this.updateSigns(dt);
     switch (this.phase) {
       case 'ready':
         if (!this.goBannerShown && this.phaseTime >= READY_TIME) {
