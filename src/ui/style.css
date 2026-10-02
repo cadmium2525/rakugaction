@@ -524,3 +524,51 @@ body {
     grid-template-columns: 74px 1fr 28px;
   }
 }
+
+/* ---------- 誕生画面: 横向きスマホ (高さ 420px 以下) では、ボタンを左下 (キャラの下) に寄せて右の能力カードと重ならないようにする ---------- */
+@media (max-height: 420px) and (orientation: landscape) {
+  .birth-buttons {
+    position: absolute;
+    left: calc(var(--safe-left) + 12px);
+    bottom: calc(var(--safe-bottom) + 10px);
+    gap: 8px;
+  }
+  .birth-buttons .btn {
+    min-height: 40px;
+    padding: 4px 12px;
+    font-size: 14px;
+  }
+}
+@media (max-height: 340px) and (orientation: landscape) {
+  .birth-card {
+    gap: 3px;
+    width: min(250px, 46vw);
+  }
+  .name-input {
+    min-height: 30px;
+    font-size: 14px;
+    border-width: 2px;
+  }
+  .stat-card {
+    padding: 5px 8px 6px;
+  }
+  .sc-tag {
+    display: none;
+  }
+  .sc-label {
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+  .sc-bars {
+    gap: 2px;
+  }
+  .sc-bar {
+    height: 8px;
+  }
+  .sc-name span {
+    display: none;
+  }
+  .sc-row {
+    grid-template-columns: 60px 1fr 28px;
+  }
+}

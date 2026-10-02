@@ -303,6 +303,8 @@
   min-height: 0;
   height: 100%;
   max-height: calc(100vh - 150px);
+  /* iOS Safari はツールバーの出入りで 100vh が実際の表示領域より大きくなるので、動的ビューポート単位を優先する */
+  max-height: calc(100dvh - 150px);
   aspect-ratio: 1;
   background: linear-gradient(#e8f6ff, #fffaf0);
   border-radius: 14px;

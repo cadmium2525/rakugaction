@@ -15,6 +15,10 @@ export interface SettingsOptions {
   savedAt: number | null;
   /** 直近の保存が失敗していればそのメッセージ */
   saveError: string | null;
+  /** 全画面にできる端末か / 今 全画面か / 切り替え */
+  fullscreenAvailable: boolean;
+  isFullscreen: boolean;
+  onFullscreen(): void;
   onQuality(q: QualitySetting): void;
   /** セーブデータを全て消す (確認の後に呼ばれる) */
   onReset(): void;
@@ -73,6 +77,9 @@ export class SettingsScreen implements Screen {
           h('small', { class: 'st-note', text: `キャラクター ${opts.characterCount} 体 / Lv.${opts.level} / さいごの ほぞん: ${when}` }),
           opts.saveError ? h('small', { class: 'st-note warn', text: `ほぞんに しっぱいしました: ${opts.saveError}` }) : null,
         ),
+        opts.fullscreenAvailable
+          ? h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'がめん' }), h('button', { class: 'btn btn-ghost', text: opts.isFullscreen ? '⛶ ぜんがめんを やめる' : '⛶ ぜんがめんにする', on: { click: () => opts.onFullscreen() } }))
+          : null,
         h('div', { class: 'st-row' }, reset),
         h('div', { class: 'st-version', text: `RAKUGACTION v${GAME_VERSION}` }),
       ),

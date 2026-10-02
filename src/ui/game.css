@@ -1057,3 +1057,106 @@
     margin-left: 6px;
   }
 }
+
+/* ---------- さらに低い横向き画面 (高さ 340px 以下 = 568×320 など) ---------- */
+.hub-panel {
+  overflow-y: auto;
+}
+@media (max-height: 340px) and (orientation: landscape) {
+  .hub-title {
+    display: none;
+  }
+  .hub-panel {
+    top: calc(var(--safe-top) + 6px);
+    bottom: calc(var(--safe-bottom) + 6px);
+    gap: 3px;
+    padding: 5px 6px;
+  }
+  .hub-stages {
+    gap: 2px;
+  }
+  .stage-card {
+    min-height: 27px;
+    padding: 1px 6px;
+  }
+  .stage-card .sc-emoji {
+    font-size: 14px;
+    width: 18px;
+  }
+  .stage-card .sc-info b {
+    font-size: 11px;
+  }
+  .hub-menu {
+    gap: 3px;
+  }
+  .hub-menu .btn {
+    min-height: 27px;
+    font-size: 10px;
+    padding: 1px 3px;
+  }
+  .rk-row {
+    min-height: 30px;
+  }
+  .st-card {
+    gap: 3px;
+  }
+  .st-row {
+    padding: 3px 4px;
+  }
+}
+
+/* ---------- 結果画面: ボタン行は常に見える位置に固定 (内容が長い時は上の部分だけスクロール) ---------- */
+.rs-card,
+.ta-result,
+.ta-split {
+  max-height: 94vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.rs-card .rs-btns,
+.ta-result .rs-btns {
+  position: sticky;
+  bottom: -2px;
+  z-index: 2;
+  margin: 0 -18px -16px;
+  padding: 8px 18px 14px;
+  background: linear-gradient(180deg, rgba(255, 246, 224, 0), var(--paper) 22%);
+}
+@media (max-height: 420px) and (orientation: landscape) {
+  .ta-table {
+    padding: 3px 8px;
+  }
+  .ta-trow .ta-v {
+    font-size: 12px;
+  }
+  .ta-tname {
+    font-size: 11px;
+  }
+  .ta-total {
+    margin: 2px 0 4px;
+  }
+  .ta-big {
+    font-size: 18px;
+  }
+  .rs-progress {
+    margin: 0 0 4px;
+    padding: 4px 8px 5px;
+  }
+  .rs-levelup {
+    margin-top: 3px;
+    padding: 2px 4px;
+  }
+  .rs-levelup b {
+    font-size: 13px;
+  }
+  .ta-result .rs-title {
+    font-size: 20px;
+  }
+  .rs-card .rs-btns .btn,
+  .ta-result .rs-btns .btn {
+    min-height: 36px;
+    padding: 4px 12px;
+    font-size: 13px;
+  }
+}

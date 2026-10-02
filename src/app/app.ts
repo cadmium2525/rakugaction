@@ -25,6 +25,7 @@ import { RankingService, createRankingService } from '../ranking/service';
 import type { SubmitOutcome } from '../ranking/types';
 import { RankingScreen } from '../ui/rankingScreen';
 import { SaveManager } from '../save/manager';
+import { OrientationGuard } from './orientationGuard';
 import type { LoadOutcome } from '../save/manager';
 import { MAX_CHARACTERS, emptySave } from '../save/schema';
 import type { QualitySetting, SaveData, SaveSettings } from '../save/schema';
@@ -50,6 +51,16 @@ import { PlayScene } from './playScene';
 import { Profile } from './profile';
 import { StageSession } from './stageSession';
 import type { StageResult } from './stageSession';
+
+/** 画面の向きを横にロックしてみる (対応/許可されている環境だけ成功する。失敗は無視)。 */
+function lockLandscape(): void {
+  try {
+    const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    void o.lock?.('landscape')?.catch(() => undefined);
+  } catch {
+    // 未対応/許可されていない環境: ロックできなくても縦持ちガードで案内する
+  }
+}
 
 /** ランキング送信の結果メッセージ。 */
 function rankMessage(o: SubmitOutcome): string {
@@ -105,6 +116,8 @@ export class App {
   /** 起動時の読み込み結果 (QA 用) */
   loadOutcome: LoadOutcome | null = null;
   private notice: string | null = null;
+  /** 縦持ち検知 (プレイ中に縦になったら自動ポーズ) */
+  orientation: OrientationGuard | null = null;
 
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
@@ -123,6 +136,7 @@ export class App {
 
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
     void loadRapier();
+    this.installMobileGuards();
     // セーブデータ: 読み込んでプロフィールを復元する。開発用のショートカット (?doodle=…) 起動では保存しない (?save=1 で保存する)
     await this.initSave();
     // ランキング設定 (public/ranking-config.json)。無い/無効なら未設定として扱う。?ranking=mock でメモリ上のモック (開発用)
@@ -139,6 +153,36 @@ export class App {
     else if (this.params.has('editor')) this.showEditor();
     else this.showTitle();
     this.showNotice();
+  }
+
+  // ===== スマホ向けのガード =====
+
+  /**
+   * 縦持ちガード (スマホ/タブレットの縦向きでは「横向きにしてください」を出す: CSS) に合わせて、
+   * プレイ中なら自動でポーズする (見えない間に進んで やられるのを防ぐ)。横向きに戻ってもポーズのまま (つづけるを押して再開)。
+   * また、最初の操作で画面の向きを横にロックしてみる (Android の全画面/インストール時だけ効く。失敗しても何もしない)。
+   */
+  private installMobileGuards(): void {
+    this.orientation = new OrientationGuard(
+      { matchMedia: (q) => matchMedia(q), addEventListener: (t, fn) => window.addEventListener(t, fn), removeEventListener: (t, fn) => window.removeEventListener(t, fn) },
+      { onPortrait: () => this.session?.scene.setPaused(true) },
+    );
+    // イベントが届かない環境のための定期確認 (0.5 秒ごと。読むだけなので軽い)
+    window.setInterval(() => this.orientation?.poll(), 500);
+    document.addEventListener('pointerdown', () => lockLandscape(), { once: true });
+  }
+
+  /** 全画面にする/戻す (対応している端末だけ。iPhone の Safari は未対応)。成功したら横向きロックも試す。 */
+  async toggleFullscreen(): Promise<void> {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        lockLandscape();
+      }
+    } catch {
+      // 拒否された/未対応: 何もしない (ゲームは全画面でなくても遊べる)
+    }
   }
 
   // ===== セーブ / ロード =====
@@ -258,6 +302,9 @@ export class App {
         level: this.profile.level,
         savedAt: this.loadOutcome?.data?.savedAt || null,
         saveError: this.save?.lastError?.message ?? null,
+        fullscreenAvailable: document.fullscreenEnabled === true,
+        isFullscreen: document.fullscreenElement !== null,
+        onFullscreen: () => void this.toggleFullscreen().then(() => this.showSettings(back)),
         onQuality: (q) => {
           this.setQualitySetting(q);
           this.showSettings(back);
