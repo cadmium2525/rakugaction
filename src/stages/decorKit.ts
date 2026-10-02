@@ -141,17 +141,21 @@ export function windmill(push: Push, x: number, y: number, z: number, yaw: numbe
   const c = Math.cos(yaw);
   const s = Math.sin(yaw);
   const at = (lx: number, ly: number, lz: number): [number, number, number] => [x + lx * c + lz * s, y + ly, z - lx * s + lz * c];
-  push({ shape: 'cone', pos: at(0, 3.6, 0), size: [2.0, 7.2, 2.0], color: PALETTE.wall, style: 'brick', seg: 8 });
-  push({ shape: 'cone', pos: at(0, 7.6, 0), size: [2.1, 1.7, 2.1], color: PALETTE.roof, seg: 8 });
-  push({ shape: 'sphere', pos: at(0, 6.1, 1.5), size: [0.35, 1, 1], color: 0x6b4a2a, seg: 6 });
+  // 本体 (レンガの円柱) と、とんがり屋根。羽根は本体の正面 (+z 側) の軸に付く
+  push({ shape: 'cylinder', pos: at(0, 2.5, 0), size: [1.5, 5, 1], color: PALETTE.wall, style: 'brick', seg: 8 });
+  push({ shape: 'cone', pos: at(0, 6.0, 0), size: [1.9, 2.2, 1.9], color: PALETTE.roof, seg: 8 });
+  push({ shape: 'box', pos: at(0, 0.7, 1.46), size: [0.8, 1.4, 0.1], color: 0x7a4a2a });
+  const hubY = 4.3;
+  push({ shape: 'cylinder', pos: at(0, hubY, 1.75), size: [0.12, 0.9, 1], rot: [Math.PI / 2, yaw, 0], color: 0x6b4a2a, seg: 5 });
+  push({ shape: 'sphere', pos: at(0, hubY, 2.2), size: [0.3, 1, 1], color: 0x6b4a2a, seg: 6 });
   const tilt = 0.35;
   for (let i = 0; i < 4; i++) {
     const a = tilt + (i * Math.PI) / 2;
-    // 羽根 (細長い板)。ハブから放射状に
     const bx = Math.cos(a);
     const by = Math.sin(a);
-    push({ shape: 'box', pos: at(bx * 1.9, 6.1 + by * 1.9, 1.62), size: [0.3, 3.4, 0.06], rot: [0, yaw, a], color: 0xf4efe4 });
-    push({ shape: 'box', pos: at(bx * 2.15, 6.1 + by * 2.15, 1.64), size: [0.9, 2.6, 0.03], rot: [0, yaw, a], color: 0xd9573f });
+    // 羽根 (ハブから放射状に伸びる細長い板と、布の面)。長手方向がハブから外向きになるよう、z 軸まわりに (a - 90°) 回す
+    push({ shape: 'box', pos: at(bx * 1.9, hubY + by * 1.9, 2.2), size: [0.16, 3.4, 0.06], rot: [0, yaw, a - Math.PI / 2], color: 0xf4efe4 });
+    push({ shape: 'box', pos: at(bx * 2.3 - by * 0.5, hubY + by * 2.3 + bx * 0.5, 2.24), size: [0.9, 2.6, 0.03], rot: [0, yaw, a - Math.PI / 2], color: 0xe8e0d0 });
   }
 }
 

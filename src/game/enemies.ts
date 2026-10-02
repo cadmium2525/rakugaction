@@ -1,6 +1,6 @@
 import { v3 } from '../core/math';
 import type { V3 } from '../core/math';
-import type { EnemyDef, EnemyKind } from '../stages/types';
+import type { EnemyDef, EnemyKind, MoverDef } from '../stages/types';
 import { moverPosition } from './mover';
 
 /** 敵の種類ごとの基本性能 (EnemyDef の scale / toughness / damage で上書きできる)。シミュレーション・描画・ボットで共有。 */
@@ -42,6 +42,30 @@ export function resolveSpec(def: EnemyDef): EnemySpec {
 
 const _out: V3 = v3();
 
+/** 敵ごとの経路 (MoverDef) と性能は 1 回だけ作って使い回す (毎ステップ作ると経路長の計算が毎回走る)。 */
+const moverCache = new WeakMap<EnemyDef, MoverDef>();
+const specCache = new WeakMap<EnemyDef, EnemySpec>();
+
+export function specOf(def: EnemyDef): EnemySpec {
+  let s = specCache.get(def);
+  if (!s) {
+    s = resolveSpec(def);
+    specCache.set(def, s);
+  }
+  return s;
+}
+
+function pathOf(def: EnemyDef): MoverDef {
+  let m = moverCache.get(def);
+  if (!m) {
+    // 跳ねる敵は「空中にいた時間」を自分で数えるので、位相と停止は経路側では使わない
+    const hop = def.kind === 'hopper';
+    m = { id: def.id, size: [0, 0, 0], points: def.points, speed: def.speed, pause: hop ? 0 : def.pause, phase: hop ? 0 : def.phase, loop: def.loop };
+    moverCache.set(def, m);
+  }
+  return m;
+}
+
 /** 跳ねる敵の 1 周期のうち、空中にいる割合 (最初の 25% は地面で力をためる)。 */
 const HOP_AIR = 0.75;
 
@@ -50,8 +74,8 @@ const HOP_AIR = 0.75;
  * hopper は跳んでいる間だけ前に進む (地面にいる間は止まる)。
  */
 export function patrolFeetAt(def: EnemyDef, time: number): V3 {
-  const spec = resolveSpec(def);
   if (def.kind === 'hopper') {
+    const spec = specOf(def);
     const period = spec.hopPeriod;
     const x = (time + (def.phase ?? 0)) / period;
     const k = Math.floor(x);
@@ -60,13 +84,13 @@ export function patrolFeetAt(def: EnemyDef, time: number): V3 {
     // 水平方向は「空中にいた時間」だけ進む
     const t = (k + g) * period * HOP_AIR;
     const hop = 4 * spec.hopHeight * g * (1 - g);
-    const p = moverPosition({ id: def.id, size: [0, 0, 0], points: def.points, speed: def.speed, pause: 0, loop: def.loop }, t);
+    const p = moverPosition(pathOf(def), t);
     _out.x = p.x;
     _out.y = p.y + hop;
     _out.z = p.z;
     return _out;
   }
-  const p = moverPosition({ id: def.id, size: [0, 0, 0], points: def.points, speed: def.speed, pause: def.pause, phase: def.phase, loop: def.loop }, time);
+  const p = moverPosition(pathOf(def), time);
   _out.x = p.x;
   _out.y = p.y;
   _out.z = p.z;

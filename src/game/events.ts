@@ -4,6 +4,8 @@ export type SimEvent =
   | { type: 'land'; impact: number }
   | { type: 'attack' }
   | { type: 'hurt'; hp: number; maxHp: number }
+  /** チェックポイントで HP が全回復した */
+  | { type: 'heal'; hp: number; maxHp: number }
   | { type: 'break'; id: string }
   /** 敵に ACTION / ふんづけが当たった。stomp / dash = 倒した、guard = 攻撃力が足りずはね返された */
   | { type: 'enemy'; id: string; how: 'stomp' | 'dash' | 'guard' }

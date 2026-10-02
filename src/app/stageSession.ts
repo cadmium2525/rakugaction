@@ -3,6 +3,7 @@ import type { SimEvent } from '../game/events';
 import type { PlayerParams } from '../game/params';
 import { emptyInput } from '../input/types';
 import type { SimInput } from '../input/types';
+import { fillLabels, inputLabels } from '../input/labels';
 import { InputManager } from '../input/manager';
 import { GameView } from '../render/gameView';
 import type { RenderHost } from '../render/renderHost';
@@ -57,6 +58,9 @@ type Phase = 'ready' | 'playing' | 'goal' | 'done';
 const READY_TIME = 1.25;
 const GO_TIME = 0.55;
 const GOAL_TIME = 2.0;
+/** 看板の説明を出す距離 (m) */
+const SIGN_HINT_DIST = 8;
+const SIGN_ICON: Record<string, string> = { arrow: '➤', warn: '⚠', star: '★', jump: '⤴', action: '✊' };
 
 export function rankFor(timeMs: number, parSec: number | undefined, deaths: number): Rank {
   if (!parSec) return 'B';
@@ -87,6 +91,8 @@ export class StageSession {
   /** 操作できるようになった時点のシミュレーション時間 (秒)。simMs はここからの経過 */
   private simAtPlay = 0;
   private goBannerShown = false;
+  /** 説明を出した看板 (番号)。やり直しで消える */
+  private readonly signsShown = new Set<number>();
   private windHintShown = false;
   private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
@@ -164,6 +170,7 @@ export class StageSession {
     this.menu.hide();
     this.scene.setPaused(false);
     await this.scene.loadStage(this.deps.stage, this.deps.params, this.deps.makeRig());
+    this.signsShown.clear();
     this.syncHud();
     this.enterReady();
   }
@@ -194,20 +201,23 @@ export class StageSession {
         case 'respawn':
           this.syncHud();
           this.hud.toast(
-            e.reason === 'fall' ? 'おっと！ チェックポイントから' : e.reason === 'hazard' ? 'やられた！ チェックポイントから' : 'チェックポイントから',
+            e.reason === 'fall' ? '落下　チェックポイントから再開' : e.reason === 'hazard' ? 'ダウン　チェックポイントから再開' : 'チェックポイントから再開',
           );
           break;
         case 'checkpoint':
-          this.hud.toast('🚩 チェックポイント！');
+          this.hud.toast(events.some((x) => x.type === 'heal') ? '🚩 チェックポイント　HP 全回復' : '🚩 チェックポイント');
+          break;
+        case 'heal':
+          this.hud.setHp(e.hp, e.maxHp);
           break;
         case 'crumble':
           if (e.state === 'shake' && !this.crumbleHintShown && this.phase === 'playing') {
             this.crumbleHintShown = true;
-            this.hud.toast('🏛 崩れる床！ とまると落ちるよ。重いほど早く崩れる', 3200);
+            this.hud.toast('🏛 崩れる床: 乗り続けると落ちる (体重が重いほど早い)', 3200);
           }
           break;
         case 'break':
-          this.hud.toast('バコーン！', 700);
+          this.hud.toast('木箱を破壊', 700);
           break;
         case 'goal':
           if (this.phase === 'playing') this.onGoal();
@@ -262,8 +272,24 @@ export class StageSession {
     this.hud.setWind((Math.atan2(sx, sy) * 180) / Math.PI, spd / 14);
     if (!this.windHintShown && spd > 3 && this.phase === 'playing') {
       this.windHintShown = true;
-      this.hud.toast('🌪 強い風！ 重いほど風に強いよ。風が止むのを待ってもOK', 3200);
+      this.hud.toast('🌪 強風: 体重が重いほど押されにくい。風が弱まるのを待つのも手', 3200);
     }
+  }
+
+  /** 看板に近づいたら、説明を画面上部に出す (看板の文字は走りながらでは読みにくいので、こちらが本体)。1 回の挑戦で 1 度ずつ。 */
+  private updateSigns(): void {
+    const signs = this.deps.stage.signs;
+    if (!signs || signs.length === 0) return;
+    const p = this.scene.sim.player;
+    const labels = inputLabels();
+    signs.forEach((s, i) => {
+      if (this.signsShown.has(i)) return;
+      const dx = s.pos[0] - p.pos.x;
+      const dz = s.pos[2] - p.pos.z;
+      if (dx * dx + dz * dz > SIGN_HINT_DIST * SIGN_HINT_DIST || Math.abs(p.feetY - s.pos[1]) > 3) return;
+      this.signsShown.add(i);
+      this.hud.hint((s.hint ?? s.lines).map((t) => fillLabels(t, labels)), s.icon ? SIGN_ICON[s.icon] : '');
+    });
   }
 
   private onFrame(dt: number): void {
@@ -275,6 +301,7 @@ export class StageSession {
     this.hud.setSwim(this.scene.sim.player.swimming, this.view.cameraUnderwater);
     if (this.scene.paused) return;
     this.phaseTime += dt;
+    if (this.phase === 'playing') this.updateSigns();
     switch (this.phase) {
       case 'ready':
         if (!this.goBannerShown && this.phaseTime >= READY_TIME) {

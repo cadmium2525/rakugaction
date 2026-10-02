@@ -95,7 +95,7 @@ export class GameView {
     this.scene.add(this.stageView.group);
     this.stageView.setDetail(this.host.currentSettings.detail);
     const th = stage.theme;
-    this.sky = createSky(th.skyTop, th.skyBottom, { color: th.sun, dir: new THREE.Vector3(-30, 60, 20) });
+    this.sky = createSky(th.skyTop, th.skyBottom, th.skySun ? { color: th.skySun.color, dir: new THREE.Vector3(...th.skySun.dir) } : undefined);
     this.scene.add(this.sky);
     this.cameraUnderwater = false;
     this.applyFog();

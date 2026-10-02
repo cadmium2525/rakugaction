@@ -74,7 +74,7 @@ describe('EXP の獲得', () => {
     }
   });
 
-  it('倒した敵ぶんの EXP: 1 体 3、1 回のクリアで最大 30。0 体・NaN・負の数は増えない', () => {
+  it('撃破した敵ぶんの EXP: 1 体 3、1 回のクリアで最大 30。0 体・NaN・負の数は増えない。くりかえしのクリアでは減る (周回で稼げない)', () => {
     const base = stageExp({ order: 1, rank: 'B', firstClear: true, newBest: false });
     const withKills = (n: number | undefined): ReturnType<typeof stageExp> => stageExp({ order: 1, rank: 'B', firstClear: true, newBest: false, enemiesDefeated: n });
     expect(withKills(0).total).toBe(base.total);
@@ -82,8 +82,13 @@ describe('EXP の獲得', () => {
     expect(withKills(NaN).total).toBe(base.total);
     expect(withKills(-4).total).toBe(base.total);
     expect(withKills(5).total).toBe(base.total + 15);
-    expect(withKills(5).parts.at(-1)).toEqual({ label: 'てきを たおした', exp: 15 });
+    expect(withKills(5).parts.at(-1)).toEqual({ label: '敵を撃破', exp: 15 });
     expect(withKills(99).total).toBe(base.total + 30);
+    // くりかえし: 他の EXP と同じ倍率 (0.35) で減る
+    const again = stageExp({ order: 1, rank: 'B', firstClear: false, newBest: false });
+    const againKills = stageExp({ order: 1, rank: 'B', firstClear: false, newBest: false, enemiesDefeated: 8 });
+    expect(againKills.total - again.total).toBe(Math.round(24 * 0.35));
+    expect(againKills.total - again.total).toBeLessThan(10);
   });
 
   it('後のステージほど多く貰える。範囲外/NaN のステージ番号でも有限な値', () => {

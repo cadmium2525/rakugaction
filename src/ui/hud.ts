@@ -9,6 +9,8 @@ export class Hud {
   private readonly nameEl: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly toastEl: HTMLElement;
+  private readonly hintEl: HTMLElement;
+  private hintTimer = 0;
   private readonly flash: HTMLElement;
   private readonly fade: HTMLElement;
   private toastTimer = 0;
@@ -27,6 +29,7 @@ export class Hud {
     this.timeEl = h('div', { class: 'hud-time', text: '00:00.000' });
     this.banner = h('div', { class: 'hud-banner' });
     this.toastEl = h('div', { class: 'hud-toast' });
+    this.hintEl = h('div', { class: 'hud-hint' });
     this.flash = h('div', { class: 'hud-flash' });
     this.fade = h('div', { class: 'hud-fade' });
     const pause = h('button', { class: 'hud-pause', text: 'Ⅱ', attrs: { 'aria-label': 'ポーズ' } });
@@ -36,10 +39,10 @@ export class Hud {
       onPause();
     });
     this.windArrow = h('div', { class: 'wind-arrow', text: '➤' });
-    this.windEl = h('div', { class: 'hud-wind' }, this.windArrow, h('span', { text: 'かぜ' }));
-    this.swimEl = h('div', { class: 'hud-swim' }, h('span', { text: 'JUMP ＝ うく' }), h('span', { text: 'ACTION ＝ もぐる' }));
+    this.windEl = h('div', { class: 'hud-wind' }, this.windArrow, h('span', { text: '風' }));
+    this.swimEl = h('div', { class: 'hud-swim' }, h('span', { text: 'JUMP: 浮上' }), h('span', { text: 'ACTION: 潜水' }));
     this.waterTint = h('div', { class: 'hud-watertint' });
-    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.toastEl, this.fade);
+    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.hintEl, this.toastEl, this.fade);
     parent.appendChild(this.el);
   }
 
@@ -115,10 +118,22 @@ export class Hud {
     this.banner.className = `hud-banner show ${kind}`;
   }
 
+  /** 画面上部の説明カード (看板に近づいた時など)。icon は先頭に出す記号。 */
+  hint(lines: readonly string[], icon = '', ms = 4600): void {
+    this.hintEl.replaceChildren(
+      ...(icon ? [h('span', { class: 'hud-hint-icon', text: icon })] : []),
+      h('span', { class: 'hud-hint-text' }, ...lines.map((t) => h('span', { class: 'hud-hint-line', text: t }))),
+    );
+    this.hintEl.classList.add('show');
+    window.clearTimeout(this.hintTimer);
+    this.hintTimer = window.setTimeout(() => this.hintEl.classList.remove('show'), ms);
+  }
+
   toast(text: string, ms = 1600): void {
     this.toastEl.textContent = text;
     this.toastEl.classList.add('show');
     window.clearTimeout(this.toastTimer);
+    window.clearTimeout(this.hintTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove('show'), ms);
   }
 

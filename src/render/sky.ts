@@ -41,10 +41,10 @@ export function createSky(top: number, bottom: number, sun?: { color: number; di
   mesh.frustumCulled = false;
   mesh.renderOrder = -1000;
   if (sun) {
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: sun.color, blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false, fog: false }));
-    sprite.scale.setScalar(58);
-    sprite.position.copy(sun.dir).normalize().multiplyScalar(88);
-    sprite.renderOrder = -999;
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: sun.color, blending: THREE.AdditiveBlending, transparent: true, depthTest: true, depthWrite: false, fog: false }));
+    // 遠くに置いて、手前の物 (雲・丘・足場) に隠れるようにする (深度テストあり)。見かけの大きさは約 18°
+    sprite.scale.setScalar(125);
+    sprite.position.copy(sun.dir).normalize().multiplyScalar(190);
     mesh.add(sprite);
   }
   return mesh;

@@ -23,6 +23,8 @@ export interface BotOptions {
   maxTime?: number;
   /** 連続でこの回数死んだら諦める */
   maxDeaths?: number;
+  /** false = 敵と戦わない (受動プレイ: ルートをたどって跳ぶだけ。敵に触れたら被弾する)。既定 true */
+  fight?: boolean;
 }
 
 /** 通常ウェイポイントの到着半径 (m) */
@@ -64,6 +66,7 @@ export class Bot {
   constructor(
     private readonly sim: GameSim,
     private readonly route: readonly WaypointDef[],
+    private readonly opts: { fight?: boolean } = {},
   ) {
     this.lastDeaths = sim.deaths;
   }
@@ -174,7 +177,7 @@ export class Bot {
     }
 
     this.steer(out);
-    this.fight(out);
+    if (this.opts.fight !== false) this.fight(out);
 
     // 進捗/スタック判定
     const cur = this.route[this.idx];
@@ -336,7 +339,7 @@ export class Bot {
 export function runBot(sim: GameSim, route: readonly WaypointDef[], opts: BotOptions = {}): BotResult {
   const maxTime = opts.maxTime ?? 300;
   const maxDeaths = opts.maxDeaths ?? 40;
-  const bot = new Bot(sim, route);
+  const bot = new Bot(sim, route, { fight: opts.fight });
   const input = emptyInput();
   let reason: BotResult['reason'] = 'timeout';
   while (sim.time < maxTime) {

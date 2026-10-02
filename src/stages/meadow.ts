@@ -1,3 +1,4 @@
+import type { V3t } from '../core/math';
 import type { Rng } from '../core/rng';
 import { bush, birchTree, cloud, fence, flowerPatch, hay, house, islet, mushroom, pineTree, PALETTE, rock, roundTree, tuft, windmill } from './decorKit';
 import type { PathBuilder } from './pathBuilder';
@@ -5,8 +6,8 @@ import type { BoxDef, DecorDef, WaypointDef } from './types';
 
 /**
  * 「草原」ステージの景色。コースの形 (床の箱とルート) に合わせて小道具を置く:
- *   - 床の縁: 草の房・花・小石・きのこ (床の上に。道の邪魔にならない小さな物だけ)、柵
- *   - 床の外: 浮かぶ小島 (木・花畑・岩・家・風車・わら)
+ *   - 床の縁: 草の房・花・小石・きのこ (床の上に。道の邪魔にならない小さな物だけ)、スタート付近の柵
+ *   - 床の外: 浮かぶ小島 (木・花畑・岩・家・風車・わら)。風車と家は目印として必ず 1 つずつ置く
  *   - 遠景: 雲海 (落ちた先)、雲海から顔を出す丘、空の雲
  * すべて当たり判定のない装飾で、ステージの静的メッシュ (1 draw call) に結合される。乱数は固定シードなので毎回同じ景色。
  */
@@ -69,13 +70,32 @@ interface Sample {
   /** 進行方向の単位ベクトル (x, z) */
   dx: number;
   dz: number;
+  /** 本道 (main) に沿った、スタートからの道のり (m)。他のルートの点は、いちばん近い本道の点の値 */
+  arc: number;
 }
 
-/** ルートの折れ線を等間隔にたどった点 (複数ルートの重複は間引く)。 */
-function samplePaths(routes: readonly (readonly WaypointDef[])[], step: number): Sample[] {
+/**
+ * ルートの折れ線を等間隔にたどった点。本道を先に取り、道のり (arc) を数える。
+ * 他のルート (近道・大回り) の点は、本道の点から離れている (step の 0.8 倍以上) ものだけを足す。
+ */
+function samplePaths(main: readonly WaypointDef[], others: readonly (readonly WaypointDef[])[], step: number): Sample[] {
   const out: Sample[] = [];
-  const near = (x: number, z: number): boolean => out.some((s) => (s.x - x) * (s.x - x) + (s.z - z) * (s.z - z) < (step * 0.8) * (step * 0.8));
-  for (const route of routes) {
+  const near = (x: number, z: number): boolean => out.some((s) => (s.x - x) * (s.x - x) + (s.z - z) * (s.z - z) < step * 0.8 * (step * 0.8));
+  let arc = 0;
+  for (let i = 1; i < main.length; i++) {
+    const a = main[i - 1].pos;
+    const b = main[i].pos;
+    const len = Math.hypot(b[0] - a[0], b[2] - a[2]);
+    if (len < 0.5) continue;
+    const dx = (b[0] - a[0]) / len;
+    const dz = (b[2] - a[2]) / len;
+    for (let t = 0; t < len; t += step) {
+      out.push({ x: a[0] + dx * t, z: a[2] + dz * t, y: a[1] + ((b[1] - a[1]) * t) / len, dx, dz, arc: arc + t });
+    }
+    arc += len;
+  }
+  const mainCount = out.length;
+  for (const route of others) {
     for (let i = 1; i < route.length; i++) {
       const a = route[i - 1].pos;
       const b = route[i].pos;
@@ -87,7 +107,17 @@ function samplePaths(routes: readonly (readonly WaypointDef[])[], step: number):
         const x = a[0] + dx * t;
         const z = a[2] + dz * t;
         if (near(x, z)) continue;
-        out.push({ x, z, y: a[1] + ((b[1] - a[1]) * t) / len, dx, dz });
+        // いちばん近い本道の点の道のり
+        let best = 0;
+        let bd = Infinity;
+        for (let k = 0; k < mainCount; k++) {
+          const d = (out[k].x - x) * (out[k].x - x) + (out[k].z - z) * (out[k].z - z);
+          if (d < bd) {
+            bd = d;
+            best = out[k].arc;
+          }
+        }
+        out.push({ x, z, y: a[1] + ((b[1] - a[1]) * t) / len, dx, dz, arc: best });
       }
     }
   }
@@ -95,11 +125,14 @@ function samplePaths(routes: readonly (readonly WaypointDef[])[], step: number):
 }
 
 export interface MeadowResult {
-  /** 小島の中心 (ちょうちょの置き場などに使える) */
+  /** 小島の中心 */
   islets: { x: number; y: number; z: number }[];
+  /** 目印の位置 (必ず置く) */
+  windmill: { x: number; y: number; z: number };
+  house: { x: number; y: number; z: number };
 }
 
-export function addMeadow(b: PathBuilder, routes: Record<string, readonly WaypointDef[]>, rng: Rng): MeadowResult {
+export function addMeadow(b: PathBuilder, routes: Record<string, readonly WaypointDef[]>, rng: Rng, spawn: V3t): MeadowResult {
   const push = (d: DecorDef): void => {
     b.decor.push(d);
   };
@@ -116,20 +149,48 @@ export function addMeadow(b: PathBuilder, routes: Record<string, readonly Waypoi
     return best;
   };
 
-  const samples = samplePaths(Object.values(routes), 3);
-  const result: MeadowResult = { islets: [] };
+  // スタート地点から始まる本道 (スタートの後ろの床にも縁の小物と柵が付く)
+  const main: WaypointDef[] = [{ pos: spawn }, ...(routes.main ?? [])];
+  const others = Object.entries(routes)
+    .filter(([name]) => name !== 'main')
+    .map(([, r]) => r);
+  const samples = samplePaths(main, others, 3).sort((p, q) => p.arc - q.arc);
+  const result: MeadowResult = { islets: [], windmill: { x: 0, y: 0, z: 0 }, house: { x: 0, y: 0, z: 0 } };
   /** 柵: 直前に置いた柱の位置 (両側) */
   const lastFence: ({ x: number; z: number } | null)[] = [null, null];
 
-  let nextIslet = 14;
-  let travelled = 0;
-  let prev: Sample | null = null;
-  let windmillDone = false;
-  let houseCount = 0;
+  // ---- 目印: 風車と家は必ず置く (道のり arc の目標位置に最も近い点から、両側・複数の距離を試して最初に置ける所) ----
+  const landmark = (targetArc: number, place: (x: number, y: number, z: number, side: number) => void): { x: number; y: number; z: number } => {
+    const order = [...samples].sort((p, q) => Math.abs(p.arc - targetArc) - Math.abs(q.arc - targetArc)).slice(0, 12);
+    for (const s of order) {
+      const nx = s.dz;
+      const nz = -s.dx;
+      for (const off of [15, 19, 24, 30]) {
+        for (const side of [-1, 1]) {
+          const x = s.x + nx * side * off;
+          const z = s.z + nz * side * off;
+          if (covered(x, z, 7)) continue;
+          const y = s.y - 1.5;
+          place(x, y, z, side);
+          return { x, y, z };
+        }
+      }
+    }
+    throw new Error(`meadow: 目印を置ける場所が見つからない (arc=${targetArc})`);
+  };
+  result.windmill = landmark(55, (x, y, z, side) => {
+    islet(push, rng, x, y, z, 5.2);
+    windmill(push, x, y, z, side === -1 ? -0.55 : 0.55);
+    hay(push, x + side * 2.6, y, z + 2.2, 0.4);
+  });
+  result.house = landmark(185, (x, y, z) => {
+    islet(push, rng, x, y, z, 5);
+    house(push, x, y, z, rng.range(0, Math.PI * 2), PALETTE.roof);
+    roundTree(push, rng, x + 2.7, y, z - 1.4, 0.9);
+  });
 
+  let nextIslet = 8;
   for (const s of samples) {
-    if (prev) travelled += Math.hypot(s.x - prev.x, s.z - prev.z);
-    prev = s;
     // 進行方向の右向きの法線
     const nx = s.dz;
     const nz = -s.dx;
@@ -141,7 +202,7 @@ export function addMeadow(b: PathBuilder, routes: Record<string, readonly Waypoi
         edge = t;
       }
       // ---- 柵: スタートの原っぱの縁に沿って (前の点とつなぐ) ----
-      if (travelled < 46 && edge > 1.5) {
+      if (s.arc < 46 && edge > 1.5) {
         const fx = s.x + nx * side * (edge - 0.3);
         const fz = s.z + nz * side * (edge - 0.3);
         const fy = surface(fx, fz, s.y);
@@ -166,29 +227,21 @@ export function addMeadow(b: PathBuilder, routes: Record<string, readonly Waypoi
       }
     }
 
-    // ---- 小島 (床の外に浮かぶ) ----
-    if (travelled >= nextIslet) {
-      nextIslet = travelled + rng.range(9, 17);
+    // ---- 小島 (床の外に浮かぶ)。本道の道のりで 10〜17m ごと ----
+    if (s.arc >= nextIslet) {
+      nextIslet = s.arc + rng.range(10, 17);
       const side = rng.chance(0.5) ? -1 : 1;
-      const off = rng.range(7, 20);
+      const off = rng.range(8, 22);
       const x = s.x + nx * side * off;
       const z = s.z + nz * side * off;
-      if (!covered(x, z, 8)) {
+      const tooCloseToLandmark = [result.windmill, result.house].some((m) => Math.hypot(m.x - x, m.z - z) < 14);
+      if (!covered(x, z, 5) && !tooCloseToLandmark) {
         const y = s.y + rng.range(-5, 0.5);
         const r = rng.range(3.2, 6);
         islet(push, rng, x, y, z, r);
         result.islets.push({ x, y, z });
         const kind = rng.next();
-        if (!windmillDone && travelled > 40 && travelled < 140) {
-          windmillDone = true;
-          windmill(push, x, y, z, side === -1 ? -0.5 : 0.5);
-          islet(push, rng, x + side * 6, y + 0.5, z + 5, 3);
-          hay(push, x + side * 6, y + 0.5, z + 5, 0.4);
-        } else if (houseCount < 2 && kind < 0.18 && r > 4.5) {
-          houseCount++;
-          house(push, x, y, z, rng.range(0, Math.PI * 2), rng.chance(0.5) ? PALETTE.roof : PALETTE.roofBlue);
-          roundTree(push, rng, x + r * 0.55, y, z - r * 0.3, 0.9);
-        } else if (kind < 0.5) {
+        if (kind < 0.5) {
           // 森
           const trees = rng.int(2, 4);
           for (let i = 0; i < trees; i++) {
@@ -218,7 +271,7 @@ export function addMeadow(b: PathBuilder, routes: Record<string, readonly Waypoi
   }
 
   // ---- 遠景 ----
-  const mid = samples[Math.floor(samples.length / 2)] ?? { x: 0, z: 0, y: 0, dx: 0, dz: 1 };
+  const mid = samples[Math.floor(samples.length / 2)] ?? { x: 0, z: 0, y: 0, dx: 0, dz: 1, arc: 0 };
   const cx = mid.x;
   const cz = mid.z;
   // 雲海 (落ちた先)。表面の模様 (cloud) で、ふわふわのむらを描く

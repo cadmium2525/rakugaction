@@ -483,9 +483,9 @@ export class PathBuilder {
   }
 
   /** 看板を立てる (前方 a・右 l の地面)。文字面はプレイヤーが進んでくる向き (進行方向の逆) を向く。 */
-  sign(a: number, l: number, lines: readonly string[], o: { icon?: SignDef['icon']; tone?: SignDef['tone'] } = {}): SignDef {
+  sign(a: number, l: number, lines: readonly string[], o: { icon?: SignDef['icon']; tone?: SignDef['tone']; hint?: SignDef['hint'] } = {}): SignDef {
     const f = this.fwd();
-    const def: SignDef = { pos: this.point(a, l), yaw: Math.atan2(-f[0], -f[1]), lines, icon: o.icon, tone: o.tone };
+    const def: SignDef = { pos: this.point(a, l), yaw: Math.atan2(-f[0], -f[1]), lines, icon: o.icon, tone: o.tone, hint: o.hint };
     this.signs.push(def);
     return def;
   }

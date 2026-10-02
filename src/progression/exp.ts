@@ -41,7 +41,9 @@ export function stageExp(i: StageExpInput): ExpGain {
   if (rankExp > 0) parts.push({ label: `ランク ${i.rank}`, exp: rankExp });
   if (i.newBest) parts.push({ label: 'NEW BEST', exp: NEW_BEST_BONUS });
   const kills = Number.isFinite(i.enemiesDefeated) ? Math.max(0, Math.floor(i.enemiesDefeated ?? 0)) : 0;
-  if (kills > 0) parts.push({ label: 'てきを たおした', exp: Math.min(ENEMY_EXP_CAP, kills * ENEMY_EXP) });
+  // くりかえしのクリアでは、他の EXP と同じく減らす (周回で稼げないように)
+  const killExp = Math.round(Math.min(ENEMY_EXP_CAP, kills * ENEMY_EXP) * (i.firstClear ? 1 : REPEAT_MUL));
+  if (killExp > 0) parts.push({ label: '敵を撃破', exp: killExp });
   return { total: parts.reduce((s, p) => s + p.exp, 0), parts };
 }
 

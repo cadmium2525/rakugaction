@@ -185,3 +185,94 @@ describe('敵 (巡回・当たり判定)', () => {
     expect(await go()).toEqual(await go());
   });
 });
+
+describe('敵まわりの安全策 (批評レビューで見つかった問題の回帰テスト)', () => {
+  it('ゴールした後 (祝福の演出中) は、敵に触れてもダメージを受けない', async () => {
+    const withGoal: StageDef = { ...stage([still('blob', 0, 0)]), goal: { pos: [0, 1, 0], size: [4, 3, 4] } };
+    const sim = await makeSim(withGoal);
+    sim.player.placeFeet(0, 0.05, 0.3); // ゴールの中で敵に重なる
+    run(sim, 120);
+    expect(sim.goalReached).toBe(true);
+    expect(sim.hits).toBe(0);
+    expect(sim.deaths).toBe(0);
+    // 対照: ゴールがなければ同じ状況で被弾する
+    const sim2 = await makeSim(stage([still('blob', 0, 0)]));
+    sim2.player.placeFeet(0, 0.05, 0.3);
+    run(sim2, 30);
+    expect(sim2.hits).toBeGreaterThanOrEqual(1);
+  });
+
+  it('おいかけくんは、ゴールした後はプレイヤーを追わない (待機位置へ戻る)', async () => {
+    const def: EnemyDef = { id: 'c0', kind: 'chaser', points: [[0, 0, 8]], speed: 3, aggro: 20, leash: { min: [-10, 0, -10], max: [10, 0, 12] } };
+    const withGoal: StageDef = { ...stage([def]), goal: { pos: [0, 1, -4], size: [4, 3, 4] } };
+    const sim = await makeSim(withGoal);
+    sim.player.placeFeet(0, 0.05, -4);
+    run(sim, 20);
+    expect(sim.goalReached).toBe(true);
+    run(sim, 300);
+    expect(sim.enemies[0].chasing).toBe(false);
+    expect(sim.enemies[0].pos.z).toBeGreaterThan(7); // 待機位置 (z=8) のあたりに戻る
+  });
+
+  it('チェックポイントで HP が全回復し、ここまでに倒した敵は復活しなくなる (背後の敵が戻ってこない)', async () => {
+    const st: StageDef = { ...stage([still('blob', 0, 2), { ...still('blob', 0, 9), id: 'e1' }]), checkpoints: [{ id: 'cp', pos: [0, 0, 5], radius: 2 }] };
+    const sim = await makeSim(st);
+    // 1 体目をふんで倒す → 2 体目に触れて被弾 → チェックポイントへ
+    sim.player.placeFeet(0, 2.5, 2);
+    run(sim, 60);
+    expect(sim.enemies[0].defeated).toBe(true);
+    sim.hp = sim.maxHp - 1;
+    sim.player.placeFeet(0, 0.05, 5);
+    const ev = run(sim, 5);
+    expect(sim.hp).toBe(sim.maxHp);
+    expect(ev.some((e) => e.type === 'heal')).toBe(true);
+    expect(sim.enemies[0].committed).toBe(true);
+    // やられて復活しても、確定した敵は戻らず、まだ倒していない敵は戻る
+    sim.enemies[1].defeated = true;
+    sim.respawn('manual');
+    expect(sim.enemies[0].defeated).toBe(true);
+    expect(sim.enemies[1].defeated).toBe(false);
+    expect(sim.enemiesDefeated).toBe(1);
+  });
+
+  it('足場の縁でノックバックを受けても、それだけで落ちることはない (足場の端で止まる)', async () => {
+    // 幅 3m (x = -1.5..1.5) の細い床。縁 (x=1.2) に立ち、内側 (x=0.5) の敵に触れて外向き (+x) に弾かれる
+    const narrow = (enemy: EnemyDef): StageDef => ({ ...stage([enemy]), boxes: [slab([0, 0, 0], [3, 40], 2)] });
+    const e = still('blob', 0.5, 0);
+    let falls = 0;
+    for (const build of ['STANDARD', 'SPEED', 'HEAVY', 'EXTREME']) {
+      const sim = await makeSim(narrow(e), build);
+      sim.player.placeFeet(1.2, 0.05, 0);
+      run(sim, 150);
+      falls += sim.falls;
+      expect(sim.hits, build).toBeGreaterThanOrEqual(1); // ちゃんと被弾はした
+      expect(sim.player.pos.x, build).toBeLessThan(1.5 + 0.3); // 縁の外へ出ていない
+    }
+    expect(falls).toBe(0);
+    // 広い床では今までどおり弾き飛ばされる (飛距離が大きい)
+    const wide = await makeSim(stage([e]));
+    wide.player.placeFeet(1.2, 0.05, 0);
+    run(wide, 40);
+    expect(wide.player.pos.x).toBeGreaterThan(2.2);
+  });
+
+  it('攻撃力が足りない ACTION は、はね返される: 後ろへ弾かれ、直後の接触ではダメージを受けない', async () => {
+    const sim = await makeSim(stage([still('spiky', 0, 1.0)]), 'SPEED'); // SPEED の攻撃力 0.91 < 0.95
+    sim.player.placeFeet(0, 0.05, -0.4, 0);
+    const ev = run(sim, 40, (i) => ({ actionPressed: i === 2 }));
+    expect(ev.some((e) => e.type === 'enemy' && e.how === 'guard')).toBe(true);
+    expect(sim.enemies[0].defeated).toBe(false);
+    expect(sim.hits).toBe(0);
+    expect(sim.player.pos.z).toBeLessThan(0.2); // 敵 (z=1.0) から押し戻されている
+  });
+
+  it('上から落ちてきて敵に少しでも触れたら「ふんづけ」になり、ダメージを受けない (接触の判定より広い)', async () => {
+    for (const dx of [0, 0.5, 0.88, 0.93]) {
+      const sim = await makeSim(stage([still('blob', 0, 0)]));
+      sim.player.placeFeet(dx, 2.5, 0); // 敵の半径 0.55 + プレイヤー 0.4 × 0.9 = 0.91 以内なら接触の範囲
+      run(sim, 60);
+      expect(sim.enemies[0].defeated, `dx=${dx}`).toBe(true);
+      expect(sim.hits, `dx=${dx}`).toBe(0);
+    }
+  });
+});

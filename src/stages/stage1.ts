@@ -22,8 +22,8 @@ export function buildStage1(): StageDef {
   // スタート地点の後ろにも床を延ばす (カメラが崖の外に出ないように)
   b.plate(-16, 0, -5, 5, b.y, 1.4, 'grass');
   // 看板 (操作と、これから出会う物の案内)
-  b.sign(5, -3.4, ['すすめ！', 'スティックで', 'いどうしよう'], { icon: 'arrow' });
-  b.sign(10, 3.4, ['ぷるん', 'ふむか ACTION', 'たおせるよ'], { icon: 'action' });
+  b.sign(5, -3.4, ['出発'], { icon: 'arrow', hint: ['{move} で移動 ／ {jump} でジャンプ', '正面の光の輪 (ゴール) を目指そう'] });
+  b.sign(10, 3.4, ['ぷるん'], { icon: 'action', hint: ['ぷるん: 踏みつけるか {action} で倒せる', '触れるとダメージを受ける'] });
   b.flat(22, { w: 9 });
   // はじめての敵: ぷるん (ふんづけ / ACTION で倒せる)。原っぱを左右に歩いている
   b.enemy('blob', -9, -3.5, 3.5, { speed: 1.6 });
@@ -34,7 +34,7 @@ export function buildStage1(): StageDef {
   b.flat(10);
   // 丘をおりた所に ぴょんた (ジャンプで跳ねている。着地を待って通るか、ふんづける)
   b.enemy('hopper', -5, -3, 3, { speed: 2.2 });
-  b.sign(-1.5, 3.0, ['はこは ACTION', 'こわせるよ！'], { icon: 'action' });
+  b.sign(-1.5, 3.0, ['木箱'], { icon: 'action', hint: ['{action} で木箱を壊せる', '攻撃力が足りない場合は、右の大回りの道へ'] });
   // 木箱の壁 (ACTION チュートリアル): 床の上に、木箱 3x2 の壁 + 左右/頭上の石でふさぐ (迂回・飛び越え不可)
   const before = b.point(1.3);
   const after = b.point(5.8);
@@ -51,7 +51,7 @@ export function buildStage1(): StageDef {
   b.route.push({ pos: before, radius: 0.7, action: true });
   b.route.push({ pos: after, radius: 1.2 });
   b.flat(6, { w: 8 });
-  b.sign(-2.5, 3.2, ['トゲまる ちゅうい！', 'ふむと イタイよ'], { icon: 'warn', tone: 'warn' });
+  b.sign(-2.5, 3.2, ['トゲまる'], { icon: 'warn', tone: 'warn', hint: ['トゲまる: 上から踏むとダメージ', '倒せるのは攻撃力の高いキャラの {action} だけ'] });
   b.checkpoint('cp0');
   rs.common(b.takeRoute());
 
@@ -65,7 +65,7 @@ export function buildStage1(): StageDef {
 
   // ---- B: せせらぎの飛び石 ----
   b.flat(6, { w: 6 });
-  b.sign(-2, -2.4, ['とびいし！', 'JUMP で わたろう'], { icon: 'jump' });
+  b.sign(-2, -2.4, ['飛び石'], { icon: 'jump', hint: ['{jump} で飛び移る', '押し続けるほど高く跳べる'] });
   // 飛び石は左右にずれて見えるが、幅 4.2m でレーンが重なる (ジャンプは中央の直線上で届く)
   const lat = [1.2, -1.2, 1.2, -1.2, 1.2, -1.2];
   for (let i = 0; i < lat.length; i++) {
@@ -80,8 +80,17 @@ export function buildStage1(): StageDef {
   // ---- C: 階段状の丘 + 動く橋 ----
   b.gap(1.8, 1.0);
   b.flat(6, { w: 7 });
+  b.sign(-3, -2.9, ['トゲまる'], { icon: 'warn', tone: 'warn', hint: ['トゲまるが足場の左半分を往復している', '右側を回り込んで避けよう'] });
   b.gap(1.8, 1.0);
   b.flat(6, { w: 7 });
+  // 避ける敵: トゲまるが足場の左半分を往復する (右側 1.7m 以上は常に安全)。攻撃力が足りないキャラ (SPEED/JUMP) はここを避けて通る。
+  // ジャンプの着地目標と、通るレーンを右側 (lateral +2.3) に寄せる。攻撃力が高いキャラは近づいてきたら ACTION で倒してもよい
+  b.enemy('spiky', -3, -3.1, 0.3, { speed: 2.0, pause: 0.5 });
+  const landJump = [...b.route].reverse().find((w) => w.jump);
+  if (landJump) landJump.land = b.point(-3.2, 2.3);
+  const stairEnd = b.route.pop();
+  b.wp({ radius: 0.9 }, -3, 2.3);
+  if (stairEnd) b.route.push(stairEnd);
   b.gap(1.8, 1.0);
   b.flat(6, { w: 7 });
   b.gap(1.8, -1.0);
@@ -123,17 +132,18 @@ export function buildStage1(): StageDef {
   b.flat(6, { w: 7 });
   b.gap(2.4, 1.0);
   b.flat(6, { w: 7 });
-  b.sign(-2.5, 2.6, ['おいかけくんが', 'まっているよ！'], { icon: 'warn', tone: 'warn' });
+  b.sign(-2.5, 2.6, ['要注意'], { icon: 'warn', tone: 'warn', hint: ['この先に、追いかけてくる敵がいる', '踏みつけるか {action} で倒そう'] });
   b.gap(2.4, 1.0);
   b.flat(14, { w: 12 });
   // ゴール前の広場: おいかけくん (近づくと追いかけてくる。広場の外へは出ない)
-  b.enemy('chaser', -9, 0, 0, { speed: 3.4, aggro: 9, leash: { a0: -13.5, a1: -1.5, l0: -5.5, l1: 5.5 } });
+  // 入口の穴から 8m 以上奥に待機し、入口から 2.5m の範囲には出てこない (着地した瞬間に襲われて、後ろの穴に落ちる事故を防ぐ)
+  b.enemy('chaser', -5, 0, 0, { speed: 3.4, aggro: 8, leash: { a0: -11.5, a1: -1.5, l0: -5.5, l1: 5.5 } });
   b.goalHere([6, 5, 6]);
   rs.common(b.takeRoute());
   const routes = rs.build();
 
   // 景色: コースの形に合わせて小道具・小島・雲海・丘を置く (固定シード)
-  addMeadow(b, routes, new Rng(11));
+  addMeadow(b, routes, new Rng(11), [0, 0, 1]);
 
   return {
     id: 'stage1',
@@ -147,6 +157,8 @@ export function buildStage1(): StageDef {
       fogFar: 180,
       sun: 0xffffff,
       ambient: 0xbfd8ff,
+      // 進行方向 (+z) のやや左、地平線の少し上: 走っていると視界の上の方に入る
+      skySun: { dir: [-25, 14, 60], color: 0xffe9b8 },
     },
     spawn: [0, 0, 1],
     killY: -14,

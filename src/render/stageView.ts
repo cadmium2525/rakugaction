@@ -21,6 +21,8 @@ export class StageView {
   private readonly checkpointFlags = new Map<string, THREE.Mesh>();
   private readonly goal: THREE.Group | null = null;
   private readonly mat: SurfaceMaterial = createSurfaceMaterial();
+  /** 動く床用 (模様をその床の座標で描く) */
+  private readonly moverMat: SurfaceMaterial = createSurfaceMaterial(1, { local: true });
   /** 壊せる箱 (全部 1 つの InstancedMesh = 1 draw call) */
   private breakableInst: THREE.InstancedMesh | null = null;
   private readonly breakableIndex = new Map<string, number>();
@@ -54,7 +56,7 @@ export class StageView {
 
     for (const m of sim.movers) {
       const g = boxGeometry({ pos: [0, 0, 0], size: m.def.size, style: m.def.style ?? 'wood' }, m.def.id);
-      const mesh = new THREE.Mesh(g, this.mat);
+      const mesh = new THREE.Mesh(g, this.moverMat);
       this.moverMeshes.push(mesh);
       this.group.add(mesh);
     }
@@ -162,6 +164,7 @@ export class StageView {
   /** 表面の模様の強さ (画質で切り替える) */
   setDetail(v: number): void {
     this.mat.setDetail(v);
+    this.moverMat.setDetail(v);
   }
 
   /** 崩れる床の状態変化: 落ちた瞬間に破片を飛ばす。 */
@@ -302,6 +305,7 @@ export class StageView {
   dispose(): void {
     this.staticMesh.geometry.dispose();
     this.mat.dispose();
+    this.moverMat.dispose();
     this.windStreaks?.dispose();
     this.waterView?.dispose();
     this.enemyView?.dispose();

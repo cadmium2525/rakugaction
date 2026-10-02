@@ -566,7 +566,7 @@ export class App {
         rank: r.rank,
         deaths: r.deaths,
         hits: r.hits,
-        extra: r.enemiesTotal ? [`たおした てき ${r.enemiesDefeated ?? 0} / ${r.enemiesTotal}`] : undefined,
+        extra: r.enemiesTotal ? [`撃破した敵 ${r.enemiesDefeated ?? 0} 体`] : undefined,
         progress: { gain, before, after, levelUp },
         onNext: next ? () => void this.startStage(next.id) : undefined,
         nextLabel: next ? `${next.title} ▶` : undefined,

@@ -46,8 +46,10 @@ float seamLine(vec2 g, float w) {
   return smoothstep(w, w * 0.4, min(e.x, e.y));
 }
 
-vec3 surfacePattern(vec3 col, vec3 wp, float style, float detail) {
-  vec3 n = normalize(cross(dFdx(wp), dFdy(wp)));
+/* n = 面の法線 (画面微分から。分岐の外で求めること)、dist = カメラからの距離。細かい模様は遠くでは薄くして、ちらつきを防ぐ */
+vec3 surfacePattern(vec3 col, vec3 wp, vec3 n, float dist, float style, float detail0) {
+  float fine = (style > 7.5 && style < 8.5) ? 1.0 : 1.0 - smoothstep(26.0, 64.0, dist);
+  float detail = detail0 * fine;
   bool top = n.y > 0.7;
   vec2 p = top ? wp.xz : (abs(n.x) > abs(n.z) ? vec2(wp.z, wp.y) : vec2(wp.x, wp.y));
   float lum = 1.0;
@@ -127,15 +129,22 @@ vec3 surfacePattern(vec3 col, vec3 wp, float style, float detail) {
 `;
 
 export interface SurfaceMaterial extends THREE.MeshToonMaterial {
-  /** 模様の強さ (0 = なし .. 1)。画質に応じて切り替える */
+  /** 模様の強さ (0 = なし .. 1)。画質に応じて切り替える。0 と 0 より大きい値の間では、シェーダーのプログラムごと切り替わる */
   setDetail(v: number): void;
 }
 
-/** ステージ用の材質: トゥーン + 頂点カラー + 手続き的な表面の模様。 */
-export function createSurfaceMaterial(detail = 1): SurfaceMaterial {
+export interface SurfaceMaterialOptions {
+  /** true = 模様をその物の座標 (ローカル) で描く。動く物 (移動床) の上で模様が滑らない */
+  local?: boolean;
+}
+
+/** ステージ用の材質: トゥーン + 頂点カラー + 手続き的な表面の模様。detail が 0 の間は、模様のコードを含まない軽いシェーダーになる。 */
+export function createSurfaceMaterial(detail = 1, opts: SurfaceMaterialOptions = {}): SurfaceMaterial {
   const mat = toonMaterial({ vertexColors: true }) as SurfaceMaterial;
   const uniforms = { uDetail: { value: detail } };
+  let enabled = detail > 0.01;
   mat.onBeforeCompile = (shader) => {
+    if (!enabled) return; // 模様なし: 標準のトゥーンのまま (低画質で余計な計算をしない)
     shader.uniforms.uDetail = uniforms.uDetail;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aStyle;\nvarying float vStyle;\nvarying vec3 vWPos;')
@@ -147,15 +156,27 @@ vec4 wpos4 = vec4(transformed, 1.0);
 #ifdef USE_INSTANCING
   wpos4 = instanceMatrix * wpos4;
 #endif
-vWPos = (modelMatrix * wpos4).xyz;`,
+vWPos = ${opts.local ? 'transformed' : '(modelMatrix * wpos4).xyz'};`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\n${PATTERN_GLSL}`)
-      .replace('#include <color_fragment>', `#include <color_fragment>\nif (vStyle > 0.5 && uDetail > 0.01) diffuseColor.rgb = surfacePattern(diffuseColor.rgb, vWPos, vStyle, uDetail);`);
+      // 画面微分は分岐の外で求める (分岐の中で使うと、隣り合う画素が別の分岐に入った時に値が不定になる)
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+vec3 sfNormal = normalize(cross(dFdx(vWPos), dFdy(vWPos)));
+float sfDist = length(vViewPosition);
+if (vStyle > 0.5) diffuseColor.rgb = surfacePattern(diffuseColor.rgb, vWPos, sfNormal, sfDist, vStyle, uDetail);`,
+      );
   };
-  mat.customProgramCacheKey = () => 'surface-pattern-v1';
+  mat.customProgramCacheKey = () => `surface-pattern-v2-${enabled ? 'on' : 'off'}-${opts.local ? 'local' : 'world'}`;
   mat.setDetail = (v: number) => {
     uniforms.uDetail.value = v;
+    const on = v > 0.01;
+    if (on !== enabled) {
+      enabled = on;
+      mat.needsUpdate = true; // プログラムを作り直す
+    }
   };
   return mat;
 }

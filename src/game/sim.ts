@@ -5,7 +5,7 @@ import { FIXED_DT } from '../core/version';
 import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
 import type { BreakableDef, CrumbleDef, EnemyDef, HazardDef, MoverDef, StageDef, SweeperDef } from '../stages/types';
-import { patrolFeetAt, resolveSpec } from './enemies';
+import { patrolFeetAt, specOf } from './enemies';
 import type { EnemySpec } from './enemies';
 import type { SimEvent } from './events';
 import type { PlayerParams } from './params';
@@ -45,6 +45,8 @@ export interface EnemyRuntime {
   /** 向き (rad, 0 = +Z)。描画用 */
   yaw: number;
   defeated: boolean;
+  /** チェックポイントを通った時点で倒していた = 復活しない (背後の敵が戻ってくるのを防ぐ) */
+  committed: boolean;
   /** chaser: プレイヤーを追いかけている最中か */
   chasing: boolean;
 }
@@ -67,11 +69,23 @@ const INVULN_TIME = 1.1;
 /** ノックバックの基準速度 (m/s) */
 const KNOCKBACK_H = 6.5;
 const KNOCKBACK_V = 5.5;
+/** ノックバックで進む距離の見積り (秒): 水平速度 × これ。足場の縁までの距離と比べて、はみ出さないよう弱める */
+const KNOCK_AIR_TIME = 0.5;
+/** ノックバックの先に床があるかを調べる間隔 (m) */
+const KNOCK_PROBE_STEP = 0.4;
+/** 敵に触れたとみなす水平の距離 (敵の半径 + プレイヤーの半径 × この係数) / ふんづけは少し広め (上から触れたら必ず「ふんづけ」になる) */
+const CONTACT_R = 0.9;
+const STOMP_R = 0.97;
+/** はね返された (guard) 後の無敵 (秒) */
+const GUARD_INVULN = 0.4;
 /** 敵をふんづける: 落下中の速度がこれ以下 (m/s) で、足が敵の上の方にあれば「ふんだ」とみなす */
 const STOMP_MIN_FALL = -1.0;
 /** はね返りの初速 (ジャンプ初速に対する倍率。ボタンを押し続けていると高い) */
 const STOMP_BOUNCE_HOLD = 0.95;
 const STOMP_BOUNCE_TAP = 0.7;
+/** はね返された時の押し戻し (m/s) */
+const GUARD_KNOCK_H = 4.2;
+const GUARD_KNOCK_V = 3.2;
 /** chaser: 追っている間 / 待機位置へ戻る時の速さ (m/s) の倍率。戻る時は遅い */
 const CHASER_RETURN_MUL = 0.5;
 
@@ -334,8 +348,11 @@ export class GameSim {
 
     this.updateCrumbles(dt);
     this.checkTriggers();
-    this.checkEnemies(input);
-    this.checkHazards();
+    // ゴールした後 (祝福の演出中) は、敵や罠でダメージを受けない
+    if (!this.goalReached) {
+      this.checkEnemies(input);
+      this.checkHazards();
+    }
     if (player.attacking) this.checkAttackHits();
     if (player.pos.y - player.params.height / 2 < this.stage.killY) {
       this.falls++;
@@ -346,8 +363,8 @@ export class GameSim {
   // ===== 敵 =====
 
   private makeEnemy(def: EnemyDef): EnemyRuntime {
-    const spec = resolveSpec(def);
-    const e: EnemyRuntime = { def, spec, pos: v3(), prev: v3(), yaw: 0, defeated: false, chasing: false };
+    const spec = specOf(def);
+    const e: EnemyRuntime = { def, spec, pos: v3(), prev: v3(), yaw: 0, defeated: false, committed: false, chasing: false };
     this.placeEnemy(e, 0);
     return e;
   }
@@ -400,6 +417,7 @@ export class GameSim {
     const p = this.player;
     const aggro = (def.aggro ?? 9) * (e.chasing ? 1.4 : 1);
     const inZone =
+      !this.goalReached &&
       (!leash || (p.pos.x >= leash.min[0] - 1 && p.pos.x <= leash.max[0] + 1 && p.pos.z >= leash.min[2] - 1 && p.pos.z <= leash.max[2] + 1)) &&
       Math.abs(p.feetY - home[1]) < 2.5;
     const dxp = p.pos.x - e.pos.x;
@@ -459,12 +477,18 @@ export class GameSim {
             this.defeatEnemy(e, 'dash');
             continue;
           }
+          // 攻撃力が足りない: はね返される (後ろへ弾かれ、しばらく無敵。直後に接触でやられないように)
           this.events.push({ type: 'enemy', id: e.def.id, how: 'guard' });
+          const k = p.params.knockbackMul;
+          this.knockAway(e.pos.x, e.pos.z, GUARD_KNOCK_H * k, GUARD_KNOCK_V * k);
+          p.stun();
+          this.invuln = Math.max(this.invuln, GUARD_INVULN);
+          continue;
         }
       }
 
       // ふんづけ: 上から落ちてきて、足が敵の上の方に来た時
-      const overlapH = horiz < er + pr * 0.85;
+      const overlapH = horiz < er + pr * STOMP_R;
       if (e.spec.stompable && overlapH && p.vel.y <= STOMP_MIN_FALL) {
         const top = e.pos.y + eh;
         const feet = p.feetY;
@@ -477,7 +501,7 @@ export class GameSim {
       }
 
       // 接触ダメージ
-      if (this.invuln <= 0 && horiz < er + pr * 0.9 && Math.abs(dy) < eh + hh - 0.08) {
+      if (this.invuln <= 0 && horiz < er + pr * CONTACT_R && Math.abs(dy) < eh + hh - 0.08) {
         this.hurt({ pos: [e.pos.x, e.pos.y, e.pos.z], damage: e.spec.damage });
         return;
       }
@@ -508,6 +532,12 @@ export class GameSim {
         this.checkpointId = c.id;
         this.checkpoint = v3(c.pos[0], c.pos[1], c.pos[2]);
         this.events.push({ type: 'checkpoint', id: c.id });
+        // ここまでに倒した敵は復活しない。HP は全回復 (ステージ全体を 3 ハートで通す理不尽さを避ける)
+        for (const e of this.enemies) if (e.defeated) e.committed = true;
+        if (this.hp < this.maxHp) {
+          this.hp = this.maxHp;
+          this.events.push({ type: 'heal', hp: this.hp, maxHp: this.maxHp });
+        }
       }
     }
     const g = this.stage.goal;
@@ -562,15 +592,37 @@ export class GameSim {
     this.invuln = INVULN_TIME;
     // 炎の床は押し戻さない (走り抜けるのを邪魔しない。耐えられるかどうかだけが問われる)
     if (h.style !== 'fire') {
-      const dx = p.pos.x - h.pos[0];
-      const dz = p.pos.z - h.pos[2];
-      const len = Math.hypot(dx, dz) || 1;
-      const k = params.knockbackMul;
-      p.knockback((dx / len) * KNOCKBACK_H * k, KNOCKBACK_V * k, (dz / len) * KNOCKBACK_H * k);
+      this.knockAway(h.pos[0], h.pos[2], KNOCKBACK_H * params.knockbackMul, KNOCKBACK_V * params.knockbackMul);
       p.stun();
     }
     this.events.push({ type: 'hurt', hp: Math.max(0, this.hp), maxHp: this.maxHp });
     if (this.hp <= 0) this.respawn('hazard');
+  }
+
+  /**
+   * (fromX, fromZ) から遠ざかる向きに弾き飛ばす。ただし、飛んでいく先に足場がない (縁・穴の手前) なら、
+   * 足場の端までで止まるように水平の速さを弱める (ノックバックだけで落ちる事故を防ぐ)。
+   */
+  private knockAway(fromX: number, fromZ: number, speedH: number, speedV: number): void {
+    const p = this.player;
+    const dx = p.pos.x - fromX;
+    const dz = p.pos.z - fromZ;
+    const len = Math.hypot(dx, dz) || 1;
+    const ux = dx / len;
+    const uz = dz / len;
+    const travel = speedH * KNOCK_AIR_TIME;
+    const feet = p.feetY;
+    let safe = travel;
+    for (let d = KNOCK_PROBE_STEP; d <= travel + KNOCK_PROBE_STEP; d += KNOCK_PROBE_STEP) {
+      // その地点の真下 (足元より少し上から 3m) に床があり、足元から 2.5m 以上は下がっていなければ「足場がある」
+      const hit = this.raycast(p.pos.x + ux * d, feet + 0.6, p.pos.z + uz * d, 0, -1, 0, 3.1);
+      if (hit === null || hit > 0.6 + 2.5) {
+        safe = Math.max(0, d - KNOCK_PROBE_STEP - p.params.radius - 0.25);
+        break;
+      }
+    }
+    const k = travel > 1e-6 ? Math.min(1, safe / travel) : 1;
+    p.knockback(ux * speedH * k, speedV, uz * speedH * k);
   }
 
   /** ACTION の当たり判定: 前方の壊せる箱。攻撃力が足りれば壊す。 */
@@ -644,7 +696,7 @@ export class GameSim {
     this.deaths++;
     for (const c of this.crumbles) if (c.state !== 'idle') this.restoreCrumble(c);
     for (const e of this.enemies) {
-      e.defeated = false;
+      e.defeated = e.committed;
       this.placeEnemy(e, this.time);
     }
     this.hp = this.maxHp;

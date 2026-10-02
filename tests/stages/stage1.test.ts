@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildStage1 } from '../../src/stages/stage1';
-import { ALL_BUILDS, fmt, runStage } from './harness';
+import { ALL_BUILDS, FRAGILE_BUILD, fmt, runStage } from './harness';
 import type { RunReport } from './harness';
 import { validateStage } from './validate';
 
@@ -21,7 +21,45 @@ describe('STAGE 1 草原', () => {
     expect(stage.signs!.length).toBeGreaterThanOrEqual(5);
     // 情報量: 小道具 (木・花・岩・柵・家・雲など) が十分ある
     expect(stage.decor!.length).toBeGreaterThanOrEqual(800);
+    // 目印の風車 (レンガの円柱の本体) と家 (幅 3.6m の木の壁) が必ずある
+    expect(stage.decor!.filter((d) => d.shape === 'cylinder' && d.style === 'brick').length, '風車').toBe(1);
+    expect(stage.decor!.filter((d) => d.shape === 'box' && d.style === 'wood' && d.size[0] === 3.6).length, '家').toBe(1);
+    // 浮島が十分ある (草の円盤)
+    expect(stage.decor!.filter((d) => d.shape === 'cylinder' && d.style === 'grass').length).toBeGreaterThanOrEqual(10);
+    // 柵がスタート付近から始まる (z < 20 の柱がある)
+    expect(stage.decor!.some((d) => d.shape === 'box' && d.style === 'wood' && d.size[1] === 1 && d.pos[2] < 20)).toBe(true);
+    // 空に太陽を描く設定がある
+    expect(stage.theme.skySun).toBeDefined();
   });
+
+  it('看板の案内: 全部に近づいた時の説明 (hint) があり、操作名は {move}/{jump}/{action} の置き換え語で書かれている', () => {
+    for (const s of stage.signs!) {
+      expect(s.hint && s.hint.length >= 1 && s.hint.length <= 2, JSON.stringify(s.lines)).toBe(true);
+      expect(s.lines.length, '看板の文字は短く (1〜2 行)').toBeLessThanOrEqual(2);
+      for (const t of [...s.lines, ...(s.hint ?? [])]) expect(/JUMP|ACTION|スティック/.test(t.replace(/\{[a-z]+\}/g, '')), `操作名が直書きされている: ${t}`).toBe(false);
+    }
+  });
+
+  it('トゲまる (避ける敵) が本道の足場にいて、攻撃力が足りない SPEED/JUMP は戦わずに被弾 0 で通れる', async () => {
+    const spikies = stage.enemies!.filter((e) => e.kind === 'spiky');
+    expect(spikies.length).toBeGreaterThanOrEqual(2); // 抜け道の通路と、本道の階段の 2 体
+    // トゲまるだけを残したステージで、戦わずに走る (他の敵の被弾を混ぜない)
+    const onlySpiky = { ...stage, enemies: spikies };
+    for (const id of ['SPEED', 'JUMP']) {
+      const r = await runStage(onlySpiky, id, 'main', { maxTime: 200, maxDeaths: 3, fight: false });
+      expect(r.cleared && r.hits === 0 && r.deaths === 0, `トゲまるを避けられていない (敵と戦わない設定): ${fmt(r)}`).toBe(true);
+    }
+  }, 120_000);
+
+  it('受動プレイ (敵と戦わず、ルートをたどって跳ぶだけ) でも、全ビルド + もろいビルド (HP2) が本道を死亡 1 回以内でクリアできる (チェックポイントで HP が回復する)', async () => {
+    for (const id of [...ALL_BUILDS, FRAGILE_BUILD] as const) {
+      const r = await runStage(stage, id, 'main', { maxTime: 220, maxDeaths: 4, fight: false });
+      expect(r.cleared, fmt(r)).toBe(true);
+      expect(r.deaths, `敵に何もしないと詰むほど厳しい: ${fmt(r)}`).toBeLessThanOrEqual(1);
+      expect(r.falls, `敵に弾かれて落ちている: ${fmt(r)}`).toBe(0);
+      expect(r.hits, fmt(r)).toBeLessThanOrEqual(8);
+    }
+  }, 300_000);
 
   const results = new Map<string, RunReport>();
   const best = new Map<string, RunReport>();
@@ -32,7 +70,7 @@ describe('STAGE 1 草原', () => {
       results.set(id, r);
       expect(r.cleared, fmt(r)).toBe(true);
       expect(r.deaths, fmt(r)).toBeLessThanOrEqual(3);
-      expect(r.hits, `敵や罠に当たりすぎ: ${fmt(r)}`).toBeLessThanOrEqual(3);
+      expect(r.hits, `敵や罠に当たりすぎ: ${fmt(r)}`).toBeLessThanOrEqual(1);
       expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 70) * 2);
     }
   }, 300_000);

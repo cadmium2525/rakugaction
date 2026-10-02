@@ -189,6 +189,11 @@ export interface SignDef {
   yaw: number;
   /** 1〜3 行の文字 */
   lines: readonly string[];
+  /**
+   * 近づいた時に画面上部に出す説明 (最大 2 行。看板の文字は小さくて読みづらいので、こちらが本体)。省略時は lines を使う。
+   * {move} {jump} {action} は端末の操作名 (スティック / WASD など) に置き換わる。
+   */
+  hint?: readonly string[];
   /** 板の色味: 'info' = 木の色 / 'warn' = 注意の黄 */
   tone?: 'info' | 'warn';
   /** 文字の上に出す絵 */
@@ -247,6 +252,8 @@ export interface StageTheme {
   fogFar: number;
   sun: number;
   ambient: number;
+  /** 空に描く太陽 (見える向きと色)。省略 = 描かない。光の向きとは別 (カメラが見下ろし気味なので、地平線近くに置かないと視界に入らない) */
+  skySun?: { dir: V3t; color: number };
 }
 
 export interface StageDef {

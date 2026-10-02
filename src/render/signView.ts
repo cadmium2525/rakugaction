@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { fillLabels, inputLabels } from '../input/labels';
 import type { SignDef } from '../stages/types';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { toonMaterial } from './toon';
@@ -104,8 +105,9 @@ function faceTexture(def: SignDef): THREE.CanvasTexture {
   const icon = def.icon;
   const textLeft = icon ? 170 : 40;
   if (icon) drawIcon(ctx, icon, 98, FACE_H / 2, 54, warn ? '#c2410c' : '#6b4a2a');
-  const lines = def.lines.slice(0, 3);
-  const lineH = lines.length === 1 ? 70 : lines.length === 2 ? 62 : 48;
+  const labels = inputLabels();
+  const lines = def.lines.slice(0, 2).map((t) => fillLabels(t, labels));
+  const lineH = lines.length === 1 ? 90 : 78;
   const font = (px: number): string => `800 ${px}px "Hiragino Maru Gothic ProN","Yu Gothic","Meiryo","Noto Sans JP",sans-serif`;
   ctx.fillStyle = ink;
   ctx.textAlign = 'center';
@@ -113,7 +115,7 @@ function faceTexture(def: SignDef): THREE.CanvasTexture {
   const maxW = FACE_W - textLeft - 36;
   const total = lines.length * lineH;
   lines.forEach((t, i) => {
-    let px = lines.length === 1 ? 54 : i === 0 ? 50 : 38;
+    let px = lines.length === 1 ? 78 : i === 0 ? 68 : 50;
     ctx.font = font(px);
     const w = ctx.measureText(t).width;
     if (w > maxW) {
@@ -139,7 +141,7 @@ export class SignView {
   constructor(signs: readonly SignDef[]) {
     const woodMat = toonMaterial({ color: 0x9a6a3a });
     this.mats.push(woodMat);
-    const face = new THREE.PlaneGeometry(2.28, 1.14);
+    const face = new THREE.PlaneGeometry(2.48, 1.2);
     this.geos.push(face);
     // 柱と板 (木) は全部の看板を 1 つのメッシュに結合する (draw call を増やさない)。文字面だけ看板ごとの別メッシュ
     const wood: THREE.BufferGeometry[] = [];
@@ -158,8 +160,8 @@ export class SignView {
         g.applyMatrix4(m);
         wood.push(g);
       };
-      place(new THREE.BoxGeometry(0.16, 2.1, 0.16), 0, 1.05, 0);
-      place(new THREE.BoxGeometry(2.4, 1.24, 0.1), 0, 1.95, 0);
+      place(new THREE.BoxGeometry(0.18, 2.4, 0.18), 0, 1.2, 0);
+      place(new THREE.BoxGeometry(2.6, 1.3, 0.12), 0, 2.3, 0);
       const tex = faceTexture(def);
       this.textures.push(tex);
       const fm = new THREE.MeshBasicMaterial({ map: tex });
@@ -168,7 +170,7 @@ export class SignView {
       const g = new THREE.Group();
       g.position.set(def.pos[0], def.pos[1], def.pos[2]);
       g.quaternion.copy(q);
-      f.position.set(0, 1.95, 0.055);
+      f.position.set(0, 2.3, 0.065);
       g.add(f);
       this.group.add(g);
       this.items.push({ group: g, x: def.pos[0], z: def.pos[2] });
