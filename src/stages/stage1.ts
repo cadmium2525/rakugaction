@@ -2,7 +2,7 @@ import { Rng } from '../core/rng';
 import { crateBypass } from './crateBypass';
 import { PathBuilder } from './pathBuilder';
 import { RouteSet } from './routes';
-import { addScenery } from './scenery';
+import { addMeadow } from './meadow';
 import type { StageDef } from './types';
 
 /**
@@ -21,11 +21,20 @@ export function buildStage1(): StageDef {
   // ---- A: はじまりの原っぱ ----
   // スタート地点の後ろにも床を延ばす (カメラが崖の外に出ないように)
   b.plate(-16, 0, -5, 5, b.y, 1.4, 'grass');
+  // 看板 (操作と、これから出会う物の案内)
+  b.sign(5, -3.4, ['すすめ！', 'スティックで', 'いどうしよう'], { icon: 'arrow' });
+  b.sign(10, 3.4, ['ぷるん', 'ふむか ACTION', 'たおせるよ'], { icon: 'action' });
   b.flat(22, { w: 9 });
+  // はじめての敵: ぷるん (ふんづけ / ACTION で倒せる)。原っぱを左右に歩いている
+  b.enemy('blob', -9, -3.5, 3.5, { speed: 1.6 });
+  b.enemy('blob', -4, 3.5, -3.5, { speed: 1.6, phase: 1.1 });
   b.ramp(14, 2.2);
   b.flat(8);
   b.ramp(14, -2.2);
   b.flat(10);
+  // 丘をおりた所に ぴょんた (ジャンプで跳ねている。着地を待って通るか、ふんづける)
+  b.enemy('hopper', -5, -3, 3, { speed: 2.2 });
+  b.sign(-1.5, 3.0, ['はこは ACTION', 'こわせるよ！'], { icon: 'action' });
   // 木箱の壁 (ACTION チュートリアル): 床の上に、木箱 3x2 の壁 + 左右/頭上の石でふさぐ (迂回・飛び越え不可)
   const before = b.point(1.3);
   const after = b.point(5.8);
@@ -42,15 +51,21 @@ export function buildStage1(): StageDef {
   b.route.push({ pos: before, radius: 0.7, action: true });
   b.route.push({ pos: after, radius: 1.2 });
   b.flat(6, { w: 8 });
+  b.sign(-2.5, 3.2, ['トゲまる ちゅうい！', 'ふむと イタイよ'], { icon: 'warn', tone: 'warn' });
   b.checkpoint('cp0');
   rs.common(b.takeRoute());
 
   // ---- A': 木箱の抜け道 (攻撃力のあるビルドの近道。壊せない SPEED/JUMP などは大回り) ----
   const bp = crateBypass(b, { corridor: 14, detour: 20, pHalf: 4, qHalf: 4, qDepth: 8 });
   rs.fork({ main: [...bp.outer, bp.join], rock: [...bp.shortcut, bp.join] });
+  // 抜け道の通路 (木箱の壁のむこう) にトゲまる: 壊せるビルド (= 攻撃力が標準以上) だけがここに来る。ACTION でたおせる
+  b.enemy('spiky', -14, -2, 2, { speed: 2 });
+  // 合流の台 (どちらの道でも通る): ぷるん
+  b.enemy('blob', -4, -3, 3, { speed: 1.7, phase: 0.7 });
 
   // ---- B: せせらぎの飛び石 ----
   b.flat(6, { w: 6 });
+  b.sign(-2, -2.4, ['とびいし！', 'JUMP で わたろう'], { icon: 'jump' });
   // 飛び石は左右にずれて見えるが、幅 4.2m でレーンが重なる (ジャンプは中央の直線上で届く)
   const lat = [1.2, -1.2, 1.2, -1.2, 1.2, -1.2];
   for (let i = 0; i < lat.length; i++) {
@@ -59,6 +74,7 @@ export function buildStage1(): StageDef {
   }
   b.gap(2.2, 0, { lat: 0 });
   b.flat(8, { w: 8 });
+  b.enemy('hopper', -4, -2.5, 2.5, { speed: 2, phase: 0.4 });
   b.checkpoint('cp1');
 
   // ---- C: 階段状の丘 + 動く橋 ----
@@ -99,6 +115,7 @@ export function buildStage1(): StageDef {
     b.hazard(-22 + i * 7, -3.3, [1.8, 0.7, 2.2]);
   }
   b.flat(10, { w: 9 });
+  b.enemy('blob', -7, 3, -3, { speed: 1.8 });
   b.checkpoint('cp3');
   b.ramp(18, -4, { w: 8 });
   b.flat(8, { w: 8 });
@@ -106,21 +123,22 @@ export function buildStage1(): StageDef {
   b.flat(6, { w: 7 });
   b.gap(2.4, 1.0);
   b.flat(6, { w: 7 });
+  b.sign(-2.5, 2.6, ['おいかけくんが', 'まっているよ！'], { icon: 'warn', tone: 'warn' });
   b.gap(2.4, 1.0);
   b.flat(14, { w: 12 });
+  // ゴール前の広場: おいかけくん (近づくと追いかけてくる。広場の外へは出ない)
+  b.enemy('chaser', -9, 0, 0, { speed: 3.4, aggro: 9, leash: { a0: -13.5, a1: -1.5, l0: -5.5, l1: 5.5 } });
   b.goalHere([6, 5, 6]);
   rs.common(b.takeRoute());
   const routes = rs.build();
 
-  // 景色は全経路 (本道) に沿って置く
-  b.route = routes.main.slice();
-  const decorRng = new Rng(11);
-  addScenery(b, decorRng, { tree: 0x3f9e3f, trunk: 0x8a5a33, ground: 0x6fcf4b, spacing: 14 });
+  // 景色: コースの形に合わせて小道具・小島・雲海・丘を置く (固定シード)
+  addMeadow(b, routes, new Rng(11));
 
   return {
     id: 'stage1',
     name: 'STAGE 1  草原',
-    tagline: 'はしって ジャンプして ゴールをめざそう！',
+    tagline: 'はしって ジャンプ！ てきを ふんづけて ゴールへ',
     theme: {
       skyTop: 0x4aa3ff,
       skyBottom: 0xd6efff,
@@ -138,7 +156,10 @@ export function buildStage1(): StageDef {
     goal: b.goal ?? undefined,
     hazards: b.hazards,
     breakables: b.breakables,
+    enemies: b.enemies,
     decor: b.decor,
+    signs: b.signs,
+    ambient: { motes: { count: 70, color: 0xfff6b0, size: 0.1 }, petals: { count: 26, color: 0xffb3c8 }, butterflies: 7 },
     routes,
     parTime: 70,
   };

@@ -17,6 +17,9 @@ const RANK_BONUS: Record<Rank, number> = { S: 0.5, A: 0.25, B: 0, C: 0 };
 const FIRST_MUL = 2;
 const REPEAT_MUL = 0.35;
 const NEW_BEST_BONUS = 10;
+/** 倒した敵 1 体ごとの EXP と、1 回のクリアでの上限 */
+const ENEMY_EXP = 3;
+const ENEMY_EXP_CAP = 30;
 
 export interface StageExpInput {
   /** ステージの順番 (1〜5) */
@@ -24,6 +27,8 @@ export interface StageExpInput {
   rank: Rank;
   firstClear: boolean;
   newBest: boolean;
+  /** このクリアで倒した敵の数 (省略 = 0) */
+  enemiesDefeated?: number;
 }
 
 /** ステージクリアで貰える EXP。 基本 = 40 + 20 × ステージ番号。内訳は全て 0 以上。 */
@@ -35,6 +40,8 @@ export function stageExp(i: StageExpInput): ExpGain {
   const rankExp = Math.round(base * mul * (RANK_BONUS[i.rank] ?? 0));
   if (rankExp > 0) parts.push({ label: `ランク ${i.rank}`, exp: rankExp });
   if (i.newBest) parts.push({ label: 'NEW BEST', exp: NEW_BEST_BONUS });
+  const kills = Number.isFinite(i.enemiesDefeated) ? Math.max(0, Math.floor(i.enemiesDefeated ?? 0)) : 0;
+  if (kills > 0) parts.push({ label: 'てきを たおした', exp: Math.min(ENEMY_EXP_CAP, kills * ENEMY_EXP) });
   return { total: parts.reduce((s, p) => s + p.exp, 0), parts };
 }
 

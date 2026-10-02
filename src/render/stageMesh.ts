@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hashString } from '../core/rng';
 import type { BoxDef, CylinderDef, DecorDef, HazardDef, StageDef, SurfaceStyle } from '../stages/types';
 import { STYLE_COLORS } from './stageStyles';
+import { styleId } from './surfaceMaterial';
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -31,6 +32,13 @@ function paint(g: THREE.BufferGeometry, matrix: THREE.Matrix4, style: SurfaceSty
     colors[i * 3 + 2] = _c.b * shade;
   }
   g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  setStyleAttr(g, styleId(style));
+}
+
+/** 頂点ごとの表面の模様番号 (シェーダーが読む)。 */
+function setStyleAttr(g: THREE.BufferGeometry, id: number): void {
+  const n = g.getAttribute('position').count;
+  g.setAttribute('aStyle', new THREE.BufferAttribute(new Float32Array(n).fill(id), 1));
 }
 
 export function boxGeometry(b: Pick<BoxDef, 'pos' | 'size' | 'rot' | 'style'>, key: string): THREE.BufferGeometry {
@@ -54,35 +62,70 @@ function cylinderGeometry(c: CylinderDef, key: string): THREE.BufferGeometry {
   return g;
 }
 
-/** 装飾 (遠景の山/木/雲)。単色 + 法線に応じた明暗の頂点カラー。 */
+/** 岩: 正 20 面体を 3 軸の半径に伸ばし、頂点を位置から決まる量だけゆがめる (ごつごつ。同じ位置なら同じ形)。 */
+function rockGeometry(d: DecorDef): THREE.BufferGeometry {
+  const g = new THREE.IcosahedronGeometry(1, 0);
+  const pos = g.getAttribute('position');
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const k = 0.82 + 0.3 * ((hashString(`${d.pos[0].toFixed(2)},${d.pos[2].toFixed(2)}:${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)}`) % 1000) / 1000);
+    pos.setXYZ(i, x * d.size[0] * k, y * d.size[1] * k, z * d.size[2] * k);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** 装飾 (遠景の山/木/雲/岩/草)。単色 + 法線に応じた明暗の頂点カラー。回転・表面の模様つき。 */
 function decorGeometry(d: DecorDef): THREE.BufferGeometry {
   let g: THREE.BufferGeometry;
+  const seg = d.seg ?? 8;
   switch (d.shape) {
     case 'cone':
-      g = new THREE.ConeGeometry(d.size[0], d.size[1], 8, 1);
+      g = new THREE.ConeGeometry(d.size[0], d.size[1], seg, 1);
+      break;
+    case 'blade':
+      g = new THREE.ConeGeometry(d.size[0], d.size[1], 3, 1);
       break;
     case 'sphere':
-      g = new THREE.SphereGeometry(d.size[0], 8, 6);
+      g = new THREE.SphereGeometry(d.size[0], seg, Math.max(3, Math.round(seg * 0.75)));
+      break;
+    case 'ellipsoid':
+      g = new THREE.SphereGeometry(1, seg, Math.max(3, Math.round(seg * 0.7)));
+      g.scale(d.size[0], d.size[1], d.size[2]);
+      break;
+    case 'rock':
+      g = rockGeometry(d);
       break;
     case 'cylinder':
-      g = new THREE.CylinderGeometry(d.size[0], d.size[0], d.size[1], 8, 1);
+      g = new THREE.CylinderGeometry(d.size[0], d.size[0], d.size[1], seg, 1);
       break;
     default:
       g = new THREE.BoxGeometry(d.size[0], d.size[1], d.size[2]);
   }
-  _m.makeTranslation(d.pos[0], d.pos[1], d.pos[2]);
-  g.applyMatrix4(_m);
   g.deleteAttribute('uv');
+  if (!g.index) g = mergeVertices(g); // 結合 (mergeGeometries) は全部が index つきでないといけない
+  if (d.rot) {
+    _e.set(d.rot[0], d.rot[1], d.rot[2], 'XYZ');
+    _q.setFromEuler(_e);
+    _m.compose(_p.set(d.pos[0], d.pos[1], d.pos[2]), _q, _s);
+  } else {
+    _m.makeTranslation(d.pos[0], d.pos[1], d.pos[2]);
+  }
+  g.applyMatrix4(_m);
   const normals = g.getAttribute('normal') as THREE.BufferAttribute;
   const colors = new Float32Array(normals.count * 3);
   _c.setHex(d.color);
+  const glow = d.glow ?? 1;
   for (let i = 0; i < normals.count; i++) {
-    const shade = 0.82 + 0.18 * Math.max(0, normals.getY(i));
+    const shade = (0.82 + 0.18 * Math.max(0, normals.getY(i))) * glow;
     colors[i * 3] = _c.r * shade;
     colors[i * 3 + 1] = _c.g * shade;
     colors[i * 3 + 2] = _c.b * shade;
   }
   g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  setStyleAttr(g, styleId(d.style));
   return g;
 }
 

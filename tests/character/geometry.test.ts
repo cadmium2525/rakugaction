@@ -202,8 +202,8 @@ describe('buildCharacter: 極端なラクガキを 3D 化 (NaN/Infinity/空ジ�
         expect(Number.isFinite(g.position.x + g.position.y + g.position.z)).toBe(true);
       }
       expect(rig.metrics).toBeTruthy();
-      // 生成時間 (低速端末の目安として Node 上で 3 秒以内)
-      expect(report.ms).toBeLessThan(3000);
+      // 生成時間 (低速端末の目安として Node 上で 6 秒以内。全テストが並列に走る CI では 3 秒を超えることがあるため余裕を持たせた)
+      expect(report.ms).toBeLessThan(6000);
       rig.dispose();
     });
   }

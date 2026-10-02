@@ -46,6 +46,32 @@ export async function validateStage(stage: StageDef): Promise<void> {
   expect(Math.abs(last[0] - g.pos[0])).toBeLessThanOrEqual(g.size[0] / 2 + 1);
   expect(Math.abs(last[2] - g.pos[2])).toBeLessThanOrEqual(g.size[2] / 2 + 1);
 
+  // 敵: 経路の端点 (chaser は範囲の四隅と中心) の足元に地面があり、スタート/チェックポイントの近くにはいない
+  const ids = new Set<string>();
+  for (const e of stage.enemies ?? []) {
+    expect(ids.has(e.id), `enemy id ${e.id} が重複`).toBe(false);
+    ids.add(e.id);
+    const pts: readonly (readonly number[])[] = e.kind === 'chaser' && e.leash
+      ? [e.points[0], e.leash.min, e.leash.max, [e.leash.min[0], e.points[0][1], e.leash.max[2]], [e.leash.max[0], e.points[0][1], e.leash.min[2]]]
+      : e.points;
+    for (const p of pts) {
+      expect(finite(p), `enemy ${e.id} の座標`).toBe(true);
+      // 足元 (p[1]) の 0.1m 下〜 0.3m 上に床がある (跳ねる敵は地面の高さ = 経路の高さ)
+      const down = sim.raycast(p[0], p[1] + 0.3, p[2], 0, -1, 0, 0.7);
+      expect(down, `enemy ${e.id} (${e.kind}) の足元 [${p.map((v) => v.toFixed(1)).join(', ')}] に床がない`).not.toBeNull();
+    }
+    const near = [stage.spawn, ...(stage.checkpoints ?? []).map((c) => c.pos)];
+    for (const p of pts) {
+      for (const q of near) expect(Math.hypot(p[0] - q[0], p[2] - q[2]), `enemy ${e.id} がスタート/チェックポイントに近すぎる`).toBeGreaterThan(3);
+    }
+  }
+  // 看板: 文字は 1〜3 行
+  for (const s of stage.signs ?? []) {
+    expect(finite(s.pos) && Number.isFinite(s.yaw), 'sign の座標').toBe(true);
+    expect(s.lines.length >= 1 && s.lines.length <= 3, `sign の行数 ${s.lines.length}`).toBe(true);
+  }
+  for (const d of stage.decor ?? []) expect(finite(d.pos) && finite(d.size) && (!d.rot || finite(d.rot)), `decor ${JSON.stringify(d)}`).toBe(true);
+
   // 開始直後に即死/即ダメージしない
   sim.player.placeFeet(stage.spawn[0], stage.spawn[1], stage.spawn[2]);
   for (let i = 0; i < 60; i++) sim.step({ moveX: 0, moveZ: 0, jumpPressed: false, jumpHeld: false, actionPressed: false });

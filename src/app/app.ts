@@ -549,7 +549,7 @@ export class App {
     if (!entry || !session) return;
     const prevBest = this.profile.stage(stageId).bestMs;
     const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs);
-    const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest });
+    const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest, enemiesDefeated: r.enemiesDefeated });
     const before = this.profile.progress;
     const lv = this.profile.addExp(gain.total);
     const after = this.profile.progress;
@@ -566,6 +566,7 @@ export class App {
         rank: r.rank,
         deaths: r.deaths,
         hits: r.hits,
+        extra: r.enemiesTotal ? [`たおした てき ${r.enemiesDefeated ?? 0} / ${r.enemiesTotal}`] : undefined,
         progress: { gain, before, after, levelUp },
         onNext: next ? () => void this.startStage(next.id) : undefined,
         nextLabel: next ? `${next.title} ▶` : undefined,

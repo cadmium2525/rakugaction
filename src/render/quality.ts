@@ -9,12 +9,14 @@ export interface QualitySettings {
   shadowMapSize: number;
   /** カメラ far / フォグ距離の倍率 */
   viewScale: number;
+  /** 表面の模様 (草のはね線・敷石など) の強さ 0..1。0 = なし (描画が軽くなる) */
+  detail: number;
 }
 
 export const QUALITY_PRESETS: Record<Quality, QualitySettings> = {
-  low: { pixelRatioCap: 1, antialias: false, shadows: false, shadowMapSize: 512, viewScale: 0.7 },
-  medium: { pixelRatioCap: 1.5, antialias: true, shadows: false, shadowMapSize: 1024, viewScale: 1 },
-  high: { pixelRatioCap: 2, antialias: true, shadows: true, shadowMapSize: 1024, viewScale: 1.2 },
+  low: { pixelRatioCap: 1, antialias: false, shadows: false, shadowMapSize: 512, viewScale: 0.7, detail: 0 },
+  medium: { pixelRatioCap: 1.5, antialias: true, shadows: false, shadowMapSize: 1024, viewScale: 1, detail: 0.8 },
+  high: { pixelRatioCap: 2, antialias: true, shadows: true, shadowMapSize: 1024, viewScale: 1.2, detail: 1 },
 };
 
 export function isQuality(v: unknown): v is Quality {

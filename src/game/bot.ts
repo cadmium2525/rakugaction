@@ -31,6 +31,8 @@ const DEFAULT_RADIUS = 1.0;
 const DEFAULT_JUMP_DIST = 0.45;
 /** 動く危険物の待機: 領域のこの距離 (m) 以内に入ったら、もう止まらず渡り切る */
 const COMMIT_MARGIN = 2.0;
+/** 敵への攻撃: 「届く距離」にこの距離 (m) を足した所から ACTION を押す (ダッシュの踏み込みぶん) */
+const ENEMY_LUNGE_MARGIN = 0.9;
 
 /**
  * ステージ攻略ボット。ルート (ウェイポイント列) を実プレイヤーと同じ入力 (SimInput) でたどる。
@@ -39,6 +41,7 @@ const COMMIT_MARGIN = 2.0;
  *  - `wait` で待機 (秒 / 風が弱まるまで)、`action` で到着時に ACTION
  *  - 落下/死亡したらチェックポイント近くのウェイポイントからやり直す
  *  - 進めない状態が続いたら諦める (stuck)
+ *  - 前方の敵が ACTION の届く範囲に来たら攻撃する (攻撃力が足りる敵だけ。足りない敵は経路の工夫で避ける)
  * ステージの攻略可能性と、ビルドごとのクリアタイム/死亡回数の計測 (バランス調整) に使う。
  */
 export class Bot {
@@ -171,6 +174,7 @@ export class Bot {
     }
 
     this.steer(out);
+    this.fight(out);
 
     // 進捗/スタック判定
     const cur = this.route[this.idx];
@@ -201,6 +205,30 @@ export class Bot {
         this.blockedTime = 0;
       }
     } else this.blockedTime = 0;
+  }
+
+  /**
+   * 敵への対応: 攻撃力が足りる敵が前方の ACTION の届く範囲に来たら攻撃する。
+   * ダッシュ攻撃は前へ踏み込むので、届く距離より少し遠くから始める (踏み込みぶん + 敵が近づいてくるぶん)。
+   */
+  private fight(out: SimInput): void {
+    const sim = this.sim;
+    const p = sim.player;
+    if (sim.enemies.length === 0 || p.attackTimer > 0 || p.attackCooldown > 0) return;
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    const trigger = p.params.hitReach + ENEMY_LUNGE_MARGIN;
+    for (const e of sim.enemies) {
+      if (e.defeated || p.params.attackPower + 1e-6 < e.spec.toughness) continue;
+      const dx = e.pos.x - p.pos.x;
+      const dz = e.pos.z - p.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d - e.spec.radius > trigger) continue;
+      if (Math.abs(e.pos.y - p.pos.y) > e.spec.height / 2 + p.params.height / 2) continue;
+      if (d > 0.3 && (dx * fx + dz * fz) / d < 0.5) continue; // 向いている方向の敵だけ
+      out.actionPressed = true;
+      return;
+    }
   }
 
   /**

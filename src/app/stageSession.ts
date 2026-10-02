@@ -24,6 +24,9 @@ export interface StageResult {
   falls: number;
   hits: number;
   rank: Rank;
+  /** ゴールした時に倒していた敵の数 / ステージの敵の総数 (敵のいないステージは 0 / 0) */
+  enemiesDefeated?: number;
+  enemiesTotal?: number;
 }
 
 export interface SessionDeps {
@@ -228,6 +231,8 @@ export class StageSession {
       falls: sim.falls,
       hits: sim.hits,
       rank: rankFor(timeMs, this.deps.stage.parTime, sim.deaths),
+      enemiesDefeated: sim.enemiesDefeated,
+      enemiesTotal: sim.enemies.length,
     };
     this.hud.setBanner('GOAL!', 'clear');
     // 祝福ジャンプ (プレイヤーは操作不能)

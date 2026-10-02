@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { QualitySettings } from './quality';
 import type { RenderHost, RenderInfo } from './renderHost';
+import { AmbientView } from './ambientView';
 import { createSky } from './sky';
 import { StageView } from './stageView';
 import { PlayerView } from './playerView';
@@ -26,6 +27,7 @@ export class GameView {
   cameraUnderwater = false;
 
   private sky: THREE.Mesh | null = null;
+  private ambient: AmbientView | null = null;
   private readonly hemi = new THREE.HemisphereLight(0xcfe3ff, 0x8a7a5a, 1.0);
   private readonly sun = new THREE.DirectionalLight(0xffffff, 1.5);
   private readonly unsubscribe: (() => void)[] = [];
@@ -64,6 +66,7 @@ export class GameView {
     }
     this.camera.far = 300 * s.viewScale;
     this.camera.updateProjectionMatrix();
+    this.stageView?.setDetail(s.detail);
     this.applyFog();
   }
 
@@ -90,11 +93,16 @@ export class GameView {
     this.unloadStage();
     this.stageView = new StageView(stage, sim);
     this.scene.add(this.stageView.group);
+    this.stageView.setDetail(this.host.currentSettings.detail);
     const th = stage.theme;
-    this.sky = createSky(th.skyTop, th.skyBottom);
+    this.sky = createSky(th.skyTop, th.skyBottom, { color: th.sun, dir: new THREE.Vector3(-30, 60, 20) });
     this.scene.add(this.sky);
     this.cameraUnderwater = false;
     this.applyFog();
+    if (stage.ambient) {
+      this.ambient = new AmbientView(stage.ambient, this.host.currentSettings.detail > 0 ? 1 : 0.4);
+      this.scene.add(this.ambient.group);
+    }
     this.hemi.color.setHex(th.ambient);
     this.sun.color.setHex(th.sun);
     this.sun.position.set(-30, 60, 20);
@@ -106,10 +114,16 @@ export class GameView {
       this.stageView.dispose();
       this.stageView = null;
     }
+    if (this.ambient) {
+      this.scene.remove(this.ambient.group);
+      this.ambient.dispose();
+      this.ambient = null;
+    }
     if (this.sky) {
       this.scene.remove(this.sky);
       this.sky.geometry.dispose();
       (this.sky.material as THREE.Material).dispose();
+      for (const c of this.sky.children) (c as THREE.Sprite).material?.dispose();
       this.sky = null;
     }
   }
@@ -134,6 +148,7 @@ export class GameView {
       if (sim) this.updateUnderwater(sim, pose.y, pose.x, pose.z);
     }
     if (this.sky) this.sky.position.copy(this.camera.position);
+    this.ambient?.update(this.camera.position, dt);
     host.renderer.render(this.scene, this.camera);
     host.adaptResolution(dt);
   }

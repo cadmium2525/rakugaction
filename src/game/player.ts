@@ -444,6 +444,15 @@ export class PlayerController {
     this.jumping = true; // 被弾中の空中ジャンプはできない
   }
 
+  /** 敵をふんづけた時のはね返り: 上向きの速度を与える (ボタンを押し続けていれば高く、離していれば低く)。 */
+  bounce(vy: number, held: boolean): void {
+    this.vel.y = vy;
+    this.grounded = false;
+    this.coyote = 0;
+    this.jumping = true; // 空中ジャンプはできない
+    this.jumpCut = !held;
+  }
+
   /** 被ダメージの硬直を開始する。 */
   stun(): void {
     this.stunTimer = STUN_TIME;

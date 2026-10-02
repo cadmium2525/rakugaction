@@ -78,6 +78,39 @@ export interface SweeperDef {
   damage?: number;
 }
 
+/**
+ * 敵の種類。
+ *   blob    = ぷるん: 巡回する。ふんづけ / ACTION のどちらでも倒せる (誰でも倒せる弱い敵)。
+ *   hopper  = ぴょんた: 巡回しながら跳ねる。ふんづけ / ACTION で倒せる。
+ *   spiky   = トゲまる: 巡回する。上からふんでもトゲで痛い。ACTION は攻撃力が足りるキャラだけが倒せる (POWER の出番)。
+ *   chaser  = おいかけくん: 気づくと追いかけてくる (決められた範囲 leash の中だけ)。ふんづけ / ACTION で倒せる。
+ */
+export type EnemyKind = 'blob' | 'hopper' | 'spiky' | 'chaser';
+
+/**
+ * 敵。巡回する敵の位置は経過時間だけで決まる (移動床/鉄球と同じ = 決定的)。chaser だけはプレイヤーの位置で動く (それも決定的)。
+ * 触れるとダメージ + ノックバック (DEFENSE で軽減)。倒した敵は、やられて復活すると元に戻る。
+ */
+export interface EnemyDef {
+  id: string;
+  kind: EnemyKind;
+  /** 足元の経路 (往復。loop なら周回)。chaser は points[0] が待機位置 */
+  points: readonly V3t[];
+  /** 移動速度 (m/s)。chaser は追いかける速さ */
+  speed: number;
+  pause?: number;
+  phase?: number;
+  loop?: boolean;
+  /** chaser: 追いかけてよい範囲 (足元の座標の AABB)。気づく距離 aggro (m)。 */
+  leash?: { min: V3t; max: V3t };
+  aggro?: number;
+  /** 大きさの倍率 (既定 1) */
+  scale?: number;
+  /** 種類ごとの既定値の上書き */
+  toughness?: number;
+  damage?: number;
+}
+
 /** ACTION (ダッシュ攻撃) で壊せる箱。toughness <= 攻撃力 のキャラだけが壊せる。 */
 export interface BreakableDef {
   id: string;
@@ -130,13 +163,46 @@ export interface WaterDef {
   level?: { amplitude: number; period: number; phase?: number };
 }
 
-/** 当たり判定のない装飾 (遠景の山/木/雲など)。静的メッシュに統合される。 */
+/**
+ * 当たり判定のない装飾 (遠景の山/木/雲/岩/草など)。静的メッシュに統合される。
+ *   box: 全幅 [x, y, z] / cone,cylinder: [半径, 高さ, 半径] / sphere: [半径, ·, ·]
+ *   ellipsoid: 3 軸の半径 / rock: 3 軸の半径のごつごつした岩 / blade: 草の葉 (細い 3 角の円錐。[半径, 高さ, 半径])
+ */
 export interface DecorDef {
-  shape: 'box' | 'cone' | 'sphere' | 'cylinder';
+  shape: 'box' | 'cone' | 'sphere' | 'cylinder' | 'ellipsoid' | 'rock' | 'blade';
   pos: V3t;
-  /** box: 全幅 / cone,cylinder: [半径, 高さ, 半径] / sphere: [半径, ·, ·] */
   size: V3t;
   color: number;
+  /** オイラー角 XYZ (rad) */
+  rot?: V3t;
+  /** 表面の模様 (省略 = 模様なし) */
+  style?: SurfaceStyle;
+  /** cone / cylinder の分割数 (既定 8)。遠くの物は小さくして軽くする */
+  seg?: number;
+  /** 色の明るさの倍率 (既定 1)。雲のように、影の面も白く見せたい物に 1.5 以上を指定する */
+  glow?: number;
+}
+
+/** 看板 (文字つき)。立て札の足元 pos に立ち、文字面は yaw の向き (0 = +Z を向く)。 */
+export interface SignDef {
+  pos: V3t;
+  yaw: number;
+  /** 1〜3 行の文字 */
+  lines: readonly string[];
+  /** 板の色味: 'info' = 木の色 / 'warn' = 注意の黄 */
+  tone?: 'info' | 'warn';
+  /** 文字の上に出す絵 */
+  icon?: 'arrow' | 'warn' | 'star' | 'jump' | 'action';
+}
+
+/** 空気感の演出 (花粉・花びら・ちょうちょ)。プレイヤーの周りだけに出る (軽い)。 */
+export interface AmbientDef {
+  /** 舞う粒 (花粉/ほこり) の数・色 */
+  motes?: { count: number; color: number; size?: number };
+  /** ひらひら舞う花びらの数・色 */
+  petals?: { count: number; color: number };
+  /** ちょうちょの数 */
+  butterflies?: number;
 }
 
 /** ボット (自動テスト/バランス計測) 用のルートヒント。プレイヤーには見えない。 */
@@ -204,7 +270,10 @@ export interface StageDef {
   breakables?: readonly BreakableDef[];
   crumbles?: readonly CrumbleDef[];
   sweepers?: readonly SweeperDef[];
+  enemies?: readonly EnemyDef[];
   decor?: readonly DecorDef[];
+  signs?: readonly SignDef[];
+  ambient?: AmbientDef;
   winds?: readonly WindDef[];
   waters?: readonly WaterDef[];
   /**

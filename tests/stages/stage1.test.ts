@@ -14,6 +14,15 @@ describe('STAGE 1 草原', () => {
     expect(stage.checkpoints!.length).toBeGreaterThanOrEqual(3);
   });
 
+  it('敵が 4 種類 (ぷるん/ぴょんた/トゲまる/おいかけくん) 配置され、看板で案内している', () => {
+    const kinds = new Set(stage.enemies!.map((e) => e.kind));
+    expect([...kinds].sort()).toEqual(['blob', 'chaser', 'hopper', 'spiky']);
+    expect(stage.enemies!.length).toBeGreaterThanOrEqual(8);
+    expect(stage.signs!.length).toBeGreaterThanOrEqual(5);
+    // 情報量: 小道具 (木・花・岩・柵・家・雲など) が十分ある
+    expect(stage.decor!.length).toBeGreaterThanOrEqual(800);
+  });
+
   const results = new Map<string, RunReport>();
   const best = new Map<string, RunReport>();
 
@@ -23,6 +32,7 @@ describe('STAGE 1 草原', () => {
       results.set(id, r);
       expect(r.cleared, fmt(r)).toBe(true);
       expect(r.deaths, fmt(r)).toBeLessThanOrEqual(3);
+      expect(r.hits, `敵や罠に当たりすぎ: ${fmt(r)}`).toBeLessThanOrEqual(3);
       expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 70) * 2);
     }
   }, 300_000);

@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import { lerp } from '../core/math';
 import type { CrumbleState, GameSim } from '../game/sim';
 import type { StageDef } from '../stages/types';
+import { EnemyView } from './enemyView';
+import { SignView } from './signView';
+import { createSurfaceMaterial } from './surfaceMaterial';
+import type { SurfaceMaterial } from './surfaceMaterial';
 import { toonMaterial } from './toon';
 import { boxGeometry, buildStaticStageGeometry } from './stageMesh';
 import { WaterView } from './waterView';
@@ -16,7 +20,7 @@ export class StageView {
   private readonly sweeperMeshes: THREE.Mesh[] = [];
   private readonly checkpointFlags = new Map<string, THREE.Mesh>();
   private readonly goal: THREE.Group | null = null;
-  private readonly mat = toonMaterial({ vertexColors: true });
+  private readonly mat: SurfaceMaterial = createSurfaceMaterial();
   /** 壊せる箱 (全部 1 つの InstancedMesh = 1 draw call) */
   private breakableInst: THREE.InstancedMesh | null = null;
   private readonly breakableIndex = new Map<string, number>();
@@ -40,6 +44,8 @@ export class StageView {
   private readonly tmpC = new THREE.Color();
   private readonly windStreaks: WindStreaks | null = null;
   private readonly waterView: WaterView | null = null;
+  private readonly enemyView: EnemyView | null = null;
+  private readonly signView: SignView | null = null;
 
   constructor(readonly stage: StageDef, sim: GameSim) {
     this.staticMesh = new THREE.Mesh(buildStaticStageGeometry(stage), this.mat);
@@ -106,6 +112,16 @@ export class StageView {
       this.waterView = new WaterView(stage.waters);
       this.group.add(this.waterView.group);
     }
+    // 看板
+    if (stage.signs && stage.signs.length > 0) {
+      this.signView = new SignView(stage.signs);
+      this.group.add(this.signView.group);
+    }
+    // 敵
+    if (sim.enemies.length > 0) {
+      this.enemyView = new EnemyView(sim);
+      this.group.add(this.enemyView.group);
+    }
     // 破片
     this.debrisInst = new THREE.InstancedMesh(boxGeometry({ pos: [0, 0, 0], size: [0.32, 0.32, 0.32], style: 'wood' }, 'debris'), this.mat, StageView.MAX_DEBRIS);
     this.debrisInst.count = 0;
@@ -143,6 +159,11 @@ export class StageView {
     }
   }
 
+  /** 表面の模様の強さ (画質で切り替える) */
+  setDetail(v: number): void {
+    this.mat.setDetail(v);
+  }
+
   /** 崩れる床の状態変化: 落ちた瞬間に破片を飛ばす。 */
   onCrumble(id: string, state: 'shake' | 'fall' | 'restore'): void {
     if (state !== 'fall') return;
@@ -163,6 +184,11 @@ export class StageView {
     inst.instanceMatrix.needsUpdate = true;
     const d = this.breakableDefs[i];
     this.burst(d.pos, d.size, 6);
+  }
+
+  /** 敵を倒した / 攻撃がはね返された: 煙と星を出す。 */
+  onEnemy(id: string, how: 'stomp' | 'dash' | 'guard'): void {
+    this.enemyView?.onEnemy(id, how);
   }
 
   private burst(pos: readonly [number, number, number], size: readonly [number, number, number], n: number): void {
@@ -243,6 +269,8 @@ export class StageView {
     }
     this.windStreaks?.update(sim.time);
     this.waterView?.update(sim.time);
+    this.enemyView?.update(sim, alpha, dt);
+    this.signView?.update(sim.player.pos.x, sim.player.pos.z);
     this.updateCrumbles(sim, dt);
     // 破片の更新 (1 つの InstancedMesh にまとめて書き戻す)
     let n = 0;
@@ -276,6 +304,8 @@ export class StageView {
     this.mat.dispose();
     this.windStreaks?.dispose();
     this.waterView?.dispose();
+    this.enemyView?.dispose();
+    this.signView?.dispose();
     this.debrisInst.geometry.dispose();
     this.debrisInst.dispose();
     this.breakableInst?.geometry.dispose();

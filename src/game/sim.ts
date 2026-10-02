@@ -1,10 +1,12 @@
 import type RAPIER from '@dimforge/rapier3d-compat';
-import { v3 } from '../core/math';
+import { clamp, v3 } from '../core/math';
 import type { V3 } from '../core/math';
 import { FIXED_DT } from '../core/version';
 import type { SimInput } from '../input/types';
 import type { Rapier } from '../physics/rapier';
-import type { BreakableDef, CrumbleDef, HazardDef, MoverDef, StageDef, SweeperDef } from '../stages/types';
+import type { BreakableDef, CrumbleDef, EnemyDef, HazardDef, MoverDef, StageDef, SweeperDef } from '../stages/types';
+import { patrolFeetAt, resolveSpec } from './enemies';
+import type { EnemySpec } from './enemies';
 import type { SimEvent } from './events';
 import type { PlayerParams } from './params';
 import { NO_ENV, PlayerController } from './player';
@@ -34,6 +36,19 @@ export interface SweeperRuntime {
   prev: V3;
 }
 
+/** 敵 1 体の実行時の状態。pos = 当たり判定の円柱の中心 (足元 + 高さ/2)。 */
+export interface EnemyRuntime {
+  def: EnemyDef;
+  spec: EnemySpec;
+  pos: V3;
+  prev: V3;
+  /** 向き (rad, 0 = +Z)。描画用 */
+  yaw: number;
+  defeated: boolean;
+  /** chaser: プレイヤーを追いかけている最中か */
+  chasing: boolean;
+}
+
 export type CrumbleState = 'idle' | 'shake' | 'fallen';
 
 export interface CrumbleRuntime {
@@ -52,6 +67,13 @@ const INVULN_TIME = 1.1;
 /** ノックバックの基準速度 (m/s) */
 const KNOCKBACK_H = 6.5;
 const KNOCKBACK_V = 5.5;
+/** 敵をふんづける: 落下中の速度がこれ以下 (m/s) で、足が敵の上の方にあれば「ふんだ」とみなす */
+const STOMP_MIN_FALL = -1.0;
+/** はね返りの初速 (ジャンプ初速に対する倍率。ボタンを押し続けていると高い) */
+const STOMP_BOUNCE_HOLD = 0.95;
+const STOMP_BOUNCE_TAP = 0.7;
+/** chaser: 追っている間 / 待機位置へ戻る時の速さ (m/s) の倍率。戻る時は遅い */
+const CHASER_RETURN_MUL = 0.5;
 
 /**
  * ゲームシミュレーション本体。Rapier + プレイヤー + ステージギミックを保持する。
@@ -64,6 +86,7 @@ export class GameSim {
   readonly breakables: BreakableRuntime[] = [];
   readonly crumbles: CrumbleRuntime[] = [];
   readonly sweepers: SweeperRuntime[] = [];
+  readonly enemies: EnemyRuntime[] = [];
   /** 経過シミュレーション時間 (秒)。ステップ数 × FIXED_DT。 */
   time = 0;
   stepCount = 0;
@@ -107,6 +130,7 @@ export class GameSim {
       const p = moverPosition(def, 0);
       this.sweepers.push({ def, pos: v3(p.x, p.y, p.z), prev: v3(p.x, p.y, p.z) });
     }
+    for (const def of stage.enemies ?? []) this.enemies.push(this.makeEnemy(def));
     this.checkpoint = v3(stage.spawn[0], stage.spawn[1], stage.spawn[2]);
     this.player = new PlayerController(R, this.world, params, v3(0, 0, 0));
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, stage.spawnYaw ?? 0);
@@ -284,6 +308,8 @@ export class GameSim {
       s.pos.z = np.z;
     }
 
+    this.stepEnemies(nextTime, dt);
+
     const player = this.player;
     // 風: プレイヤー位置の風速を環境へ (体重による効きの差は PlayerController 側)
     const wz = this.stage.winds;
@@ -308,12 +334,166 @@ export class GameSim {
 
     this.updateCrumbles(dt);
     this.checkTriggers();
+    this.checkEnemies(input);
     this.checkHazards();
     if (player.attacking) this.checkAttackHits();
     if (player.pos.y - player.params.height / 2 < this.stage.killY) {
       this.falls++;
       this.respawn('fall');
     }
+  }
+
+  // ===== 敵 =====
+
+  private makeEnemy(def: EnemyDef): EnemyRuntime {
+    const spec = resolveSpec(def);
+    const e: EnemyRuntime = { def, spec, pos: v3(), prev: v3(), yaw: 0, defeated: false, chasing: false };
+    this.placeEnemy(e, 0);
+    return e;
+  }
+
+  /** 敵を、時間 t の (または待機の) 位置に置く。prev も同じにする (補間でとんでもない所から飛んでこない)。 */
+  private placeEnemy(e: EnemyRuntime, t: number): void {
+    const half = e.spec.height / 2;
+    let fx: number;
+    let fy: number;
+    let fz: number;
+    if (e.def.kind === 'chaser') {
+      [fx, fy, fz] = e.def.points[0];
+    } else {
+      const f = patrolFeetAt(e.def, t);
+      fx = f.x;
+      fy = f.y;
+      fz = f.z;
+    }
+    e.pos.x = e.prev.x = fx;
+    e.pos.y = e.prev.y = fy + half;
+    e.pos.z = e.prev.z = fz;
+    e.chasing = false;
+  }
+
+  private stepEnemies(nextTime: number, dt: number): void {
+    for (const e of this.enemies) {
+      if (e.defeated) continue;
+      e.prev.x = e.pos.x;
+      e.prev.y = e.pos.y;
+      e.prev.z = e.pos.z;
+      if (e.def.kind === 'chaser') {
+        this.stepChaser(e, dt);
+        continue;
+      }
+      const f = patrolFeetAt(e.def, nextTime);
+      const dx = f.x - e.pos.x;
+      const dz = f.z - e.pos.z;
+      if (dx * dx + dz * dz > 1e-8) e.yaw = Math.atan2(dx, dz);
+      e.pos.x = f.x;
+      e.pos.y = f.y + e.spec.height / 2;
+      e.pos.z = f.z;
+    }
+  }
+
+  /** chaser: プレイヤーが気づく距離 (aggro) に入ると、範囲 leash の中でだけ追いかける。離れると待機位置へゆっくり戻る。 */
+  private stepChaser(e: EnemyRuntime, dt: number): void {
+    const def = e.def;
+    const home = def.points[0];
+    const leash = def.leash;
+    const p = this.player;
+    const aggro = (def.aggro ?? 9) * (e.chasing ? 1.4 : 1);
+    const inZone =
+      (!leash || (p.pos.x >= leash.min[0] - 1 && p.pos.x <= leash.max[0] + 1 && p.pos.z >= leash.min[2] - 1 && p.pos.z <= leash.max[2] + 1)) &&
+      Math.abs(p.feetY - home[1]) < 2.5;
+    const dxp = p.pos.x - e.pos.x;
+    const dzp = p.pos.z - e.pos.z;
+    let tx = home[0];
+    let tz = home[2];
+    let speed = def.speed * CHASER_RETURN_MUL;
+    e.chasing = false;
+    if (inZone && dxp * dxp + dzp * dzp < aggro * aggro) {
+      e.chasing = true;
+      tx = p.pos.x;
+      tz = p.pos.z;
+      speed = def.speed;
+    }
+    if (leash) {
+      tx = clamp(tx, leash.min[0], leash.max[0]);
+      tz = clamp(tz, leash.min[2], leash.max[2]);
+    }
+    const dx = tx - e.pos.x;
+    const dz = tz - e.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 1e-4) {
+      const step = Math.min(d, speed * dt);
+      e.pos.x += (dx / d) * step;
+      e.pos.z += (dz / d) * step;
+      e.yaw = Math.atan2(dx, dz);
+    }
+    e.pos.y = home[1] + e.spec.height / 2;
+  }
+
+  /**
+   * 敵との当たり判定 (円柱 × プレイヤーの円柱)。優先順位: ACTION で倒す → ふんづけ → 接触ダメージ。
+   * 倒した敵は消える。攻撃力が足りない ACTION ははね返される (guard)。
+   */
+  private checkEnemies(input: SimInput): void {
+    if (this.enemies.length === 0) return;
+    const p = this.player;
+    const pr = p.params.radius;
+    const hh = p.params.height / 2;
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    for (const e of this.enemies) {
+      if (e.defeated) continue;
+      const er = e.spec.radius;
+      const eh = e.spec.height / 2;
+      const dx = p.pos.x - e.pos.x;
+      const dz = p.pos.z - e.pos.z;
+      const dy = p.pos.y - e.pos.y;
+      const horiz = Math.hypot(dx, dz);
+
+      // ACTION: 前方で届く範囲にいる敵
+      if (p.attacking && !this.attackHits.has(e.def.id) && horiz - er <= p.params.hitReach && Math.abs(dy) <= eh + hh) {
+        const front = horiz < 0.3 || (-dx * fx - dz * fz) / horiz >= 0.2;
+        if (front) {
+          this.attackHits.add(e.def.id);
+          if (p.params.attackPower + 1e-6 >= e.spec.toughness) {
+            this.defeatEnemy(e, 'dash');
+            continue;
+          }
+          this.events.push({ type: 'enemy', id: e.def.id, how: 'guard' });
+        }
+      }
+
+      // ふんづけ: 上から落ちてきて、足が敵の上の方に来た時
+      const overlapH = horiz < er + pr * 0.85;
+      if (e.spec.stompable && overlapH && p.vel.y <= STOMP_MIN_FALL) {
+        const top = e.pos.y + eh;
+        const feet = p.feetY;
+        const prevFeet = p.prevPos.y - hh;
+        if (feet <= top + 0.35 && feet >= top - 0.45 && prevFeet >= top - 0.2) {
+          this.defeatEnemy(e, 'stomp');
+          p.bounce(p.params.jumpVelocity * (input.jumpHeld ? STOMP_BOUNCE_HOLD : STOMP_BOUNCE_TAP), input.jumpHeld);
+          continue;
+        }
+      }
+
+      // 接触ダメージ
+      if (this.invuln <= 0 && horiz < er + pr * 0.9 && Math.abs(dy) < eh + hh - 0.08) {
+        this.hurt({ pos: [e.pos.x, e.pos.y, e.pos.z], damage: e.spec.damage });
+        return;
+      }
+    }
+  }
+
+  private defeatEnemy(e: EnemyRuntime, how: 'stomp' | 'dash'): void {
+    e.defeated = true;
+    this.events.push({ type: 'enemy', id: e.def.id, how });
+  }
+
+  /** 倒した敵の数 (やられて復活すると 0 に戻る) */
+  get enemiesDefeated(): number {
+    let n = 0;
+    for (const e of this.enemies) if (e.defeated) n++;
+    return n;
   }
 
   private checkTriggers(): void {
@@ -463,6 +643,10 @@ export class GameSim {
   respawn(reason: 'fall' | 'hazard' | 'manual'): void {
     this.deaths++;
     for (const c of this.crumbles) if (c.state !== 'idle') this.restoreCrumble(c);
+    for (const e of this.enemies) {
+      e.defeated = false;
+      this.placeEnemy(e, this.time);
+    }
     this.hp = this.maxHp;
     this.invuln = 1.0;
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, this.player.yaw);

@@ -4,9 +4,12 @@ import type {
   CheckpointDef,
   CrumbleDef,
   DecorDef,
+  EnemyDef,
+  EnemyKind,
   GoalDef,
   HazardDef,
   MoverDef,
+  SignDef,
   SurfaceStyle,
   SweeperDef,
   WaterDef,
@@ -49,7 +52,9 @@ export interface SharedLists {
   breakables: BreakableDef[];
   crumbles: CrumbleDef[];
   sweepers: SweeperDef[];
+  enemies: EnemyDef[];
   decor: DecorDef[];
+  signs: SignDef[];
   winds: WindDef[];
   waters: WaterDef[];
   counter: { n: number };
@@ -67,7 +72,9 @@ export class PathBuilder {
   readonly breakables: BreakableDef[];
   readonly crumbles: CrumbleDef[];
   readonly sweepers: SweeperDef[];
+  readonly enemies: EnemyDef[];
   readonly decor: DecorDef[];
+  readonly signs: SignDef[];
   readonly winds: WindDef[];
   readonly waters: WaterDef[];
   route: WaypointDef[] = [];
@@ -87,7 +94,7 @@ export class PathBuilder {
   ) {
     [this.x, this.y, this.z] = start;
     this.heading = heading;
-    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], crumbles: [], sweepers: [], decor: [], winds: [], waters: [], counter: { n: 0 } };
+    this.shared = shared ?? { boxes: [], movers: [], checkpoints: [], hazards: [], breakables: [], crumbles: [], sweepers: [], enemies: [], decor: [], signs: [], winds: [], waters: [], counter: { n: 0 } };
     this.boxes = this.shared.boxes;
     this.movers = this.shared.movers;
     this.checkpoints = this.shared.checkpoints;
@@ -95,7 +102,9 @@ export class PathBuilder {
     this.breakables = this.shared.breakables;
     this.crumbles = this.shared.crumbles;
     this.sweepers = this.shared.sweepers;
+    this.enemies = this.shared.enemies;
     this.decor = this.shared.decor;
+    this.signs = this.shared.signs;
     this.winds = this.shared.winds;
     this.waters = this.shared.waters;
   }
@@ -351,6 +360,43 @@ export class PathBuilder {
     return def;
   }
 
+  /**
+   * 敵を置く。巡回する敵 (blob / hopper / spiky) は 前方 a の位置で右 l0 → l1 を往復する (床の上)。
+   * a1 を指定すると前方へも動く (a → a1)。chaser は (a, l0) が待機位置で、leash = 追いかけてよい範囲 (前方 a0..a1 × 右 l0..l1)。
+   */
+  enemy(
+    kind: EnemyKind,
+    a: number,
+    l0: number,
+    l1: number,
+    o: { a1?: number; speed?: number; pause?: number; phase?: number; scale?: number; toughness?: number; damage?: number; aggro?: number; leash?: { a0: number; a1: number; l0: number; l1: number } } = {},
+  ): EnemyDef {
+    const a1 = o.a1 ?? a;
+    const points: V3t[] = kind === 'chaser' ? [this.point(a, l0)] : [this.point(a, l0), this.point(a1, l1)];
+    let leash: EnemyDef['leash'];
+    if (kind === 'chaser') {
+      const lz = o.leash ?? { a0: a - 4, a1: a + 4, l0: l0 - 4, l1: l0 + 4 };
+      const p0 = this.point(lz.a0, lz.l0);
+      const p1 = this.point(lz.a1, lz.l1);
+      leash = { min: [Math.min(p0[0], p1[0]), this.y, Math.min(p0[2], p1[2])], max: [Math.max(p0[0], p1[0]), this.y, Math.max(p0[2], p1[2])] };
+    }
+    const def: EnemyDef = {
+      id: this.nextId('en'),
+      kind,
+      points,
+      speed: o.speed ?? (kind === 'chaser' ? 3.6 : kind === 'spiky' ? 2.2 : 1.8),
+      pause: o.pause ?? 0.4,
+      phase: o.phase,
+      leash,
+      aggro: o.aggro,
+      scale: o.scale,
+      toughness: o.toughness,
+      damage: o.damage,
+    };
+    this.enemies.push(def);
+    return def;
+  }
+
   breakable(a: number, l: number, size: V3t, toughness: number, style: SurfaceStyle = 'wood'): BreakableDef {
     const b: BreakableDef = { id: this.nextId('bk'), pos: this.point(a, l, this.y + size[1] / 2), size, toughness, style };
     this.breakables.push(b);
@@ -434,6 +480,14 @@ export class PathBuilder {
       level: o.level,
     });
     return id;
+  }
+
+  /** 看板を立てる (前方 a・右 l の地面)。文字面はプレイヤーが進んでくる向き (進行方向の逆) を向く。 */
+  sign(a: number, l: number, lines: readonly string[], o: { icon?: SignDef['icon']; tone?: SignDef['tone'] } = {}): SignDef {
+    const f = this.fwd();
+    const def: SignDef = { pos: this.point(a, l), yaw: Math.atan2(-f[0], -f[1]), lines, icon: o.icon, tone: o.tone };
+    this.signs.push(def);
+    return def;
   }
 
   deco(shape: DecorDef['shape'], pos: V3t, size: V3t, color: number): this {

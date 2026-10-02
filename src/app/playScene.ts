@@ -167,6 +167,7 @@ export class PlayScene {
       if (e.type === 'checkpoint') this.view.stageView?.markCheckpoint(e.id);
       else if (e.type === 'break') this.view.stageView?.onBreak(e.id);
       else if (e.type === 'crumble') this.view.stageView?.onCrumble(e.id, e.state);
+      else if (e.type === 'enemy') this.view.stageView?.onEnemy(e.id, e.how);
       else if (e.type === 'respawn') this.camera.snapTo(this.sim, this.sim.player.yaw);
     }
   }
