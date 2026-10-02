@@ -23,14 +23,18 @@ export interface ObjectiveInfo {
   items: { label: string; taken: boolean }[];
 }
 
+const CHECKPOINT_LABEL = '🚩 チェックポイントから再開';
+
 /** ポーズメニュー。 */
 export class PauseMenu {
   readonly el: HTMLElement;
   private readonly box: HTMLElement;
   private readonly list: HTMLElement;
+  private readonly checkpointBtn: HTMLButtonElement;
 
   constructor(parent: HTMLElement, opts: PauseMenuOptions) {
     this.list = h('div', { class: 'pause-list' });
+    this.checkpointBtn = h('button', { class: 'btn btn-ghost', text: CHECKPOINT_LABEL, on: { click: () => opts.onCheckpoint() } });
     this.box = h(
       'div',
       { class: 'pause-box' },
@@ -39,13 +43,18 @@ export class PauseMenu {
         'div',
         { class: 'pause-btns' },
         h('button', { class: 'btn btn-primary btn-big', text: '▶ 再開', on: { click: () => opts.onResume() } }),
-        h('button', { class: 'btn btn-ghost', text: '🚩 チェックポイントから再開', on: { click: () => opts.onCheckpoint() } }),
+        this.checkpointBtn,
         h('button', { class: 'btn btn-ghost', text: opts.restartLabel ?? '↻ 最初からやり直す', on: { click: () => opts.onRestart() } }),
         h('button', { class: 'btn btn-ghost', text: opts.quitLabel ?? '⌂ ステージを終了', on: { click: () => opts.onQuit() } }),
       ),
     );
     this.el = h('div', { class: 'pause-menu', attrs: { hidden: '' } }, this.box);
     parent.appendChild(this.el);
+  }
+
+  /** 「チェックポイントから再開」に、タイムへ加わる秒数の見積りを添える (null なら添えない)。 */
+  setCheckpointPenalty(sec: number | null): void {
+    this.checkpointBtn.textContent = sec === null ? CHECKPOINT_LABEL : `${CHECKPOINT_LABEL} (+${sec.toFixed(1)} 秒)`;
   }
 
   /** 集めるアイテムの一覧を出す (null なら出さない)。取った物は ✓、まだの物は ○。 */
@@ -56,7 +65,8 @@ export class PauseMenu {
       return;
     }
     this.list.replaceChildren(
-      h('div', { class: 'pause-list-head', text: `${info.noun} ${info.count} / ${info.required} (全 ${info.items.length} 個のうち ${info.required} 個でゴールが開く)` }),
+      h('div', { class: 'pause-list-head', text: `${info.noun} ${info.count} / ${info.required}` }),
+      h('div', { class: 'pause-list-sub', text: `${info.required} 個集めるとゴールが開く (全 ${info.items.length} 個)` }),
       ...info.items.map((it) => h('div', { class: `pause-item${it.taken ? ' taken' : ''}`, text: `${it.taken ? '★' : '☆'} ${it.label}` })),
     );
     this.box.appendChild(this.list);

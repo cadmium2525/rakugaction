@@ -303,12 +303,11 @@ function stripOutline(tex: Uint8ClampedArray, mask: Uint8Array, res: number): [n
   // 線 (とその周りのアンチエイリアスの混ざった色) を含む縁の帯を、内側の塗りの色で置き換える。
   // 縁は立体の急な側面で、テクスチャが放射状に引き伸ばされるので、帯の中に色のばらつきが残ると筋になる
   const cap = Math.ceil(thickness * 1.5) + 3;
-  // 帯 = 縁から cap の深さまで + 輪郭の線の色でつながった所すべて。
-  // 先端 (楕円の左右の端など) では、線が先端の軸に沿って、周囲の太さより深くまで続く。そこを cap で切ると、黒い短い線が残る
-  const byLevel: number[][] = Array.from({ length: maxLevel + 1 }, () => []);
+  // 帯 = 縁から cap の深さまで。それより内側は、輪郭の線と同じ色でつながっていても (縞・ぶち・黒髪・黒い靴など) 絵の一部として残す
+  const byLevel: number[][] = Array.from({ length: cap + 1 }, () => []);
   const inBand = new Uint8Array(tr * tr);
   for (let i = 0; i < level.length; i++) {
-    if ((level[i] >= 1 && level[i] <= cap) || (stroke[i] && level[i] >= 1)) {
+    if (level[i] >= 1 && level[i] <= cap) {
       inBand[i] = 1;
       byLevel[level[i]].push(i);
     }
@@ -348,7 +347,7 @@ function stripOutline(tex: Uint8ClampedArray, mask: Uint8Array, res: number): [n
   //   そこで、すでに置き換えた画素や帯の外の画素 (level は問わない) から色を受け取る。残りが無くなるまで繰り返す
   for (let pass = 0; pass < 12; pass++) {
     let pending = 0;
-    for (let l = maxLevel; l >= 1; l--) {
+    for (let l = cap; l >= 1; l--) {
       for (const i of byLevel[l]) {
         if (replaced[i]) continue;
         if (!replaceFromInside(i, l, pass === 0)) pending++;

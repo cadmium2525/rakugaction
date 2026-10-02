@@ -418,7 +418,16 @@ export class App {
     // ローディング表示を 1 フレーム描画してから重い生成を行う
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     const host = this.ensureHost();
-    const built = buildCharacter(drawing);
+    let built: ReturnType<typeof buildCharacter>;
+    try {
+      built = buildCharacter(drawing);
+    } catch (e) {
+      // 立体化が想定外の理由で失敗した時は、読み込み中の表示のまま固まらず、絵を残してエディタへ戻す
+      console.error('立体化に失敗', e);
+      toast(this.root, 'キャラクターを立体化できませんでした。絵を変えて、もう一度お試しください', 4000);
+      this.showEditor(drawing);
+      return;
+    }
     this.analysis = built.analysis;
     this.setScreen(
       new BirthScreen({

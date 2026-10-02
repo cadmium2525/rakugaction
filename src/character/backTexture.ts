@@ -40,6 +40,8 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
   const label = new Int32Array(tr * tr).fill(-1);
   const areas: number[] = [];
   const dark: boolean[] = [];
+  /** 領域がシルエットの縁に接しているか (黒髪・黒い靴・縞は縁に接する。目・口は縁から離れている) */
+  const touches: boolean[] = [];
   const stack: number[] = [];
   for (let s = 0; s < inside.length; s++) {
     if (!inside[s] || label[s] >= 0) continue;
@@ -48,6 +50,7 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
     const sg = front[s * 4 + 1];
     const sb = front[s * 4 + 2];
     let area = 0;
+    let onEdge = false;
     label[s] = id;
     stack.length = 0;
     stack.push(s);
@@ -59,9 +62,12 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
       for (let k = 0; k < 4; k++) {
         const nx = k === 0 ? x + 1 : k === 1 ? x - 1 : x;
         const ny = k === 2 ? y + 1 : k === 3 ? y - 1 : y;
-        if (nx < 0 || ny < 0 || nx >= tr || ny >= tr) continue;
+        if (nx < 0 || ny < 0 || nx >= tr || ny >= tr || !inside[ny * tr + nx]) {
+          onEdge = true;
+          continue;
+        }
         const j = ny * tr + nx;
-        if (!inside[j] || label[j] >= 0) continue;
+        if (label[j] >= 0) continue;
         if (Math.abs(front[j * 4] - sr) > SAME || Math.abs(front[j * 4 + 1] - sg) > SAME || Math.abs(front[j * 4 + 2] - sb) > SAME) continue;
         label[j] = id;
         stack.push(j);
@@ -69,13 +75,14 @@ export function buildBackTexture(front: Uint8ClampedArray, mask: Uint8Array, res
     }
     areas.push(area);
     dark.push(0.299 * sr + 0.587 * sg + 0.114 * sb < DARK_LUMA);
+    touches.push(onEdge);
   }
 
   // 大きな領域 (最大の領域は必ず残す) を種に、小さな領域の点へ色を広げる (近い順)
   const largest = Math.max(...areas);
   const base = Math.min(Math.max(20, DETAIL_FRACTION * total), largest * 0.5);
-  // 暗い領域は、最大の領域でない限り、広くても (顔の大きな口・目) 細かい描き込みとして扱う
-  const need = (id: number): number => (dark[id] && areas[id] < largest ? Math.max(base, DARK_DETAIL_FRACTION * total) : base);
+  // 暗い領域は、最大の領域でも縁に接してもいなければ、広くても (顔の大きな口・目) 細かい描き込みとして扱う (縁に接する黒髪・黒い靴・縞は残す)
+  const need = (id: number): number => (dark[id] && !touches[id] && areas[id] < largest ? Math.max(base, DARK_DETAIL_FRACTION * total) : base);
   const out = new Uint8ClampedArray(front);
   const resolved = new Uint8Array(tr * tr);
   const queue: number[] = [];

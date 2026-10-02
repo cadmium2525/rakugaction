@@ -326,6 +326,13 @@ export class EditorScreen implements Screen {
           ]),
         );
       }
+      // まだ描いていないパーツには、同じ種類の描いてあるパーツの絵を写せる (多腕・多足を何度も描き直さなくてよい)
+      const source = this.inked(slot) ? undefined : st.drawing.parts.find((p) => p.id !== slot.id && p.kind === slot.kind && this.inked(p));
+      if (source) {
+        const n = st.drawing.parts.filter((p) => p.kind === source.kind).indexOf(source) + 1;
+        const name = KIND_LABEL[source.kind] + (st.drawing.parts.filter((p) => p.kind === source.kind).length > 1 ? String(n) : '');
+        rows.push(h('button', { class: 'opt', text: `⧉ ${name}の絵を写す`, attrs: { 'aria-label': `${name}の絵をこのパーツに写す` }, on: { click: () => this.copyFrom(source.id) } }));
+      }
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
       rows.push(h('button', { class: `opt${this.mountMode ? ' on' : ''}`, text: this.mountMode ? '📍 位置を決めています' : '📍 つなぐ位置', on: { click: () => this.toggleMountMode() } }));
       if (this.mountMode && slot.mount) rows.push(h('button', { class: 'opt', text: '自動の位置に戻す', on: { click: () => this.resetMount() } }));
@@ -398,6 +405,13 @@ export class EditorScreen implements Screen {
     window.clearTimeout(this.noteTimer);
     this.noteEl.classList.remove('show');
     this.noteSticky = false;
+  }
+
+  private copyFrom(fromId: string): void {
+    if (!this.state.copyOps(this.state.currentId, fromId)) return;
+    this.layoutCache = null;
+    this.refreshAll();
+    toast(this.opts.host, '絵を写しました。向きや形を変えるときは描き足してください');
   }
 
   private duplicateCurrent(): void {

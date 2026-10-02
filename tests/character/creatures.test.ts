@@ -295,6 +295,22 @@ describe('四足の動き: 足並みと接地', () => {
     expect(Math.abs(rx.get('a')! - rx.get('b')!)).toBeGreaterThan(0.1); // 前左と前右は逆位相
   });
 
+  it('短い脚に、下へ長く垂れる前向きのしっぽ: 歩いても走っても地面に潜らない (正面の絵のしっぽは腰から真下へ伸びる)', () => {
+    const d = cloneDrawing(birdDoodle());
+    d.parts.find((p) => p.kind === 'leg')!.ops = [pen('#fb8c00', 0.05, [0.5, 0.1, 0.5, 0.3])]; // 短い脚
+    d.parts.find((p) => p.kind === 'tail')!.ops = [pen('#1e63d6', 0.08, [0.9, 0.5, 0.6, 0.9, 0.3, 0.97])]; // 長く巻き込んで垂れる尾
+    const { rig } = buildCharacter(d, { targetHeight: H });
+    const anim = new CharacterAnimator(rig);
+    let worst = Infinity;
+    for (const sp of [0, MAX_SPEED * 0.4, MAX_SPEED]) {
+      for (let i = 0; i < 120; i++) {
+        anim.update(DT, inp({ speed: sp }));
+        worst = Math.min(worst, vertexBounds(rig.root).minY);
+      }
+    }
+    expect(worst).toBeGreaterThan(-0.04);
+  });
+
   it('下向きの長いしっぽが地面に潜らない', () => {
     const d = cloneDrawing(quadrupedDoodle());
     const tail = d.parts.find((p) => p.kind === 'tail')!;

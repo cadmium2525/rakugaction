@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { StageTimer, formatTime } from '../../src/timeattack/timer';
-import { MAX_MISS_PENALTY_SEC, RETURN_SPEED, missPenaltySec } from '../../src/timeattack/penalty';
+import { MAX_MISS_PENALTY_SEC, RETURN_SPEED, missPenaltySec, returnSpeed } from '../../src/timeattack/penalty';
 import { TimeAttackRun, analyzeSplits, compareWithBest, formatDelta } from '../../src/timeattack/run';
 import type { Split } from '../../src/timeattack/run';
 
@@ -165,5 +165,16 @@ describe('missPenaltySec: ミスの加算 (チェックポイントまで歩い�
     expect(missPenaltySec(Number.NaN, 3)).toBe(3);
     expect(missPenaltySec(-5, 3)).toBe(3);
     expect(RETURN_SPEED).toBe(6);
+  });
+
+  it('ビルドの速さに合わせる: 足の速いビルドほど、同じ距離でも加算が小さい。標準 (最高速度 7) は約 6m/s', () => {
+    expect(returnSpeed(7)).toBeCloseTo(5.95, 2);
+    expect(returnSpeed(9)).toBeGreaterThan(returnSpeed(7));
+    expect(returnSpeed(5)).toBeLessThan(returnSpeed(7));
+    expect(returnSpeed(100)).toBe(9); // 上限
+    expect(returnSpeed(0.5)).toBe(4); // 下限
+    expect(returnSpeed(Number.NaN)).toBe(RETURN_SPEED);
+    const d = 90;
+    expect(missPenaltySec(d, 3, returnSpeed(9))).toBeLessThan(missPenaltySec(d, 3, returnSpeed(5)));
   });
 });

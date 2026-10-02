@@ -48,12 +48,12 @@ function lagOnCircle(r: number): number {
 }
 
 describe('追従カメラ', () => {
-  it('曲がり続けるコース (渦巻きの塔・半径 12m) でも、進行方向の真後ろからのずれが 0.45rad (約 26°) 以内', () => {
-    expect(lagOnCircle(12)).toBeLessThan(0.45);
+  it('曲がり続けるコース (渦巻きの塔・半径 12m) でも、進行方向の真後ろからのずれが 0.5rad (約 29°) 以内 (先回りなしでは 0.64)', () => {
+    expect(lagOnCircle(12)).toBeLessThan(0.5);
   });
 
   it('ゆるいカーブ (半径 30m) では、ほぼ真後ろにつく', () => {
-    expect(lagOnCircle(30)).toBeLessThan(0.25);
+    expect(lagOnCircle(30)).toBeLessThan(0.3);
   });
 
   it('直進ではカメラの向きは変わらない', () => {
@@ -99,5 +99,38 @@ describe('追従カメラ', () => {
       cam.update(DT, f.sim, 0, 0);
     }
     expect(cam.yaw).toBeCloseTo(yaw1, 5);
+  });
+});
+
+describe('追従カメラ: スティックを傾けたままの自励回転', () => {
+  /** スティックを進行方向から offset (rad) ずらしたまま走り続けた時の、カメラの回転の速さ (rad/s)。 */
+  function spinRate(offset: number): number {
+    const f = fakeSim();
+    const cam = new FollowCamera();
+    f.set(0, 0, 0, SPEED);
+    cam.snapTo(f.sim, 0);
+    let x = 0;
+    let z = 0;
+    let yawAt10s = 0;
+    for (let i = 0; i < 60 * 20; i++) {
+      // カメラの前方 (-sin yaw, -cos yaw) を基準に、offset だけずらした向きへ走る = スティックの傾き
+      const vx = -Math.sin(cam.yaw + offset) * SPEED;
+      const vz = -Math.cos(cam.yaw + offset) * SPEED;
+      x += vx * DT;
+      z += vz * DT;
+      f.set(x, z, vx, vz);
+      cam.update(DT, f.sim, 0, 0);
+      if (i === 60 * 10) yawAt10s = cam.yaw;
+    }
+    return Math.abs(angleDelta(yawAt10s, cam.yaw)) / 10;
+  }
+
+  it('スティックを 10° ずらしたままでも、カメラは暴走しない (毎秒 0.3rad = 約 17° 以内)。真正面なら回らない', () => {
+    expect(spinRate(0)).toBeLessThan(0.01);
+    expect(spinRate((10 * Math.PI) / 180)).toBeLessThan(0.3);
+  });
+
+  it('20° ずらしても、毎秒 0.8rad (約 46°) を超えない (先回りが自分で自分を回し続けない)', () => {
+    expect(spinRate((20 * Math.PI) / 180)).toBeLessThan(0.8);
   });
 });

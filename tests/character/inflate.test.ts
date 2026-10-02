@@ -118,3 +118,90 @@ describe('膨らませ (インフレーション)', () => {
     }
   });
 });
+
+/** 輪郭 (z = 0 の頂点) を輪郭に沿ってたどり、隣り合う線分の向きの変わり方 (rad) の最大値と平均を返す。 */
+function contourTurning(geo: THREE.BufferGeometry): { max: number; mean: number; count: number } {
+  const pos = geo.getAttribute('position');
+  const idx = geo.getIndex()!;
+  const ring = (v: number): boolean => Math.abs(pos.getZ(v)) < 1e-9;
+  const adj = new Map<number, Set<number>>();
+  const link = (a: number, b: number): void => {
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)!.add(b);
+    adj.get(b)!.add(a);
+  };
+  for (let t = 0; t < idx.count; t += 3) {
+    const r = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)].filter(ring);
+    if (r.length === 2) link(r[0], r[1]);
+  }
+  // 1 周たどる
+  const start = [...adj.keys()].find((v) => adj.get(v)!.size === 2)!;
+  const order = [start];
+  let prev = -1;
+  let cur = start;
+  for (let i = 0; i < adj.size + 2; i++) {
+    const nb = [...adj.get(cur)!].filter((x) => x !== prev);
+    const nx = nb[0];
+    if (nx === undefined || nx === start) break;
+    order.push(nx);
+    prev = cur;
+    cur = nx;
+  }
+  let max = 0;
+  let sum = 0;
+  const n = order.length;
+  for (let i = 0; i < n; i++) {
+    const a = order[(i + n - 1) % n];
+    const b = order[i];
+    const c = order[(i + 1) % n];
+    const v1 = new THREE.Vector2(pos.getX(b) - pos.getX(a), pos.getY(b) - pos.getY(a));
+    const v2 = new THREE.Vector2(pos.getX(c) - pos.getX(b), pos.getY(c) - pos.getY(b));
+    const ang = Math.abs(Math.atan2(v1.x * v2.y - v1.y * v2.x, v1.dot(v2)));
+    max = Math.max(max, ang);
+    sum += ang;
+  }
+  return { max, mean: sum / n, count: n };
+}
+
+describe('輪郭の頂点のならし (横向きのパーツを前後から見たとき、輪郭がはしご状の点線に見えない)', () => {
+  it('円・楕円・傾いた楕円の輪郭は、隣り合う線分の向きの差の平均が小さい (ならす前は 0.07〜0.10rad、ならした後は 0.06rad 未満)', () => {
+    const rot = (x: number, y: number): boolean => {
+      const c = Math.cos(0.5);
+      const s = Math.sin(0.5);
+      const u = (x - 192) * c + (y - 192) * s;
+      const v = -(x - 192) * s + (y - 192) * c;
+      return (u / 150) ** 2 + (v / 60) ** 2 <= 1;
+    };
+    const shapes: [string, (x: number, y: number) => boolean][] = [
+      ['円', (x, y) => Math.hypot(x - 192, y - 192) <= 110],
+      ['楕円', (x, y) => ((x - 192) / 150) ** 2 + ((y - 192) / 70) ** 2 <= 1],
+      ['傾いた楕円', rot],
+    ];
+    for (const [name, fn] of shapes) {
+      const g = buildPartGeometry('body', partOf(fn), 192, 192, SCALE);
+      const t = contourTurning(g.geometry);
+      expect(t.count, name).toBeGreaterThan(20);
+      expect(t.mean, `${name}: 平均 ${t.mean.toFixed(3)}rad / 最大 ${t.max.toFixed(3)}rad`).toBeLessThan(0.065);
+      expect(t.max, name).toBeLessThan(0.4);
+    }
+  });
+
+  it('ならしても水密のまま・面の向きが保たれる (反転した三角形が出ない)', () => {
+    const g = buildPartGeometry('body', partOf((x, y) => ((x - 192) / 150) ** 2 + ((y - 192) / 70) ** 2 <= 1), 192, 192, SCALE);
+    const w = isWatertight(g.geometry);
+    expect(w.ok, `open=${w.open} nonManifold=${w.nonManifold}`).toBe(true);
+    const pos = g.geometry.getAttribute('position');
+    const idx = g.geometry.getIndex()!;
+    // 前面 (z > 0 の頂点だけでできた三角形) は、+z 向き (外向き) の面積が正
+    let flipped = 0;
+    for (let t = 0; t < idx.count; t += 3) {
+      const [a, b, c] = [idx.getX(t), idx.getX(t + 1), idx.getX(t + 2)];
+      if (pos.getZ(a) > 1e-6 && pos.getZ(b) > 1e-6 && pos.getZ(c) > 1e-6) {
+        const area2 = (pos.getX(b) - pos.getX(a)) * (pos.getY(c) - pos.getY(a)) - (pos.getX(c) - pos.getX(a)) * (pos.getY(b) - pos.getY(a));
+        if (area2 < 0) flipped++;
+      }
+    }
+    expect(flipped).toBe(0);
+  });
+});

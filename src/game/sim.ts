@@ -759,6 +759,11 @@ export class GameSim {
     return timeUntilCalm(this.stage.winds ?? [], zones, this.time, seconds);
   }
 
+  /** プレイヤーから直近のチェックポイントまでの水平距離 (m)。ミスの時間加算の見積りに使う。 */
+  distanceToCheckpoint(): number {
+    return Math.hypot(this.player.pos.x - this.checkpoint.x, this.player.pos.z - this.checkpoint.z);
+  }
+
   /** 死亡/落下/手動リトライ: 直近のチェックポイントから HP 満タンで復活。 */
   respawn(reason: 'fall' | 'hazard' | 'manual'): void {
     this.deaths++;

@@ -157,6 +157,19 @@ export class EditorState {
     return slot;
   }
 
+  /**
+   * 別のパーツの絵を、このパーツに写す (阿修羅の 2 組目・3 組目の腕など、空のスロットを同じ絵で埋める)。Undo できる。
+   * 写し元が空・同じパーツ・存在しない時は false。
+   */
+  copyOps(toId: string, fromId: string): boolean {
+    const to = slotOf(this.drawing, toId);
+    const from = slotOf(this.drawing, fromId);
+    if (!to || !from || to.id === from.id || from.ops.length === 0) return false;
+    this.pushHistory(to);
+    this.setOps(to, JSON.parse(JSON.stringify(from.ops)) as DrawOp[]);
+    return true;
+  }
+
   /** パーツを消す (胴体は消せない)。 */
   removePart(id: string): boolean {
     if (id === 'body') return false;

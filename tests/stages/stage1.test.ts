@@ -133,7 +133,7 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     }
   }, 180_000);
 
-  it('浮島の階段ルート (jump): 高く・遠くへ跳べる SPEED/JUMP だけがクリアできる。その代わり本道より速い', async () => {
+  it('浮島の階段ルート (jump): SPEED/JUMP は確実に渡れて本道より速い。ボットの標準的な踏み切りでは他のビルドは渡れない (助走を工夫すれば届く狭い窓は、人の技として残してある)', async () => {
     for (const id of JUMPERS) {
       const j = await runStage(stage, id, 'jump', { maxTime: 240, maxDeaths: 6 });
       const m = await runStage(stage, id, 'main', { maxTime: 240, maxDeaths: 6 });
@@ -142,7 +142,7 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     }
     for (const id of ['STANDARD', 'HEAVY', 'POWER', 'EXTREME']) {
       const r = await runStage(stage, id, 'jump', { maxTime: 90, maxDeaths: 3 });
-      expect(r.cleared, `跳べないはずの浮島を渡っている: ${fmt(r)}`).toBe(false);
+      expect(r.cleared, `ボットの標準的な踏み切りで浮島を渡れてしまっている: ${fmt(r)}`).toBe(false);
     }
   }, 240_000);
 

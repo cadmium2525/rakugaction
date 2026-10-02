@@ -609,14 +609,15 @@
   }
 }
 /* 幅に余裕がある横画面 (844×390 など): 右の欄を 2 列にして、プレビューを大きく、パーツの設定をスクロールなしで見せる */
-@media (max-height: 460px) and (min-width: 740px) {
+@media (max-height: 460px) and (min-width: 640px) {
   .ed-side {
     display: grid;
-    grid-template-columns: 150px 140px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) auto auto;
     column-gap: 8px;
     row-gap: 5px;
-    width: 298px;
+    /* 幅 667 (iPhone SE など) で 252px、844 以上で 298px */
+    width: clamp(252px, 35vw, 298px);
     overflow: visible;
   }
   .ed-mini {

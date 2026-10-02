@@ -13,7 +13,8 @@ export interface CameraPose {
 
 /** 進行方向の回転の速さの上限 (rad/s) と、カメラに先回りさせる割合 */
 const TURN_RATE_MAX = 1.6;
-const TURN_FEED = 0.7;
+// 大きくするほど、曲がり続けるコースでカメラが遅れにくいが、スティックを少し傾けたままにした時の自励回転 (1 / (1 − この値) 倍) が強まる
+const TURN_FEED = 0.4;
 
 /**
  * 三人称追従カメラ。位置 = 注視点 + (sin yaw, ·, cos yaw) * dist。

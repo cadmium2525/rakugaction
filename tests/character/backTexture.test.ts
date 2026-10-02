@@ -69,6 +69,22 @@ describe('buildBackTexture: 背中側の絵', () => {
     expect(countColor(back!, mask, BLUE)).toBe(countColor(tex, mask, BLUE));
   });
 
+  it('縁に接する黒い領域 (黒髪・黒い靴・縞) は、面積 9% でも背中側に残る。縁から離れた同じ広さの黒 (口) は消える', () => {
+    // 上の縁に接する黒髪 (円盤の上の約 9%)
+    const hairy = disc((x, y) => (y < 38 ? BLACK : YELLOW));
+    const total = hairy.mask.reduce((a, b) => a + b, 0);
+    const hairArea = countColor(hairy.tex, hairy.mask, BLACK);
+    expect(hairArea / total).toBeGreaterThan(0.06);
+    expect(hairArea / total).toBeLessThan(0.12);
+    const back = buildBackTexture(hairy.tex, hairy.mask, T, T);
+    expect(back === null || countColor(back, hairy.mask, BLACK) === hairArea).toBe(true);
+    // 同じ広さの黒が、縁から離れた所にある (口)
+    const mouth = disc((x, y) => (y > 90 && y < 106 && x > 56 && x < 136 ? BLACK : YELLOW));
+    const back2 = buildBackTexture(mouth.tex, mouth.mask, T, T);
+    expect(back2).not.toBeNull();
+    expect(countColor(back2!, mouth.mask, BLACK)).toBe(0);
+  });
+
   it('全体が黒い絵 (最大の領域が暗い) は、背中側も黒のまま', () => {
     const black = disc((x) => (x < T * 0.3 ? YELLOW : BLACK));
     const back = buildBackTexture(black.tex, black.mask, T, T);

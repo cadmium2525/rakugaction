@@ -414,7 +414,8 @@ export class CharacterAnimator {
     const p = this.pose;
     rig.body.position.y = this.bodyBaseY + p.bodyY;
     // 横向きの胴体 (四足など) は前後に長く、傾けると後ろ脚の付け根が持ち上がって脚が浮くので、前傾を弱める
-    const leanK = rig.bodyView === 'side' ? 0.25 : 1;
+    // (ダッシュ攻撃の前傾は、四足の突進が見えるよう少し強く)
+    const leanK = rig.bodyView === 'side' ? (this.state === 'attack' ? 0.55 : 0.25) : 1;
     rig.body.rotation.x = p.lean * leanK;
     for (const h of this.heads) h.part.pivot.rotation.set(p.headX, 0, p.headZ);
     for (const a of this.arms) a.part.pivot.rotation.set(a.rx, a.ry, a.rz);
@@ -453,29 +454,32 @@ export class CharacterAnimator {
     v.armRZ = ar ? ar.rz : 0;
   }
 
-  /** 手足が地面 (root の y = 0) より下に出ていたら、潜らなくなるまで x 軸まわりに少しずつ回す (回せる向きの良い方を選ぶ)。 */
+  /**
+   * 手足が地面 (root の y = 0) より下に出ていたら、x 軸まわりの角度を探して潜らないようにする。
+   * 今の角度からの変化が小さい順 (±0.1rad ずつ、最大 ±1.6rad) に試し、最初に潜らなくなった角度を採る。
+   * 見つからなければ、いちばん浅い角度にする。貪欲に少しずつ回す方法だと、外接箱の角の厚みで局所解に止まり、潜ったまま・ちらつく。
+   */
   private keepAboveGround(limb: Limb): void {
     this.rig.root.updateMatrixWorld(true);
-    let low = this.lowestY(limb);
-    if (low >= 0) return;
+    const start = this.lowestY(limb);
+    if (start >= 0) return;
     const pivot = limb.part.pivot;
-    for (let k = 0; k < 12 && low < 0; k++) {
-      const x0 = pivot.rotation.x;
-      let best = low;
-      let bestX = x0;
-      for (const d of [0.12, -0.12]) {
-        pivot.rotation.x = x0 + d;
+    const x0 = pivot.rotation.x;
+    let bestX = x0;
+    let bestLow = start;
+    for (let k = 1; k <= 16; k++) {
+      for (const sign of [1, -1]) {
+        pivot.rotation.x = x0 + sign * 0.1 * k;
         this.rig.root.updateMatrixWorld(true);
         const y = this.lowestY(limb);
-        if (y > best) {
-          best = y;
-          bestX = x0 + d;
+        if (y >= -0.005) return; // 潜らなくなった (この角度のまま)
+        if (y > bestLow) {
+          bestLow = y;
+          bestX = pivot.rotation.x;
         }
       }
-      pivot.rotation.x = bestX;
-      if (bestX === x0) break;
-      low = best;
     }
+    pivot.rotation.x = bestX;
     this.rig.root.updateMatrixWorld(true);
   }
 

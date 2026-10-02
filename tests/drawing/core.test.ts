@@ -245,6 +245,27 @@ describe('EditorState', () => {
     expect(s.duplicatePart('body')).toBeNull();
   });
 
+  it('copyOps: 別のパーツの絵を写す (空のスロットだけでなく、描いてあっても上書きできる)。元は変わらず、Undo で戻せる', () => {
+    const s = new EditorState();
+    const a1 = s.addPart('arm')!;
+    const a2 = s.addPart('arm')!;
+    s.setPart(a1.id);
+    s.commitOp(pen('#000000', 0.05, [0.5, 0.1, 0.5, 0.8]));
+    expect(s.copyOps(a2.id, a1.id)).toBe(true);
+    expect(slotOf(s.drawing, a2.id)!.ops.length).toBe(1);
+    // 元とは別物
+    (slotOf(s.drawing, a2.id)!.ops[0] as { pts: number[] }).pts[0] = 0.9;
+    expect((slotOf(s.drawing, a1.id)!.ops[0] as { pts: number[] }).pts[0]).toBeCloseTo(0.5, 3);
+    // Undo (写した先のパーツで)
+    s.setPart(a2.id);
+    expect(s.undo()).toBe(true);
+    expect(slotOf(s.drawing, a2.id)!.ops.length).toBe(0);
+    // 写し元が空・自分自身・存在しない
+    expect(s.copyOps(a1.id, a2.id)).toBe(false);
+    expect(s.copyOps(a1.id, a1.id)).toBe(false);
+    expect(s.copyOps(a1.id, 'nope')).toBe(false);
+  });
+
   it('飾りの付け先 (onBody): ornament だけに付き、false にすると消える。保存・読み込みで保たれる', () => {
     const s = new EditorState();
     s.addPart('head');

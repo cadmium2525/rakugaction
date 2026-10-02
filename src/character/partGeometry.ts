@@ -291,6 +291,7 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   const isEdge = new Uint8Array(nFront);
   for (const t of eh) if (t >= 0) isEdge[t] = 1;
   for (const t of ev) if (t >= 0) isEdge[t] = 1;
+  smoothContour(px, py, tris, isEdge, g * 0.35);
   const backOf = new Int32Array(nFront);
   for (let v = 0; v < nFront; v++) {
     if (isEdge[v]) {
@@ -366,6 +367,58 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
     fallbacks: 0,
     triangles: indices.length / 3,
   };
+}
+
+/**
+ * 輪郭の頂点 (等高線の上の点) を、輪郭に沿って少しならす (面内の位置だけ。前面と背面が共有しているので、水密のまま)。
+ * マーチングスクエアの輪郭は格子の辺の上にしか頂点が置けず、階段状の細かいぎざぎざになる。横向きのパーツを前後から見ると、
+ * 中心線の縁がはしご状の点線に見えるので、2 回 (縮まらない Taubin の λ|μ) ならす。動かす量は最大 maxMove (格子の 0.35 マス) まで。
+ */
+function smoothContour(px: number[], py: number[], tris: number[], isEdge: Uint8Array, maxMove: number): void {
+  // 輪郭の線分 = 三角形の中の、輪郭の頂点 2 つの組 (多角形の隣り合う 2 頂点)
+  const next = new Map<number, number[]>();
+  const link = (a: number, b: number): void => {
+    for (const [p, q] of [[a, b], [b, a]] as const) {
+      const list = next.get(p) ?? [];
+      if (!list.includes(q)) list.push(q);
+      next.set(p, list);
+    }
+  };
+  for (let t = 0; t < tris.length; t += 3) {
+    const r: number[] = [];
+    for (let k = 0; k < 3; k++) if (tris[t + k] < isEdge.length && isEdge[tris[t + k]]) r.push(tris[t + k]);
+    if (r.length === 2) link(r[0], r[1]);
+  }
+  const ids = [...next.entries()].filter(([, l]) => l.length === 2).map(([v]) => v);
+  if (ids.length < 6) return;
+  const ox = new Map<number, number>();
+  const oy = new Map<number, number>();
+  for (const v of ids) {
+    ox.set(v, px[v]);
+    oy.set(v, py[v]);
+  }
+  for (const k of [0.5, -0.53, 0.5, -0.53]) {
+    const nx = new Map<number, number>();
+    const ny = new Map<number, number>();
+    for (const v of ids) {
+      const [a, b] = next.get(v) as number[];
+      nx.set(v, px[v] + k * ((px[a] + px[b]) / 2 - px[v]));
+      ny.set(v, py[v] + k * ((py[a] + py[b]) / 2 - py[v]));
+    }
+    for (const v of ids) {
+      let x = nx.get(v) as number;
+      let y = ny.get(v) as number;
+      const dx = x - (ox.get(v) as number);
+      const dy = y - (oy.get(v) as number);
+      const d = Math.hypot(dx, dy);
+      if (d > maxMove) {
+        x = (ox.get(v) as number) + (dx / d) * maxMove;
+        y = (oy.get(v) as number) + (dy / d) * maxMove;
+      }
+      px[v] = x;
+      py[v] = y;
+    }
+  }
 }
 
 /**

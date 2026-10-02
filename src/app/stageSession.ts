@@ -13,7 +13,7 @@ import { Hud } from '../ui/hud';
 import { Minimap } from '../ui/minimap';
 import { PauseMenu } from '../ui/pauseMenu';
 import type { ObjectiveInfo } from '../ui/pauseMenu';
-import { missPenaltySec } from '../timeattack/penalty';
+import { missPenaltySec, returnSpeed } from '../timeattack/penalty';
 import { PlayScene } from './playScene';
 
 export type Rank = 'S' | 'A' | 'B' | 'C';
@@ -109,6 +109,8 @@ export class StageSession {
   private hintCooldown = 0;
   /** ミスのペナルティとしてタイムに足した時間 (ms) */
   private penaltyMs = 0;
+  /** 木箱の「壊せません」を最後に出したシミュレーション時間 (秒) */
+  private lastGuardToast = -Infinity;
   private windHintShown = false;
   private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
@@ -199,11 +201,19 @@ export class StageSession {
     if (paused) {
       this.timer.pause();
       this.menu.setObjective(this.objectiveInfo());
+      this.menu.setCheckpointPenalty(this.checkpointPenaltyPreview());
       this.menu.show();
     } else {
       this.menu.hide();
       if (this.phase === 'playing') this.timer.resume();
     }
+  }
+
+  /** 「チェックポイントから再開」を押した時にタイムへ加わる秒数の見積り (ミスの加算があるステージだけ。無ければ null)。 */
+  private checkpointPenaltyPreview(): number | null {
+    const min = this.deps.stage.missPenaltySec ?? 0;
+    if (min <= 0 || this.phase !== 'playing') return null;
+    return missPenaltySec(this.scene.sim.distanceToCheckpoint(), min, returnSpeed(this.deps.params.maxSpeed));
   }
 
   /** ポーズ画面に出す、集めるアイテムの一覧 (クリア条件のあるステージだけ)。 */
@@ -239,15 +249,14 @@ export class StageSession {
           this.syncHud();
           // ミスのペナルティ (広いフィールドのステージだけ): チェックポイントまで歩いて戻る時間を足す。操作できるようになってからのミスだけ数える
           const min = this.deps.stage.missPenaltySec ?? 0;
-          const sec = this.phase === 'playing' && min > 0 ? missPenaltySec(e.dist, min) : 0;
+          const sec = this.phase === 'playing' && min > 0 ? missPenaltySec(e.dist, min, returnSpeed(this.deps.params.maxSpeed)) : 0;
           if (sec > 0) {
             this.timer.addPenalty(sec * 1000);
             this.penaltyMs += Math.round(sec * 1000);
           }
-          const tail = sec > 0 ? '　+' + sec.toFixed(1) + ' 秒' : '';
-          this.hud.toast(
-            (e.reason === 'fall' ? '落下　チェックポイントから再開' : e.reason === 'hazard' ? 'ダウン　チェックポイントから再開' : 'チェックポイントから再開') + tail,
-          );
+          // 加算がある時は短く (長い文は ACTION ボタンに重なる)
+          const label = e.reason === 'fall' ? '落下' : e.reason === 'hazard' ? 'ダウン' : '再開';
+          this.hud.toast(sec > 0 ? label + '　+' + sec.toFixed(1) + ' 秒' : (e.reason === 'fall' ? '落下　チェックポイントから再開' : e.reason === 'hazard' ? 'ダウン　チェックポイントから再開' : 'チェックポイントから再開'));
           break;
         }
         case 'checkpoint':
@@ -274,9 +283,15 @@ export class StageSession {
         case 'break':
           this.hud.toast('木箱を破壊', 700);
           break;
-        case 'breakGuard':
-          this.hud.toast('攻撃力が足りず、この木箱は壊せません', 1600);
+        case 'breakGuard': {
+          // 連打しても、同じ説明を重ねて出さない (1 回の攻撃で隣り合う箱が複数当たることもある)
+          const now = this.scene.sim.time;
+          if (now - this.lastGuardToast > 1.5) {
+            this.lastGuardToast = now;
+            this.hud.toast('攻撃力が足りず、この木箱は壊せません', 1600);
+          }
           break;
+        }
         case 'goal':
           if (this.phase === 'playing') this.onGoal();
           break;

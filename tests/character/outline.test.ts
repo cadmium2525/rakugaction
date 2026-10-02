@@ -43,4 +43,17 @@ describe('輪郭の線の除去 (縁を暗くするシェーダーが引くの�
     const thin = darkInside(blob(ellipse(0.5, 0.5, 0.46, 0.14), 0.08, [0.5, 0.5]));
     expect(thin.dark).toBe(0);
   });
+
+  it('輪郭につながった黒い模様 (縞・ぶち・黒髪・黒い靴) は、輪郭の線とは別物なので残る', () => {
+    const body = ellipse(0.5, 0.5, 0.42, 0.3);
+    // 虎縞: 上の輪郭から下の輪郭まで届く黒い縞 3 本
+    const stripes = [0.3, 0.5, 0.7].map((x) => pen(INK, 0.05, [x, 0.15, x, 0.85]));
+    const tiger = darkInside([...blob(body, 0.045, [0.5, 0.5]), ...stripes]);
+    expect(tiger.dark / tiger.total, '縞').toBeGreaterThan(0.1);
+    // 黒髪: 頭の上の面積 約 9% の領域が、輪郭の線とつながっている
+    const head = circle(0.5, 0.5, 0.3);
+    const hair = [pen(INK, 0.03, [0.22, 0.4, 0.3, 0.28, 0.5, 0.21, 0.7, 0.28, 0.78, 0.4, 0.5, 0.36, 0.22, 0.4]), fill(INK, 0.5, 0.3)];
+    const withHair = darkInside([...blob(head, 0.045, [0.5, 0.6]), ...hair]);
+    expect(withHair.dark / withHair.total, '黒髪').toBeGreaterThan(0.04);
+  });
 });
