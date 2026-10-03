@@ -81,10 +81,7 @@ describe('出現条件のある星 (PickupDef.appearAfter): 敵を全員倒す�
   it('一度現れた星は、やられて敵が復活しても消えない。pickupAppear は 2 回出ない', async () => {
     const sim = await makeSim(stage());
     run(sim, 10);
-    for (const e of sim.enemies) e.defeated = true;
-    // 敵をまとめて倒した扱いにして、倒した瞬間と同じ経路 (ふんづけ) で 1 体ずつ判定させる
     const events: SimEvent[] = [];
-    for (const e of sim.enemies) e.defeated = false;
     for (const id of ['e1', 'e2']) {
       const e = sim.enemies.find((x) => x.def.id === id)!;
       sim.player.placeFeet(e.pos.x, e.pos.y + e.spec.height / 2 + 1.2, e.pos.z);
@@ -101,11 +98,18 @@ describe('出現条件のある星 (PickupDef.appearAfter): 敵を全員倒す�
     sim.dispose();
   });
 
-  it('条件に挙げた敵が存在しなくても、星が永久に封印されない (条件を満たした扱い)', async () => {
+  it('条件に挙げた敵が存在しなくても、星が永久に封印されない (最初から現れていて、取れる)', async () => {
     const sim = await makeSim(stage({ pickups: [{ id: 'g2', pos: [0, 1.35, 12], appearAfter: ['nobody'] }] }));
     run(sim, 5);
     expect(sim.pickupLockedRemaining('g2')).toBe(0);
+    expect(sim.isPickupAvailable('g2')).toBe(true);
+    sim.player.placeFeet(0, 0, 12);
+    expect(run(sim, 30).some((e) => e.type === 'pickup' && e.id === 'g2')).toBe(true);
     sim.dispose();
+    // 条件が空の配列でも同じ
+    const sim2 = await makeSim(stage({ pickups: [{ id: 'g3', pos: [0, 1.35, 12], appearAfter: [] }] }));
+    expect(sim2.isPickupAvailable('g3')).toBe(true);
+    sim2.dispose();
   });
 
   it('ゴールは、現れていない星を数えない (必要数 1 で、守られた星だけが残るとクリアできない)', async () => {

@@ -11,9 +11,9 @@ import type { StageDef, WaypointDef } from './types';
  * STAGE 1: はじまりの草原 (フィールド型)。
  *
  * 浮島の草原を自由に歩き回って、ラクガキ星 (全 8 個) のうち 5 個を集めると、北のゴールが開く。
- *   ★ 風車の丘 (中央)        戦う: 丘の敵 2 体を倒すと現れる
- *   ★ ピョンタの花畑 (南東)   戦う: 花畑の敵 3 体を倒すと現れる
- *   ★ チェイサーの広場 (西)   戦う: 広場の敵 3 体 (チェイサー + 番人 2 体) を倒すと現れる
+ *   ★ 風車の丘 (中央)        戦う: 丘の敵 3 体を倒すと現れる
+ *   ★ ピョンタの花畑 (南東)   戦う: 花畑の敵 4 体を倒すと現れる
+ *   ★ チェイサーの広場 (西)   戦う: 広場の敵 4 体 (チェイサー 2 体 + 番人 2 体) を倒すと現れる
  *   ★ 池の中の小島           跳ぶ・泳ぐ (飛び石 / 泳ぎ)
  *   ★ 崖の上 (南西)          登る (外周をぐるぐる回る道をたどる。崖は直登できない)
  *   ★ トゲ畑の先 (北)        すき間をぬう (ゴールへの道の途中)
@@ -97,16 +97,20 @@ type Guard = { kind: 'blob' | 'hopper' | 'chaser'; pts: [number, number, number,
 const HUB_GUARDS: Guard[] = [
   { kind: 'blob', pts: [-9, 8, -9, -6], o: { speed: 1.4, phase: 0.3 } },
   { kind: 'hopper', pts: [-4, 14, -12, 14], o: { speed: 2.0, phase: 0.2 } },
+  { kind: 'hopper', pts: [8, -12, 15, -5], o: { speed: 2.2, phase: 0.9 } }, // 星の近く
 ];
 const MEADOW_GUARDS: Guard[] = [
   { kind: 'hopper', pts: [24, -57, 40, -57], o: { speed: 2.4, phase: 0.1 } },
   { kind: 'hopper', pts: [40, -67, 24, -67], o: { speed: 2.4, phase: 0.8 } },
   { kind: 'hopper', pts: [32, -52, 32, -72], o: { speed: 2.0, phase: 1.5 } },
+  { kind: 'hopper', pts: [26, -66, 38, -58], o: { speed: 2.2, phase: 2.3 } },
 ];
 const PLAZA_GUARDS: Guard[] = [
   { kind: 'chaser', pts: [-56, -10, -56, -10], o: { speed: 3.3, aggro: 8.5, leash: { min: [-77, 0, -29], max: [-47, 0, 1] } } },
   { kind: 'blob', pts: [-68, -19, -57, -19], o: { speed: 1.3, phase: 0.4 } },
   { kind: 'blob', pts: [-57, -8, -68, -8], o: { speed: 1.3, phase: 1.6 } },
+  // 2 体目のチェイサー (広場の南西で待ち構える。1 体目と同じ範囲を追いかける)
+  { kind: 'chaser', pts: [-70, -22, -70, -22], o: { speed: 3.3, aggro: 8.5, leash: { min: [-77, 0, -29], max: [-47, 0, 1] } } },
 ];
 
 export function buildStage1(): StageDef {
@@ -149,7 +153,7 @@ export function buildStage1(): StageDef {
   k.checkpoint('cp2', 15, -63);
   const meadowStar = k.star('ピョンタの花畑', 32, -62, 1.35, undefined, { id: 'star-meadow' });
   meadowStar.appearAfter = MEADOW_GUARDS.map((g) => k.enemy(g.kind, ...g.pts, g.o).id);
-  k.sign(20, -69, -0.5, ['ピョンタ'], { icon: 'jump', hint: ['ピョンタ: 跳ねながら動く。踏みつけるか {action} で倒せる', '花畑の 3 体を全員倒すと、星が現れる'] });
+  k.sign(20, -69, -0.5, ['ピョンタ'], { icon: 'jump', hint: ['ピョンタ: 跳ねながら動く。踏みつけるか {action} で倒せる', '花畑の 4 体を全員倒すと、星が現れる'] });
   for (let i = 0; i < 26; i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(2, 15);
@@ -197,7 +201,7 @@ export function buildStage1(): StageDef {
     const z = -14 + Math.sin(a) * 14;
     k.wall(x, z, 1.2, 1.2, 1.1 + (i % 3) * 0.5, 'stone');
   }
-  k.sign(-44, -16, -1.4, ['要注意'], { icon: 'warn', tone: 'warn', hint: ['広場にチェイサーと番人がいる。近づくと追いかけてくる', '踏みつけるか {action} で 3 体を倒すと、星が現れる'] });
+  k.sign(-44, -16, -1.4, ['要注意'], { icon: 'warn', tone: 'warn', hint: ['広場にチェイサー 2 体と番人がいる。近づくと追いかけてくる', '踏みつけるか {action} で 4 体を倒すと、星が現れる'] });
 
   // ===== 北西: 木箱の遺跡 =====
   keepOut(-54, 46, 17);

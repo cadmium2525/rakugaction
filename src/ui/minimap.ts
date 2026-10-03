@@ -202,6 +202,23 @@ export class Minimap {
       if (k.appearAfter && !sim.revealed.has(k.id)) mark(k.pos[0], k.pos[2], sealedStar);
       else mark(k.pos[0], k.pos[2], star);
     }
+    // 封印された星を守る敵 (まだ倒していない): 赤い点。どこにいるか分かるように
+    const guardDot = (x: number, y: number, inside: boolean): void => {
+      ctx.beginPath();
+      ctx.arc(x, y, (inside ? 3 : 2.4) * u, 0, Math.PI * 2);
+      ctx.fillStyle = '#ff4d4d';
+      ctx.fill();
+      ctx.lineWidth = 1 * u;
+      ctx.strokeStyle = '#7a1414';
+      ctx.stroke();
+    };
+    for (const k of this.stage.pickups ?? []) {
+      if (!k.appearAfter || sim.revealed.has(k.id) || sim.collected.has(k.id)) continue;
+      for (const id of k.appearAfter) {
+        const e = sim.enemies.find((x) => x.def.id === id);
+        if (e && !e.defeated) mark(e.pos.x, e.pos.z, guardDot);
+      }
+    }
     // ゴール: 開いていれば緑の旗 / まだなら灰色の輪
     const g = this.stage.goal;
     if (g) {

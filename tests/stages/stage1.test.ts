@@ -69,9 +69,12 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     const gated = stage.pickups!.filter((p) => p.appearAfter);
     expect(gated.map((p) => p.label).sort()).toEqual(['チェイサーの広場', 'ピョンタの花畑', '風車の丘'].sort());
     const guards = (label: string): string[] => [...(gated.find((p) => p.label === label)?.appearAfter ?? [])];
-    expect(guards('風車の丘').length).toBe(2);
-    expect(guards('ピョンタの花畑').length).toBe(3);
-    expect(guards('チェイサーの広場').length).toBe(3);
+    expect(guards('風車の丘').length).toBe(3);
+    expect(guards('ピョンタの花畑').length).toBe(4);
+    expect(guards('チェイサーの広場').length).toBe(4);
+    // 広場の守りは、チェイサー 2 体 + 番人のプルン 2 体
+    const kinds = guards('チェイサーの広場').map((id) => stage.enemies!.find((e) => e.id === id)!.kind).sort();
+    expect(kinds).toEqual(['blob', 'blob', 'chaser', 'chaser']);
     // 守る敵は、同じ敵が 2 つの星を守らない・踏みつけで倒せる種類 (blob / hopper / chaser)
     const all = gated.flatMap((p) => [...p.appearAfter!]);
     expect(new Set(all).size).toBe(all.length);
@@ -82,26 +85,40 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     expect(stage.pickups!.length - gated.length).toBe(5);
   });
 
-  it('封印された星は、駆け抜けても取れない: 敵と戦わずに星の真上を通る本道 (受動プレイ) では、ゴールが開かずクリアできない', async () => {
+  it('封印された星は、真上に立っても取れない (3 か所 × 全ビルド)。敵を倒さない受動プレイの本道では、ゴールが開かない', async () => {
     const R = await rapier();
-    const b = getBuild('STANDARD');
-    const sim = new GameSim(R, stage, statsToParams(b.stats, b.traits));
+    for (const id of ALL_BUILDS) {
+      const b = getBuild(id);
+      for (const starId of ['star-hub', 'star-meadow', 'star-plaza']) {
+        const sim = new GameSim(R, stage, statsToParams(b.stats, b.traits));
+        const star = stage.pickups!.find((p) => p.id === starId)!;
+        const ground = terrainHeightAt(stage.terrain!, star.pos[0], star.pos[2])!;
+        run(sim, 5);
+        // 星の真上に立つ (敵のそばなので、すぐに押し出される/攻撃される前に何歩か進める)
+        sim.player.placeFeet(star.pos[0], ground + 0.05, star.pos[2]);
+        const ev = run(sim, 60);
+        expect(ev.some((e) => e.type === 'pickup' && e.id === starId), `${id}: ${starId} を、敵を倒さずに取れてしまった`).toBe(false);
+        expect(sim.collected.has(starId)).toBe(false);
+        sim.dispose();
+      }
+    }
+    // 受動プレイ (ACTION を使わない) の本道: 最初の守りの花畑で敵を倒せず、先へ進めない
+    const sim = new GameSim(R, stage, statsToParams(getBuild('STANDARD').stats, getBuild('STANDARD').traits));
     const passive = new Bot(sim, stage.routes!.main, { fight: false });
     const input = emptyInput();
-    // 星の真上を通る (花畑・風車の丘・広場) 受動プレイで、敵を追いかけなければ 1 つも取れない
-    for (let i = 0; i < 60 * 40 && !sim.goalReached; i++) {
+    for (let i = 0; i < 60 * 70 && !sim.goalReached; i++) {
       passive.next(input);
       sim.step(input);
     }
-    for (const id of ['star-meadow', 'star-hub', 'star-plaza']) expect(sim.collected.has(id), `${id} を、敵を倒さずに取れてしまった`).toBe(false);
     expect(sim.goalReached).toBe(false);
+    expect(sim.collected.has('star-meadow')).toBe(false);
     sim.dispose();
-  }, 120_000);
+  }, 180_000);
 
   it('敵が 4 種類配置され、看板で案内している。情報量 (小道具) が十分ある', () => {
     const kinds = new Set(stage.enemies!.map((e) => e.kind));
     expect([...kinds].sort()).toEqual(['blob', 'chaser', 'hopper', 'spiky']);
-    expect(stage.enemies!.length).toBe(16); // 星を守る 8 体 (丘 2・花畑 3・広場 3) を含む
+    expect(stage.enemies!.length).toBe(19); // 星を守る 11 体 (丘 3・花畑 4・広場 4) を含む
     // 地形に沿う敵がほとんど (崖の丘の塔の上の 2 体だけは、ブロックの高さを直接指定している)
     expect(stage.enemies!.filter((e) => !e.onTerrain).length).toBe(2);
     expect(stage.signs!.length).toBeGreaterThanOrEqual(8);

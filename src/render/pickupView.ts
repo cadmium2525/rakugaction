@@ -49,6 +49,8 @@ export class PickupView {
   private readonly beams: THREE.InstancedMesh;
   /** 出現条件のある星が現れるまで、その場所に出す薄い灰色の星 (封印) */
   private readonly seals: THREE.InstancedMesh;
+  /** 封印された星の、低い灰色の柱 (そこに星があるが、まだ取れないことを遠くから示す) */
+  private readonly sealBeams: THREE.InstancedMesh;
   /** 星ごとの、現れる演出の残り時間 (秒) */
   private readonly appear: Float32Array;
   private readonly bursts: Burst[] = [];
@@ -60,7 +62,8 @@ export class PickupView {
   private readonly inkMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
   private readonly beamMat = new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
   private readonly burstMat = new THREE.MeshBasicMaterial({ color: GOLD, transparent: true });
-  private readonly sealMat = new THREE.MeshBasicMaterial({ color: SEAL, transparent: true, opacity: 0.5, depthWrite: false });
+  private readonly sealBeamMat = new THREE.MeshBasicMaterial({ color: SEAL, transparent: true, opacity: 0.28, depthWrite: false, side: THREE.DoubleSide });
+  private readonly sealMat = new THREE.MeshBasicMaterial({ color: SEAL, transparent: true, opacity: 0.85, depthWrite: false });
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly e = new THREE.Euler();
@@ -81,8 +84,9 @@ export class PickupView {
     this.outlines = new THREE.InstancedMesh(this.outlineGeo, this.inkMat, n);
     this.beams = new THREE.InstancedMesh(this.beamGeo, this.beamMat, n);
     this.seals = new THREE.InstancedMesh(this.starGeo, this.sealMat, n);
+    this.sealBeams = new THREE.InstancedMesh(this.beamGeo, this.sealBeamMat, n);
     this.appear = new Float32Array(n);
-    for (const mesh of [this.stars, this.outlines, this.beams, this.seals]) {
+    for (const mesh of [this.stars, this.outlines, this.beams, this.seals, this.sealBeams]) {
       mesh.frustumCulled = false; // 光の柱は遠くからも見える。個数が少ないので常に描く
       mesh.count = pickups.length;
       this.group.add(mesh);
@@ -131,6 +135,12 @@ export class PickupView {
       this.q.setFromEuler(this.e);
       this.m.compose(this.p, this.q, this.s);
       this.seals.setMatrixAt(i, this.m);
+      // 灰色の低い柱 (高さ 6m)。封印中だけ
+      this.p.set(d.pos[0], d.pos[1] + 2.4, d.pos[2]);
+      this.s.set(1.2, sealed && near ? 0.6 : 0, 1.2);
+      this.m.compose(this.p, this.q.identity(), this.s);
+      this.sealBeams.setMatrixAt(i, this.m);
+      this.p.set(d.pos[0], d.pos[1] + Math.sin(this.t * 2.4 + phase) * 0.14, d.pos[2]);
       // 光の柱
       this.p.set(d.pos[0], d.pos[1] + 4.2, d.pos[2]);
       this.s.setScalar(taken || sealed ? 0 : Math.min(1, grow));
@@ -141,6 +151,7 @@ export class PickupView {
     this.outlines.instanceMatrix.needsUpdate = true;
     this.beams.instanceMatrix.needsUpdate = true;
     this.seals.instanceMatrix.needsUpdate = true;
+    this.sealBeams.instanceMatrix.needsUpdate = true;
   }
 
   /** 出現条件のある星が現れた: 現れる演出を始め、星の位置で光の粒が弾ける。 */
@@ -195,6 +206,7 @@ export class PickupView {
     this.outlines.dispose();
     this.beams.dispose();
     this.seals.dispose();
+    this.sealBeams.dispose();
     this.starGeo.dispose();
     this.outlineGeo.dispose();
     this.beamGeo.dispose();
@@ -204,5 +216,6 @@ export class PickupView {
     this.beamMat.dispose();
     this.burstMat.dispose();
     this.sealMat.dispose();
+    this.sealBeamMat.dispose();
   }
 }

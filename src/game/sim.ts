@@ -161,6 +161,8 @@ export class GameSim {
       this.sweepers.push({ def, pos: v3(p.x, p.y, p.z), prev: v3(p.x, p.y, p.z) });
     }
     for (const def of stage.enemies ?? []) this.enemies.push(this.makeEnemy(def));
+    // 出現条件の敵が 1 体もいない星 (条件の id が存在しない・条件が空) は、最初から現れている (永久に封印されない)
+    for (const k of stage.pickups ?? []) if (k.appearAfter && this.pickupLockedRemaining(k.id) === 0) this.revealed.add(k.id);
     this.checkpoint = v3(stage.spawn[0], stage.spawn[1], stage.spawn[2]);
     this.player = new PlayerController(R, this.world, params, v3(0, 0, 0));
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, stage.spawnYaw ?? 0);

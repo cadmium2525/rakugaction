@@ -119,6 +119,8 @@ export class StageSession {
   private splits: StarSplit[] = [];
   /** 木箱の「壊せません」を最後に出したシミュレーション時間 (秒) */
   private lastGuardToast = -Infinity;
+  /** 封印された星の近くで案内を出した最後のシミュレーション時間 (星の id → 秒) */
+  private readonly sealHinted = new Map<string, number>();
   private windHintShown = false;
   private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
@@ -179,6 +181,7 @@ export class StageSession {
     this.goBannerShown = false;
     this.penaltyMs = 0;
     this.splits = [];
+    this.sealHinted.clear();
     this.timer.reset();
     this.scene.inputOverride = (si) => {
       Object.assign(si, this.zero);
@@ -415,6 +418,22 @@ export class StageSession {
     }
   }
 
+  /** 封印された星 (敵を全員倒すと現れる) のそばに来たら、あと何体か案内する。同じ星では 6 秒に 1 回まで。 */
+  private updateSealHints(): void {
+    const sim = this.scene.sim;
+    const p = sim.player;
+    for (const k of this.deps.stage.pickups ?? []) {
+      if (!k.appearAfter || sim.revealed.has(k.id)) continue;
+      const dx = p.pos.x - k.pos[0];
+      const dz = p.pos.z - k.pos[2];
+      if (dx * dx + dz * dz > 3.6 * 3.6 || Math.abs(p.pos.y - k.pos[1]) > 3) continue;
+      if (sim.time - (this.sealHinted.get(k.id) ?? -Infinity) < 6) continue;
+      this.sealHinted.set(k.id, sim.time);
+      this.hud.toast(`${k.label ?? '星'}の星は封印されている: 敵を全員倒すと取れる (あと ${sim.pickupLockedRemaining(k.id)} 体)`, 2400);
+      break;
+    }
+  }
+
   private onFrame(dt: number): void {
     if (this.disposed) return;
     this.hud.setTime(this.timer.elapsedMs);
@@ -425,7 +444,10 @@ export class StageSession {
     this.hud.setSwim(this.scene.sim.player.swimming, this.view.cameraUnderwater);
     if (this.scene.paused) return;
     this.phaseTime += dt;
-    if (this.phase === 'playing') this.updateSigns(dt);
+    if (this.phase === 'playing') {
+      this.updateSigns(dt);
+      this.updateSealHints();
+    }
     switch (this.phase) {
       case 'ready':
         if (!this.goBannerShown && this.phaseTime >= READY_TIME) {
