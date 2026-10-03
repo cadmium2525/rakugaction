@@ -76,6 +76,8 @@ export function disposeObject(obj: THREE.Object3D): void {
       done.add(x);
       const map = (x as THREE.MeshToonMaterial).map;
       if (map) map.dispose();
+      const alt = x.userData?.altMap as THREE.Texture | undefined;
+      if (alt) alt.dispose();
       x.dispose();
     }
   });

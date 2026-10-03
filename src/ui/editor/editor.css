@@ -347,9 +347,9 @@
   flex: 1;
   min-height: 0;
   height: 100%;
-  max-height: calc(100vh - 150px);
+  max-height: calc(100vh - 195px);
   /* iOS Safari はツールバーの出入りで 100vh が実際の表示領域より大きくなるので、動的ビューポート単位を優先する */
-  max-height: calc(100dvh - 150px);
+  max-height: calc(100dvh - 195px);
   aspect-ratio: 1;
   background: linear-gradient(#e8f6ff, #fffaf0);
   border-radius: 14px;
@@ -808,4 +808,36 @@
     width: 26px;
     height: 24px;
   }
+}
+
+/* プレビューの 3D / 2D */
+.ed-modal-views {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+}
+.ed-modal-3d {
+  display: none;
+  width: min(100%, calc(100dvh - 195px));
+  max-width: 640px;
+  touch-action: none;
+  cursor: grab;
+}
+.ed-modal-tabs {
+  width: min(100%, 360px);
+}
+
+/* ページ切り替え (1 枚目 / もう一つの向き) */
+.ed-pages {
+  flex: none;
+  width: min(100%, 320px);
+}
+.ed-pages[hidden] {
+  display: none;
+}
+.ed-pages .seg-btn {
+  height: 26px;
+  font-size: 11px;
 }

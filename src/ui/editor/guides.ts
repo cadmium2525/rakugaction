@@ -1,4 +1,6 @@
+import { altModeOf } from '../../drawing/model';
 import type { PartSlot } from '../../drawing/model';
+import type { DrawingRaster } from '../../drawing/raster';
 
 /** お絵かきのガイド (下書き用の薄い目安)。データには含まれず、描画の邪魔にならない程度の濃さ。 */
 export function drawGuides(canvas: HTMLCanvasElement, slot: PartSlot): void {
@@ -145,4 +147,118 @@ export function partHint(slot: PartSlot): string {
     case 'ornament':
       return '下の「根元」から上へ伸びる角や耳を描きます。頭に付きます (「胴体に」を選ぶと、背びれや甲羅のように胴体に付きます)';
   }
+}
+
+/** もう一つの向きの絵の名前 (ボタン・タブに出す) */
+export function altLabel(slot: PartSlot): string {
+  if (altModeOf(slot.kind, slot.view) === 'col') return '上から見た絵';
+  return slot.view === 'front' ? '横から見た絵' : '正面から見た絵';
+}
+
+/** 1 枚目の絵の名前 */
+export function mainLabel(slot: PartSlot): string {
+  return slot.view === 'front' ? '正面から見た絵' : '横から見た絵';
+}
+
+/**
+ * もう一つの向きの絵のページの下書き: 1 枚目の絵をうすく映し (高さ・横の位置をそろえるため)、厚みの中心線と、前・後ろの向きを示す。
+ * 1 枚目の絵の上端・下端 (または左端・右端) に点線を引く。
+ */
+export function drawAltGuides(canvas: HTMLCanvasElement, slot: PartSlot, primary: DrawingRaster | null): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const S = canvas.width;
+  ctx.clearRect(0, 0, S, S);
+  const mode = altModeOf(slot.kind, slot.view);
+  ctx.save();
+  // 1 枚目の絵 (うすく)
+  let x0 = S;
+  let y0 = S;
+  let x1 = 0;
+  let y1 = 0;
+  if (primary) {
+    const tmp = document.createElement('canvas');
+    tmp.width = primary.res;
+    tmp.height = primary.res;
+    tmp.getContext('2d')?.putImageData(new ImageData(primary.rgba, primary.res, primary.res), 0, 0);
+    ctx.globalAlpha = 0.2;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(tmp, 0, 0, S, S);
+    ctx.globalAlpha = 1;
+    const m = primary.mask();
+    for (let y = 0; y < primary.res; y++) {
+      for (let x = 0; x < primary.res; x++) {
+        if (!m[y * primary.res + x]) continue;
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
+      }
+    }
+    const k = S / primary.res;
+    x0 *= k;
+    x1 = (x1 + 1) * k;
+    y0 *= k;
+    y1 = (y1 + 1) * k;
+  }
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeStyle = 'rgba(120, 100, 70, 0.4)';
+  ctx.fillStyle = 'rgba(120, 100, 70, 0.7)';
+  ctx.setLineDash([S * 0.02, S * 0.02]);
+  ctx.font = `700 ${Math.round(S * 0.04)}px sans-serif`;
+  ctx.textAlign = 'center';
+  const line = (ax: number, ay: number, bx: number, by: number): void => {
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+  };
+  const label = (text: string, x: number, y: number): void => {
+    ctx.save();
+    ctx.setLineDash([]);
+    ctx.fillText(text, x, y);
+    ctx.restore();
+  };
+  if (mode === 'row') {
+    line(S * 0.5, S * 0.03, S * 0.5, S * 0.97); // 厚みの中心 (奥行きの 0)
+    if (primary && y1 > y0) {
+      line(S * 0.03, y0, S * 0.97, y0); // 1 枚目の絵の上端・下端 (高さをそろえる)
+      line(S * 0.03, y1, S * 0.97, y1);
+    }
+    if (slot.view === 'front') {
+      label('前 →', S * 0.82, S * 0.06);
+      label('← 後ろ', S * 0.18, S * 0.06);
+    } else {
+      label('キャラクターの左 →', S * 0.76, S * 0.06);
+      label('← 右', S * 0.14, S * 0.06);
+    }
+    label('中心', S * 0.5, S * 0.99);
+  } else {
+    line(S * 0.03, S * 0.5, S * 0.97, S * 0.5);
+    if (primary && x1 > x0) {
+      line(x0, S * 0.03, x0, S * 0.97); // 1 枚目の絵の左端・右端 (横の位置をそろえる)
+      line(x1, S * 0.03, x1, S * 0.97);
+    }
+    if (slot.kind === 'wing') {
+      label('↑ 前', S * 0.5, S * 0.06);
+      label('後ろ ↓', S * 0.5, S * 0.97);
+    } else {
+      label('前 →', S * 0.9, S * 0.45);
+      label('キャラクターの左が上', S * 0.5, S * 0.06);
+    }
+  }
+  ctx.restore();
+}
+
+/** もう一つの向きの絵のページの説明 */
+export function altHint(slot: PartSlot): string {
+  const mode = altModeOf(slot.kind, slot.view);
+  if (mode === 'col') {
+    return slot.kind === 'wing'
+      ? '翼を上から見た形を描きます (上が前)。うすく映っている 1 枚目の絵と、横の位置をそろえます。後ろへそった翼は、後ろ (下) へ曲げて描きます'
+      : 'しっぽを上から見た形を描きます (右が前)。うすく映っている 1 枚目の絵と、横の位置をそろえます';
+  }
+  return slot.view === 'front'
+    ? '横から見た形を、右向きで描きます。うすく映っている 1 枚目の絵と高さをそろえます。前かがみ・そった背中・出っぱったおなかは、ここで形にします'
+    : '正面から見た形を描きます。うすく映っている 1 枚目の絵と高さをそろえます。胸の幅・たてがみの広がりなどは、ここで形にします';
 }

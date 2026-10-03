@@ -103,7 +103,31 @@ export interface PartSlot {
   scale?: number;
   /** 前後の厚みの倍率 (省略 = 1)。翼や膜は薄く (0.4)、丸い胴体は厚く (1.5) */
   depth?: number;
+  /**
+   * もう一つの向きの絵 (省略 = 無し)。正面の絵のパーツなら「横から見た絵」、横向きの絵のパーツなら「正面から見た絵」
+   * (翼としっぽは「上から見た絵」。altModeOf を見る)。前後 (または左右) の厚みと姿勢 (前かがみ・そり) の形を、この絵の輪郭で決め、
+   * 横から (正面から) 見える面の色もこの絵から取る。1 枚目の絵と、高さ (または横の位置) をそろえて描く。
+   * 空の配列は「まだ描いていない」で、3D には使わない。
+   */
+  alt?: DrawOp[];
   ops: DrawOp[];
+}
+
+/**
+ * もう一つの向きの絵の読み方: 'row' = 1 枚目と高さ (行) をそろえ、横方向が厚み (奥行き)。
+ * 'col' = 1 枚目と横の位置 (列) をそろえ、縦方向が厚み (上から見た絵。上が前)。翼・横向きのしっぽは長い方向が横なので 'col'。
+ */
+export type AltMode = 'row' | 'col';
+
+export function altModeOf(kind: PartKind, view: PartView): AltMode {
+  if (kind === 'wing') return 'col';
+  if (kind === 'tail' && view === 'side') return 'col';
+  return 'row';
+}
+
+/** もう一つの向きの絵を持っていて、何か描かれているか */
+export function hasAlt(slot: PartSlot): boolean {
+  return !!slot.alt && slot.alt.length > 0;
 }
 
 export interface DrawingData {
@@ -169,6 +193,7 @@ export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'i
     ...(o.onBody ? { onBody: true } : {}),
     ...(o.scale !== undefined && o.scale !== 1 && kind !== 'body' ? { scale: o.scale } : {}),
     ...(o.depth !== undefined && o.depth !== 1 ? { depth: o.depth } : {}),
+    ...(o.alt ? { alt: o.alt } : {}),
     ops: o.ops ?? [],
   };
 }

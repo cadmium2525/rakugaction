@@ -1,6 +1,13 @@
 import * as THREE from 'three';
-import type { PartKind } from '../drawing/model';
+import type { PartKind, PartView } from '../drawing/model';
 import type { CleanedPart } from './cleanPart';
+import type { DepthProfile } from './profile';
+
+/** もう一つの向きの絵の色を、横 (上) を向いた面に貼る時の設定 */
+export interface AltTexInfo {
+  /** 表と背中側を横に並べた 2 枚組か (横向きの絵のパーツの正面の絵: 前向きの面は表、後ろ向きの面は背中側)。false なら表だけ */
+  atlas: boolean;
+}
 
 export interface PartGeometryResult {
   geometry: THREE.BufferGeometry;
@@ -55,8 +62,9 @@ const MIN_THETA = 0.1;
  * @param ax,ay  パーツ画像内のアンカー (ラスタのピクセル座標)。ジオメトリの原点になる。
  * @param scale  キャンバス幅 1.0 あたりのメートル数 (u → m)。パーツごとの大きさの倍率 (PartSlot.scale) を含む
  * @param depth  前後の厚みの倍率 (PartSlot.depth。1 = 標準)
+ * @param profile もう一つの向きの絵から作った厚みの形。あれば、前後の厚みと位置を各行 (列) ごとにこの範囲に合わせる
  */
-export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number, ay: number, scale: number, depth = 1): PartGeometryResult {
+export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number, ay: number, scale: number, depth = 1, profile: DepthProfile | null = null, altTex: AltTexInfo | null = null, view: PartView = 'front'): PartGeometryResult {
   const res = part.res;
   const mask = part.mask;
   // ---- 外接矩形 ----
@@ -287,8 +295,12 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   for (const c of eh) if (c >= 0) contourPoints++;
   for (const c of ev) if (c >= 0) contourPoints++;
 
-  // ---- 背面: 前面の頂点 (輪郭以外) を複製して z を反転 ----
+  // ---- もう一つの向きの絵があれば、行 (列) ごとに前後の厚みと位置を合わせる ----
   const nFront = px.length; // 前面 + 輪郭 + 前面の重心
+  const zc = new Float32Array(nFront); // 各頂点の厚みの中心 (格子の単位)。背面は、この中心をはさんで前面の鏡像になる
+  if (profile && profile.res === res) applyDepthProfile(profile, px, py, pz, zc, g, res);
+
+  // ---- 背面: 前面の頂点 (輪郭以外) を複製して z を反転 ----
   const isEdge = new Uint8Array(nFront);
   for (const t of eh) if (t >= 0) isEdge[t] = 1;
   for (const t of ev) if (t >= 0) isEdge[t] = 1;
@@ -303,7 +315,7 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
     backOf[v] = px.length;
     px.push(px[v]);
     py.push(py[v]);
-    pz.push(-pz[v]);
+    pz.push(2 * zc[v] - pz[v]);
     shade.push(0.8);
   }
 
@@ -316,12 +328,16 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   const uv = new Float32Array(nv * 2);
   const col = new Float32Array(nv * 3);
   let zmax = 0;
+  let zlo = Infinity;
+  let zhi = -Infinity;
   for (let v = 0; v < nv; v++) {
     pos[v * 3] = toX(px[v]);
     pos[v * 3 + 1] = toY(py[v]);
     const z = toZ(pz[v]);
     pos[v * 3 + 2] = z;
     if (Math.abs(z) > zmax) zmax = Math.abs(z);
+    if (z < zlo) zlo = z;
+    if (z > zhi) zhi = z;
     uv[v * 2] = px[v] / res;
     uv[v * 2 + 1] = 1 - py[v] / res;
     col[v * 3] = col[v * 3 + 1] = col[v * 3 + 2] = shade[v];
@@ -360,16 +376,107 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   geo.computeVertexNormals();
   smoothNormals(geo, 2);
   setContourNormals(geo, ring);
+  if (profile && altTex) addAltUv(geo, profile, kind, view, altTex, px, py, pz, g, res);
   geo.computeBoundingBox();
   geo.computeBoundingSphere();
   return {
     geometry: geo,
-    thickness: Math.max(0.01, 2 * zmax),
+    thickness: Math.max(0.01, profile ? zhi - zlo : 2 * zmax),
     contours: 1,
     contourPoints,
     fallbacks: 0,
     triangles: indices.length / 3,
   };
+}
+
+/**
+ * もう一つの向きの絵を貼るための頂点属性を付ける。altUv = その絵の上の位置 (厚み方向の位置 t と、行・列から決まる)、
+ * altW = その絵を使う割合 (その絵を見ている向き = 横 (翼は上) を向いた面ほど 1)。
+ * 向き: 行 ('row') = 絵の面の横方向 (x) を向いた面、列 ('col') = 縦方向 (y) を向いた面。
+ * 2 枚組 (atlas) の時は、前向き (+x) の面は左半分 (表)、後ろ向きの面は右半分 (背中側) を使う。
+ */
+function addAltUv(geo: THREE.BufferGeometry, profile: DepthProfile, kind: PartKind, view: PartView, info: AltTexInfo, px: number[], py: number[], pz: number[], g: number, res: number): void {
+  const nrm = geo.getAttribute('normal') as THREE.BufferAttribute;
+  const n = px.length;
+  const altUv = new Float32Array(n * 2);
+  const altW = new Float32Array(n);
+  const half = res / 2;
+  for (let v = 0; v < n; v++) {
+    const t = pz[v] * g; // 厚み方向の位置 (px)
+    let xa: number;
+    let ya: number;
+    let facing: number;
+    let comp: number;
+    if (profile.mode === 'row') {
+      // 正面の絵のパーツ: 絵の右 = +t。横向きの絵のパーツ: 絵の左 = +t
+      xa = view === 'front' ? half + t : half - t;
+      ya = py[v];
+      comp = nrm.getX(v);
+      facing = comp;
+    } else {
+      xa = px[v];
+      ya = kind === 'wing' ? half - t : half + t;
+      comp = nrm.getY(v);
+      facing = comp;
+    }
+    const u = Math.min(1, Math.max(0, xa / res));
+    const vv = 1 - Math.min(1, Math.max(0, ya / res));
+    const back = info.atlas && facing < 0;
+    altUv[v * 2] = info.atlas ? (back ? 0.5 : 0) + u * 0.5 : u;
+    altUv[v * 2 + 1] = vv;
+    const a = Math.abs(comp);
+    const k = Math.min(1, Math.max(0, (a - 0.3) / 0.45));
+    altW[v] = k * k * (3 - 2 * k);
+  }
+  geo.setAttribute('altUv', new THREE.BufferAttribute(altUv, 2));
+  geo.setAttribute('altW', new THREE.BufferAttribute(altW, 1));
+}
+
+/**
+ * 厚みの形に合わせて、前面の頂点の z (前後) を作り直す。行 (または列) ごとに、ふくらませた形の厚みの最大 Zrow を求め、
+ * 各頂点を z' = 中心 + z × (半分の厚み ÷ Zrow) にする。輪郭の頂点 (z = 0) は中心の位置に来る (前面と背面で共有したまま = 水密)。
+ * Zrow は近い行どうしでなめらかにして、隣り合う行で倍率が急に変わらないようにする。
+ */
+function applyDepthProfile(profile: DepthProfile, px: number[], py: number[], pz: number[], zc: Float32Array, g: number, res: number): void {
+  const n = zc.length;
+  const key = profile.mode === 'row' ? py : px;
+  const zrow = new Float32Array(res);
+  for (let v = 0; v < n; v++) {
+    const r = Math.min(res - 1, Math.max(0, Math.round(key[v])));
+    const z = pz[v] * g;
+    if (z > zrow[r]) zrow[r] = z;
+  }
+  // 頂点の無い行を埋め (近い行の値)、前後 ±3 行の最大 → 移動平均でなめらかにする
+  let lastSeen = -1;
+  const filled = new Float32Array(res);
+  for (let r = 0; r < res; r++) {
+    if (zrow[r] > 0) lastSeen = r;
+    filled[r] = lastSeen >= 0 ? zrow[lastSeen] : 0;
+  }
+  let nextSeen = -1;
+  for (let r = res - 1; r >= 0; r--) {
+    if (zrow[r] > 0) nextSeen = r;
+    if (filled[r] === 0 && nextSeen >= 0) filled[r] = zrow[nextSeen];
+  }
+  const maxed = new Float32Array(res);
+  for (let r = 0; r < res; r++) {
+    let m = 0;
+    for (let k = -3; k <= 3; k++) m = Math.max(m, filled[Math.min(res - 1, Math.max(0, r + k))]);
+    maxed[r] = m;
+  }
+  const zs = new Float32Array(res);
+  for (let r = 0; r < res; r++) {
+    let s = 0;
+    for (let k = -3; k <= 3; k++) s += maxed[Math.min(res - 1, Math.max(0, r + k))];
+    zs[r] = s / 7;
+  }
+  for (let v = 0; v < n; v++) {
+    const r = Math.min(res - 1, Math.max(0, Math.round(key[v])));
+    const f = Math.min(10, Math.max(0.03, profile.half[r] / Math.max(0.8, zs[r])));
+    const c = profile.center[r];
+    pz[v] = (c + pz[v] * g * f) / g;
+    zc[v] = c / g;
+  }
 }
 
 /** 輪郭の隣り合う頂点: 三角形の中の、輪郭の頂点 2 つの組 (多角形の隣り合う 2 頂点 = 輪郭の線分)。 */

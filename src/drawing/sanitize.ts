@@ -95,7 +95,7 @@ function sanitizeSlot(raw: unknown, index: number): PartSlot | null {
   }
   const scale = sanitizeFactor(raw.scale, SCALE_RANGE.min, SCALE_RANGE.max);
   const depth = sanitizeFactor(raw.depth, DEPTH_RANGE.min, DEPTH_RANGE.max);
-  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: kind === 'ornament' && raw.onBody === true, scale, depth, ops: sanitizeOps(raw.ops) });
+  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: kind === 'ornament' && raw.onBody === true, scale, depth, alt: Array.isArray(raw.alt) ? sanitizeOps(raw.alt) : undefined, ops: sanitizeOps(raw.ops) });
 }
 
 /** 旧形式 (固定 6 パーツ) を安全な新形式にする。 */

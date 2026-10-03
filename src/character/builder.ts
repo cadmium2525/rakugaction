@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { altModeOf } from '../drawing/model';
 import type { DrawingData } from '../drawing/model';
 import { characterMaterial } from '../render/toon';
 import { TEX_RES } from './cleanPart';
@@ -65,13 +66,17 @@ function rimOf(c: readonly [number, number, number]): [number, number, number] {
 }
 
 function textureFromRgba(rgba: Uint8ClampedArray, size: number): THREE.DataTexture {
+  return textureFromRgbaSized(rgba, size, size);
+}
+
+function textureFromRgbaSized(rgba: Uint8ClampedArray, width: number, height: number): THREE.DataTexture {
   // 画像は先頭行が上。DataTexture は先頭行が v=0 (下) なので上下反転して渡す
-  const flipped = new Uint8Array(size * size * 4);
-  for (let y = 0; y < size; y++) {
-    const src = (size - 1 - y) * size * 4;
-    flipped.set(rgba.subarray(src, src + size * 4), y * size * 4);
+  const flipped = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const src = (height - 1 - y) * width * 4;
+    flipped.set(rgba.subarray(src, src + width * 4), y * width * 4);
   }
-  const tex = new THREE.DataTexture(flipped, size, size, THREE.RGBAFormat);
+  const tex = new THREE.DataTexture(flipped, width, height, THREE.RGBAFormat);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
@@ -80,6 +85,19 @@ function textureFromRgba(rgba: Uint8ClampedArray, size: number): THREE.DataTextu
   tex.generateMipmaps = true;
   tex.needsUpdate = true;
   return tex;
+}
+
+/** もう一つの向きの絵のテクスチャ: 2 枚組なら、左に表・右に背中側 (無ければ表と同じ) を並べた 1 枚。 */
+function altAtlas(front: Uint8ClampedArray, back: Uint8ClampedArray | null, atlas: boolean): THREE.DataTexture {
+  if (!atlas) return textureFromRgba(front, TEX_RES);
+  const w = TEX_RES * 2;
+  const out = new Uint8ClampedArray(w * TEX_RES * 4);
+  const b = back ?? front;
+  for (let y = 0; y < TEX_RES; y++) {
+    out.set(front.subarray(y * TEX_RES * 4, (y + 1) * TEX_RES * 4), y * w * 4);
+    out.set(b.subarray(y * TEX_RES * 4, (y + 1) * TEX_RES * 4), (y * w + TEX_RES) * 4);
+  }
+  return textureFromRgbaSized(out, w, TEX_RES);
 }
 
 /**
@@ -116,13 +134,16 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     const first = L.placed.find((p) => p.slotId === prep.slot.id);
     if (!first) continue;
     // レイアウトはダウンサンプル座標なので、フル解像度の座標へ
-    const g = buildPartGeometry(prep.slot.kind, prep.cleaned, first.ax * LAYOUT_FACTOR, first.ay * LAYOUT_FACTOR, S * first.k, prep.slot.depth ?? 1);
+    // もう一つの向きの絵の色: 表と背中側を横に並べた 1 枚 (背中側が無ければ表と同じ)
+    const altInfo = prep.alt && prep.profile ? { atlas: prep.slot.view === 'side' && altModeOf(prep.slot.kind, prep.slot.view) === 'row' } : null;
+    const g = buildPartGeometry(prep.slot.kind, prep.cleaned, first.ax * LAYOUT_FACTOR, first.ay * LAYOUT_FACTOR, S * first.k, prep.slot.depth ?? 1, prep.profile, altInfo, prep.slot.view);
     geos.set(prep.slot.id, g);
     const rim = rimOf(prep.cleaned.outline);
-    const frontMat = characterMaterial({ map: textureFromRgba(prep.cleaned.texture, TEX_RES), vertexColors: true }, rim);
+    const altMap = prep.alt && prep.profile && altInfo ? altAtlas(prep.alt.texture, prep.alt.backTexture, altInfo.atlas) : null;
+    const frontMat = characterMaterial({ map: textureFromRgba(prep.cleaned.texture, TEX_RES), vertexColors: true }, rim, altMap);
     const backPic = prep.cleaned.backTexture;
     // 正面の絵のパーツは、背中側に顔などの描き込みを出さない (後ろ姿が、こちらを向いたまま後ろ歩きして見える)。[前面, 背面]
-    mats.set(prep.slot.id, backPic ? [frontMat, characterMaterial({ map: textureFromRgba(backPic, TEX_RES), vertexColors: true }, rim)] : frontMat);
+    mats.set(prep.slot.id, backPic ? [frontMat, characterMaterial({ map: textureFromRgba(backPic, TEX_RES), vertexColors: true }, rim, altMap)] : frontMat);
     totalTris += g.triangles;
     reports[prep.slot.id] = {
       usedDefault: prep.usedDefault,

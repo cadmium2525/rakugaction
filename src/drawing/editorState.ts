@@ -6,6 +6,9 @@ import type { Template } from './templates';
 /** pick = スポイト (絵の上の色を拾う) */
 export type Tool = 'pen' | 'eraser' | 'fill' | 'pick';
 
+/** 描いているページ: main = 1 枚目の絵、alt = もう一つの向きの絵 */
+export type Page = 'main' | 'alt';
+
 export type CommitResult = 'ok' | 'rejected' | 'limit';
 
 const HISTORY_LIMIT = 80;
@@ -24,6 +27,8 @@ export class EditorState {
   /** 今描いているパーツの id */
   currentId = 'body';
   tool: Tool = 'pen';
+  /** 今描いているページ (パーツを切り替えると main に戻る) */
+  page: Page = 'main';
   color = '#202124';
   sizeIndex = DEFAULT_BRUSH_INDEX;
   /** 最近使った好きな色 (新しい順。基本パレットの色は入れない) */
@@ -49,66 +54,99 @@ export class EditorState {
     return slotOf(this.drawing, this.currentId) ?? this.drawing.parts[0];
   }
 
+  /** 今のページの絵 (op 列) */
   get ops(): readonly DrawOp[] {
-    return this.current.ops;
+    return this.opsOf(this.current, this.page);
   }
 
-  private undoOf(id: string): DrawOp[][] {
-    let s = this.undoStacks.get(id);
-    if (!s) this.undoStacks.set(id, (s = []));
+  private opsOf(slot: PartSlot, page: Page): readonly DrawOp[] {
+    return page === 'alt' ? (slot.alt ?? []) : slot.ops;
+  }
+
+  /** 履歴のキー (ページごとに別の履歴) */
+  private key(id: string, page: Page = this.page): string {
+    return page === 'alt' ? `${id}#alt` : id;
+  }
+
+  private undoOf(key: string): DrawOp[][] {
+    let s = this.undoStacks.get(key);
+    if (!s) this.undoStacks.set(key, (s = []));
     return s;
   }
 
-  private redoOf(id: string): DrawOp[][] {
-    let s = this.redoStacks.get(id);
-    if (!s) this.redoStacks.set(id, (s = []));
+  private redoOf(key: string): DrawOp[][] {
+    let s = this.redoStacks.get(key);
+    if (!s) this.redoStacks.set(key, (s = []));
     return s;
   }
 
   get canUndo(): boolean {
-    return this.undoOf(this.current.id).length > 0;
+    return this.undoOf(this.key(this.current.id)).length > 0;
   }
 
   get canRedo(): boolean {
-    return this.redoOf(this.current.id).length > 0;
+    return this.redoOf(this.key(this.current.id)).length > 0;
   }
 
   private pointsUsed(slot: PartSlot): number {
     let n = 0;
-    for (const op of slot.ops) if (op.kind !== 'fill') n += op.pts.length / 2;
+    for (const op of this.opsOf(slot, this.page)) if (op.kind !== 'fill') n += op.pts.length / 2;
     return n;
   }
 
-  private setOps(slot: PartSlot, ops: DrawOp[]): void {
+  private setOps(slot: PartSlot, ops: DrawOp[], page: Page = this.page): void {
     const i = this.drawing.parts.findIndex((p) => p.id === slot.id);
-    if (i >= 0) this.drawing.parts[i] = { ...slot, ops };
+    if (i < 0) return;
+    this.drawing.parts[i] = page === 'alt' ? { ...slot, alt: ops } : { ...slot, ops };
   }
 
-  private pushHistory(slot: PartSlot): void {
-    const u = this.undoOf(slot.id);
-    u.push(slot.ops);
+  private pushHistory(slot: PartSlot, page: Page = this.page): void {
+    const k = this.key(slot.id, page);
+    const u = this.undoOf(k);
+    u.push([...this.opsOf(slot, page)]);
     if (u.length > HISTORY_LIMIT) u.shift();
-    this.redoStacks.set(slot.id, []);
+    this.redoStacks.set(k, []);
+  }
+
+  /** ページを切り替える。もう一つの向きの絵が無いパーツでは、空の絵を作って切り替える (胴体以外のパーツ・胴体とも可)。 */
+  setPage(page: Page): void {
+    if (page === 'alt' && !this.current.alt) this.setOps(this.current, [], 'alt');
+    this.page = page;
+  }
+
+  /** もう一つの向きの絵を捨てる (1 枚目のページに戻る)。無ければ false。 */
+  removeAlt(id: string = this.currentId): boolean {
+    const i = this.drawing.parts.findIndex((p) => p.id === id);
+    if (i < 0 || !this.drawing.parts[i].alt) return false;
+    const { alt: _alt, ...rest } = this.drawing.parts[i];
+    void _alt;
+    this.drawing.parts[i] = rest as PartSlot;
+    this.undoStacks.delete(this.key(id, 'alt'));
+    this.redoStacks.delete(this.key(id, 'alt'));
+    if (id === this.currentId) this.page = 'main';
+    return true;
   }
 
   /** ストローク/塗りを確定する。不正な op は破棄 ('rejected')、上限超過は 'limit'。 */
   commitOp(raw: DrawOp): CommitResult {
     const slot = this.current;
-    if (slot.ops.length >= LIMITS.maxOpsPerPart) return 'limit';
+    const cur = this.opsOf(slot, this.page);
+    if (cur.length >= LIMITS.maxOpsPerPart) return 'limit';
     const budget = LIMITS.maxTotalPointsPerPart - this.pointsUsed(slot);
     if (budget <= 0) return 'limit';
     const op = sanitizeOp(raw, budget);
     if (!op) return 'rejected';
     this.pushHistory(slot);
-    this.setOps(slot, [...slot.ops, op]);
+    this.setOps(slot, [...cur, op]);
     return 'ok';
   }
 
   undo(): boolean {
     const slot = this.current;
     if (!this.canUndo) return false;
-    const prev = this.undoOf(slot.id).pop() as DrawOp[];
-    this.redoOf(slot.id).push(slot.ops);
+    const k = this.key(slot.id);
+    const prev = this.undoOf(k).pop() as DrawOp[];
+    this.redoOf(k).push([...this.opsOf(slot, this.page)]);
     this.setOps(slot, prev);
     return true;
   }
@@ -116,8 +154,9 @@ export class EditorState {
   redo(): boolean {
     const slot = this.current;
     if (!this.canRedo) return false;
-    const next = this.redoOf(slot.id).pop() as DrawOp[];
-    this.undoOf(slot.id).push(slot.ops);
+    const k = this.key(slot.id);
+    const next = this.redoOf(k).pop() as DrawOp[];
+    this.undoOf(k).push([...this.opsOf(slot, this.page)]);
     this.setOps(slot, next);
     return true;
   }
@@ -125,7 +164,7 @@ export class EditorState {
   /** 現在のパーツを全部消す (Undo で戻せる)。 */
   clearPart(): boolean {
     const slot = this.current;
-    if (slot.ops.length === 0) return false;
+    if (this.opsOf(slot, this.page).length === 0) return false;
     this.pushHistory(slot);
     this.setOps(slot, []);
     return true;
@@ -135,12 +174,16 @@ export class EditorState {
   applyTemplate(t: Template): void {
     this.drawing = { v: 2, parts: t.make() };
     this.currentId = 'body';
+    this.page = 'main';
     this.undoStacks.clear();
     this.redoStacks.clear();
   }
 
   setPart(id: string): void {
-    if (slotOf(this.drawing, id)) this.currentId = id;
+    if (slotOf(this.drawing, id)) {
+      if (id !== this.currentId) this.page = 'main';
+      this.currentId = id;
+    }
   }
 
   /**
@@ -164,7 +207,7 @@ export class EditorState {
   duplicatePart(id: string): PartSlot | null {
     const src = slotOf(this.drawing, id);
     if (!src || src.kind === 'body' || !canAdd(this.drawing, src.kind)) return null;
-    const slot: PartSlot = { ...src, id: freshId(this.drawing), mount: null, ops: JSON.parse(JSON.stringify(src.ops)) as DrawOp[] };
+    const slot: PartSlot = { ...src, id: freshId(this.drawing), mount: null, ops: JSON.parse(JSON.stringify(src.ops)) as DrawOp[], ...(src.alt ? { alt: JSON.parse(JSON.stringify(src.alt)) as DrawOp[] } : {}) };
     this.drawing.parts.push(slot);
     this.currentId = slot.id;
     return slot;
@@ -178,8 +221,8 @@ export class EditorState {
     const to = slotOf(this.drawing, toId);
     const from = slotOf(this.drawing, fromId);
     if (!to || !from || to.id === from.id || from.ops.length === 0) return false;
-    this.pushHistory(to);
-    this.setOps(to, JSON.parse(JSON.stringify(from.ops)) as DrawOp[]);
+    this.pushHistory(to, 'main');
+    this.setOps(to, JSON.parse(JSON.stringify(from.ops)) as DrawOp[], 'main');
     return true;
   }
 
@@ -191,7 +234,12 @@ export class EditorState {
     this.drawing.parts.splice(i, 1);
     this.undoStacks.delete(id);
     this.redoStacks.delete(id);
-    if (this.currentId === id) this.currentId = 'body';
+    this.undoStacks.delete(this.key(id, 'alt'));
+    this.redoStacks.delete(this.key(id, 'alt'));
+    if (this.currentId === id) {
+      this.currentId = 'body';
+      this.page = 'main';
+    }
     return true;
   }
 

@@ -1,7 +1,7 @@
 import './editor.css';
 import { EditorState, RECENT_COLORS } from '../../drawing/editorState';
-import type { Tool } from '../../drawing/editorState';
-import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAnyInk } from '../../drawing/model';
+import type { Page, Tool } from '../../drawing/editorState';
+import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk } from '../../drawing/model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from '../../drawing/model';
 import { DrawingRaster } from '../../drawing/raster';
 import { resolveSlotOps } from '../../drawing/defaults';
@@ -14,7 +14,8 @@ import type { Screen } from '../dom';
 import { toast } from '../toast';
 import { ColorPicker } from './colorPicker';
 import { CompositePreview, layoutFromRasters } from './composite';
-import { drawGuides, partHint } from './guides';
+import { CharacterPreview3D } from './preview3d';
+import { altHint, altLabel, drawAltGuides, drawGuides, mainLabel, partHint } from './guides';
 
 export interface EditorOptions {
   initial?: DrawingData;
@@ -65,6 +66,8 @@ export class EditorScreen implements Screen {
   private readonly mountCanvas: HTMLCanvasElement;
   private readonly paper: HTMLElement;
   private readonly hintEl: HTMLElement;
+  /** もう一つの向きの絵を持つパーツで、ページ (1 枚目 / もう一つの向き) を切り替える */
+  private readonly pagesEl: HTMLElement;
   /** 低い画面で、ヒントの行の代わりに紙の上に出す短い説明 */
   private readonly noteEl: HTMLElement;
   private noteTimer = 0;
@@ -88,6 +91,10 @@ export class EditorScreen implements Screen {
   private readonly modal: HTMLElement;
   private readonly modalCanvas: HTMLCanvasElement;
   private readonly modalPreview: CompositePreview;
+  private readonly modal3dCanvas: HTMLCanvasElement;
+  private readonly modalTabs: HTMLElement;
+  private preview3d: CharacterPreview3D | null = null;
+  private previewMode: '3d' | '2d' = '3d';
   private readonly picker: HTMLElement;
   private readonly addDialog: HTMLElement;
   private miniRaf = 0;
@@ -116,6 +123,7 @@ export class EditorScreen implements Screen {
     this.noteEl = h('div', { class: 'ed-note', attrs: { 'aria-live': 'polite' } });
     this.paper = h('div', { class: 'ed-paper' }, this.guideCanvas, this.canvas, this.mountCanvas, this.noteEl);
     this.hintEl = h('div', { class: 'ed-hint' });
+    this.pagesEl = h('div', { class: 'seg ed-pages', attrs: { hidden: '' } });
     const stage = h('div', { class: 'ed-stage' }, this.paper);
 
     // --- 上バー ---
@@ -171,11 +179,13 @@ export class EditorScreen implements Screen {
     this.partBox = h('div', { class: 'ed-part' });
     const side = h('div', { class: 'ed-side' }, h('div', { class: 'ed-colors' }, palette, sizes), this.partBox, miniWrap);
 
-    const body = h('div', { class: 'ed-body' }, tools, h('div', { class: 'ed-center' }, stage, this.hintEl), side);
+    const body = h('div', { class: 'ed-body' }, tools, h('div', { class: 'ed-center' }, this.pagesEl, stage, this.hintEl), side);
 
-    // --- プレビューモーダル ---
+    // --- プレビューモーダル: 回せる 3D (使えない端末では 2D の合成図) ---
     this.modalCanvas = h('canvas', { class: 'ed-modal-canvas', attrs: { width: '640', height: '640' } });
     this.modalPreview = new CompositePreview(this.modalCanvas);
+    this.modal3dCanvas = h('canvas', { class: 'ed-modal-canvas ed-modal-3d' });
+    this.modalTabs = h('div', { class: 'seg ed-modal-tabs' });
     this.modal = h(
       'div',
       { class: 'ed-modal', attrs: { hidden: '' } },
@@ -183,7 +193,8 @@ export class EditorScreen implements Screen {
         'div',
         { class: 'ed-modal-box' },
         h('div', { class: 'ed-modal-title', text: 'このキャラクターが生成されます' }),
-        this.modalCanvas,
+        h('div', { class: 'ed-modal-views' }, this.modal3dCanvas, this.modalCanvas),
+        this.modalTabs,
         h(
           'div',
           { class: 'ed-modal-btns' },
@@ -213,17 +224,29 @@ export class EditorScreen implements Screen {
   // ===== 描画の同期 =====
 
   /** 編集中のラスタ (描いたそのまま)。パーツの ops が変わっていたら描き直す。 */
-  private editRaster(slot: PartSlot): DrawingRaster {
-    let e = this.rasters.get(slot.id);
+  private editRaster(slot: PartSlot, page: Page = this.state.page): DrawingRaster {
+    const key = this.rasterKey(slot.id, page);
+    let e = this.rasters.get(key);
     if (!e) {
       e = { raster: new DrawingRaster(RASTER_RES), ops: null };
-      this.rasters.set(slot.id, e);
+      this.rasters.set(key, e);
     }
-    if (e.ops !== slot.ops) {
-      e.raster.replay(slot.ops);
-      e.ops = slot.ops;
+    const ops = page === 'alt' ? (slot.alt ?? []) : slot.ops;
+    if (e.ops !== ops) {
+      e.raster.replay(ops);
+      e.ops = ops;
     }
     return e.raster;
+  }
+
+  private rasterKey(id: string, page: Page): string {
+    return page === 'alt' ? `${id}#alt` : id;
+  }
+
+  /** いま描いているページの描きかけのラスタを、保存されている絵と合わせ直させる (描き途中のインクを消す) */
+  private invalidateRaster(): void {
+    const e = this.rasters.get(this.rasterKey(this.state.currentId, this.state.page));
+    if (e) e.ops = null;
   }
 
   /** プレビュー用のラスタ (反転を解決。何も描かれていなければ既定形状で代用)。 */
@@ -244,7 +267,7 @@ export class EditorScreen implements Screen {
     for (const p of this.state.drawing.parts) out.set(p.id, this.previewRaster(p));
     // 消えたパーツのキャッシュを捨てる
     for (const id of [...this.previews.keys()]) if (!out.has(id)) this.previews.delete(id);
-    for (const id of [...this.rasters.keys()]) if (!out.has(id)) this.rasters.delete(id);
+    for (const key of [...this.rasters.keys()]) if (!out.has(key.split('#')[0])) this.rasters.delete(key);
     return out;
   }
 
@@ -328,6 +351,11 @@ export class EditorScreen implements Screen {
         h('button', { class: 'step-b', text: '＋', attrs: { 'aria-label': `${aria}を大きく` }, on: { click: () => set(steps[Math.min(steps.length - 1, idx + 1)]) } }),
       );
     };
+    // もう一つの向きの絵: 無ければ足すボタン、有れば消すボタン
+    const altRow = (): HTMLElement =>
+      hasAlt(slot) || slot.alt
+        ? h('button', { class: 'opt opt-danger', text: `🗑 ${altLabel(slot)}を消す`, attrs: { 'aria-label': `${altLabel(slot)}を消す` }, on: { click: () => this.removeAlt() } })
+        : h('button', { class: 'opt', text: `＋ ${altLabel(slot)}も描く`, attrs: { 'aria-label': `${altLabel(slot)}も描いて、厚みと姿勢の形にする` }, on: { click: () => this.addAlt() } });
     // 向き
     rows.push(
       seg([
@@ -365,6 +393,7 @@ export class EditorScreen implements Screen {
       }
       rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '大きさ', (v) => this.updateSlot({ scale: v })));
       rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
+      rows.push(altRow());
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
       rows.push(h('button', { class: `opt${this.mountMode ? ' on' : ''}`, text: this.mountMode ? '📍 位置を決めています' : '📍 つなぐ位置', on: { click: () => this.toggleMountMode() } }));
       if (this.mountMode && slot.mount) rows.push(h('button', { class: 'opt', text: '自動の位置に戻す', on: { click: () => this.resetMount() } }));
@@ -374,6 +403,7 @@ export class EditorScreen implements Screen {
       rows.push(h('button', { class: 'opt opt-danger', text: '🗑 このパーツを消す', on: { click: () => this.removeCurrent() } }));
     } else {
       rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
+      rows.push(altRow());
       if (st.drawing.parts.length === 1) rows.push(h('div', { class: 'ed-part-note', text: '＋で腕・脚・頭などを足せます' }));
     }
     this.partBox.replaceChildren(...rows);
@@ -381,8 +411,10 @@ export class EditorScreen implements Screen {
 
   private refreshPartUi(): void {
     const slot = this.state.current;
-    drawGuides(this.guideCanvas, slot);
-    this.hintEl.textContent = this.mountMode ? MOUNT_HINT : partHint(slot);
+    if (this.state.page === 'alt') drawAltGuides(this.guideCanvas, slot, this.previewRaster(slot));
+    else drawGuides(this.guideCanvas, slot);
+    this.hintEl.textContent = this.mountMode ? MOUNT_HINT : this.state.page === 'alt' ? altHint(slot) : partHint(slot);
+    this.renderPages(slot);
     if (this.mountMode) this.showNote(MOUNT_HINT, true);
     else if (this.noteSticky) this.hideNote();
     const parts = this.state.drawing.parts;
@@ -399,6 +431,43 @@ export class EditorScreen implements Screen {
     this.blit();
     if (this.mountMode) this.drawMount();
     this.scheduleMini();
+  }
+
+  /** ページ切り替え (1 枚目 / もう一つの向き)。もう一つの向きの絵を持つパーツだけに出す。 */
+  private renderPages(slot: PartSlot): void {
+    if (!slot.alt) {
+      this.pagesEl.setAttribute('hidden', '');
+      return;
+    }
+    this.pagesEl.removeAttribute('hidden');
+    const btn = (page: Page, label: string): HTMLElement =>
+      h('button', { class: `seg-btn${this.state.page === page ? ' on' : ''}`, text: label, on: { click: () => this.setPage(page) } });
+    this.pagesEl.replaceChildren(btn('main', mainLabel(slot)), btn('alt', altLabel(slot)));
+  }
+
+  private setPage(page: Page): void {
+    if (this.state.page === page) return;
+    this.mountMode = false;
+    this.state.setPage(page);
+    this.refreshAll();
+    this.showNote(page === 'alt' ? altHint(this.state.current) : partHint(this.state.current));
+  }
+
+  private addAlt(): void {
+    this.mountMode = false;
+    this.state.setPage('alt');
+    this.refreshAll();
+    this.showNote(altHint(this.state.current), false);
+    toast(this.opts.host, `${altLabel(this.state.current)}のページです。うすく映っている 1 枚目の絵に高さをそろえて描きます`);
+  }
+
+  private removeAlt(): void {
+    const slot = this.state.current;
+    if (hasAlt(slot) && !window.confirm(`${altLabel(slot)}を消します。よろしいですか？`)) return;
+    if (this.state.removeAlt()) {
+      this.layoutCache = null;
+      this.refreshAll();
+    }
   }
 
   private setTool(t: Tool): void {
@@ -640,6 +709,7 @@ export class EditorScreen implements Screen {
 
   private toggleMountMode(): void {
     if (this.state.current.kind === 'body') return;
+    if (this.state.page !== 'main') this.state.setPage('main');
     this.mountMode = !this.mountMode;
     this.renderPartBox();
     this.refreshPartUi();
@@ -784,12 +854,47 @@ export class EditorScreen implements Screen {
   }
 
   private openPreview(): void {
-    this.modalPreview.draw(this.previewRasters(), this.layout());
     this.modal.removeAttribute('hidden');
+    this.previewMode = CharacterPreview3D.available() ? this.previewMode : '2d';
+    this.renderPreview();
+  }
+
+  /** 3D / 2D の切り替えと、中身の更新。3D は開いている間だけ WebGL を持つ。 */
+  private renderPreview(): void {
+    const want3d = this.previewMode === '3d' && CharacterPreview3D.available();
+    this.modal3dCanvas.style.display = want3d ? 'block' : 'none';
+    this.modalCanvas.style.display = want3d ? 'none' : 'block';
+    if (want3d) {
+      this.preview3d ??= new CharacterPreview3D(this.modal3dCanvas);
+      if (this.preview3d.setDrawing(this.state.drawing)) this.preview3d.start();
+      else {
+        // 作れなかった (極端な絵など) 時は 2D にする
+        this.previewMode = '2d';
+        this.closePreview3d();
+        this.renderPreview();
+        return;
+      }
+    } else {
+      this.closePreview3d();
+      this.modalPreview.draw(this.previewRasters(), this.layout());
+    }
+    const seg = (label: string, mode: '3d' | '2d'): HTMLElement => h('button', { class: `seg-btn${this.previewMode === mode ? ' on' : ''}`, text: label, on: { click: () => this.setPreviewMode(mode) } });
+    this.modalTabs.replaceChildren(...(CharacterPreview3D.available() ? [seg('3D (ドラッグで回す)', '3d'), seg('2D (絵の面)', '2d')] : []));
+  }
+
+  private setPreviewMode(mode: '3d' | '2d'): void {
+    this.previewMode = mode;
+    this.renderPreview();
+  }
+
+  private closePreview3d(): void {
+    this.preview3d?.dispose();
+    this.preview3d = null;
   }
 
   private closePreview(): void {
     this.modal.setAttribute('hidden', '');
+    this.closePreview3d();
   }
 
   private finish(): void {
@@ -844,7 +949,7 @@ export class EditorScreen implements Screen {
       }
       const res = st.commitOp({ kind: 'fill', color: st.color, x, y });
       if (res !== 'ok') {
-        this.rasters.get(st.currentId)!.ops = null;
+        this.invalidateRaster();
         this.blit();
         toast(this.opts.host, 'これ以上は描けません');
         return;
@@ -907,8 +1012,7 @@ export class EditorScreen implements Screen {
     const res = st.commitOp(op);
     if (res !== 'ok') {
       // 描き途中のインクを消して状態と一致させる
-      const e = this.rasters.get(slot.id);
-      if (e) e.ops = null;
+      this.invalidateRaster();
       this.blit();
       if (res === 'limit') toast(this.opts.host, 'これ以上は描けません。「戻す」か「全消去」で整理してください');
     }
@@ -932,8 +1036,8 @@ export class EditorScreen implements Screen {
   private afterCommit(): void {
     // 表示中のキャンバスは既に最新なので、同期済みとして扱う (ops の参照を更新後のものに合わせる)
     const slot = this.state.current;
-    const e = this.rasters.get(slot.id);
-    if (e) e.ops = slot.ops;
+    const e = this.rasters.get(this.rasterKey(slot.id, this.state.page));
+    if (e) e.ops = this.state.page === 'alt' ? (slot.alt ?? []) : slot.ops;
     this.layoutCache = null;
     this.undoBtn.disabled = !this.state.canUndo;
     this.redoBtn.disabled = !this.state.canRedo;
@@ -961,6 +1065,7 @@ export class EditorScreen implements Screen {
 
   dispose(): void {
     this.disposed = true;
+    this.closePreview3d();
     cancelAnimationFrame(this.miniRaf);
     window.clearTimeout(this.noteTimer);
     window.removeEventListener('keydown', this.onKey);
