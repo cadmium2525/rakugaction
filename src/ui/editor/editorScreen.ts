@@ -1,7 +1,7 @@
 import './editor.css';
 import { EditorState, RECENT_COLORS } from '../../drawing/editorState';
 import type { Page, Tool } from '../../drawing/editorState';
-import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, FORWARD_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
+import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, FORWARD_STEPS, KIND_ICON, TILT_STEPS, isFlatTilt, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from '../../drawing/model';
 import { DrawingRaster } from '../../drawing/raster';
 import { resolveSlotOps } from '../../drawing/defaults';
@@ -15,6 +15,8 @@ import { toast } from '../toast';
 import { ColorPicker } from './colorPicker';
 import { CompositePreview, layoutFromRasters } from './composite';
 import { CharacterPreview3D } from './preview3d';
+import { REF_ALPHAS, defaultRef, moveRef, reducedSize, refRect, scaleRef } from './refImage';
+import type { RefTransform } from './refImage';
 import { altHint, altLabel, backHint, backLabel, drawAltGuides, drawBackGuides, drawGuides, mainLabel, partHint } from './guides';
 
 export interface EditorOptions {
@@ -117,6 +119,19 @@ export class EditorScreen implements Screen {
   private readonly addDialog: HTMLElement;
   private miniRaf = 0;
   private mountMode = false;
+  // ---- お手本 (紙の下に敷いて、なぞる画像。端末の中だけ・保存しない) ----
+  private readonly refCanvas: HTMLCanvasElement;
+  private readonly refBar: HTMLElement;
+  private readonly refInput: HTMLInputElement;
+  private refImg: HTMLCanvasElement | null = null;
+  private refAlphaIdx = 1;
+  private refHidden = false;
+  /** 動かすモード: 紙をなぞると、絵ではなくお手本が動く */
+  private refMove = false;
+  private readonly refXf = new Map<string, RefTransform>();
+  private refDrag: { id: number; x: number; y: number } | null = null;
+  /** 「大きさ・厚み・姿勢」の欄を開いているか。null = 自動 (何か設定済みなら開く) */
+  private advOpen: boolean | null = null;
   private mountDrag = false;
 
   // ---- 入力状態 ----
@@ -139,7 +154,22 @@ export class EditorScreen implements Screen {
     this.guideCanvas = h('canvas', { class: 'ed-guides', attrs: { width: '512', height: '512' } });
     this.mountCanvas = h('canvas', { class: 'ed-mount', attrs: { width: '512', height: '512' } });
     this.noteEl = h('div', { class: 'ed-note', attrs: { 'aria-live': 'polite' } });
-    this.viewEl = h('div', { class: 'ed-view' }, this.guideCanvas, this.canvas, this.mountCanvas);
+    this.refCanvas = h('canvas', { class: 'ed-ref', attrs: { width: '512', height: '512' } });
+    this.refInput = h('input', { class: 'ed-ref-input', attrs: { type: 'file', accept: 'image/*', hidden: '' }, on: { change: () => void this.loadRef() } });
+    const refBtn = (text: string, label: string, click: () => void, cls = 'ref-b'): HTMLButtonElement => h('button', { class: cls, text, attrs: { 'aria-label': label }, on: { click } });
+    this.refBar = h(
+      'div',
+      { class: 'ed-refbar' },
+      refBtn('🖼', 'お手本の画像を選ぶ (紙の下に敷いて、なぞる)', () => this.refInput.click()),
+      refBtn('✥', 'お手本を動かす (オンの間は、紙をなぞるとお手本が動く)', () => this.toggleRefMove(), 'ref-b ref-more ref-move'),
+      refBtn('−', 'お手本を小さく', () => this.scaleRefBy(1 / 1.12), 'ref-b ref-more'),
+      refBtn('＋', 'お手本を大きく', () => this.scaleRefBy(1.12), 'ref-b ref-more'),
+      refBtn('◐', 'お手本の濃さを変える', () => this.cycleRefAlpha(), 'ref-b ref-more'),
+      refBtn('👁', 'お手本を隠す / 見せる', () => this.toggleRefHidden(), 'ref-b ref-more'),
+      refBtn('✕', 'お手本を外す', () => this.removeRef(), 'ref-b ref-more'),
+      this.refInput,
+    );
+    this.viewEl = h('div', { class: 'ed-view' }, this.refCanvas, this.guideCanvas, this.canvas, this.mountCanvas);
     this.zoomLabel = h('button', { class: 'zoom-v', text: '1×', attrs: { 'aria-label': '拡大をもとに戻す' }, on: { click: () => this.resetZoom() } });
     const zoomBox = h(
       'div',
@@ -148,7 +178,7 @@ export class EditorScreen implements Screen {
       this.zoomLabel,
       h('button', { class: 'zoom-b', text: '＋', attrs: { 'aria-label': '拡大' }, on: { click: () => this.zoomBy(1.5) } }),
     );
-    this.paper = h('div', { class: 'ed-paper' }, this.viewEl, this.noteEl, zoomBox);
+    this.paper = h('div', { class: 'ed-paper' }, this.viewEl, this.noteEl, zoomBox, this.refBar);
     this.hintEl = h('div', { class: 'ed-hint' });
     this.pagesEl = h('div', { class: 'seg ed-pages', attrs: { hidden: '' } });
     const stage = h('div', { class: 'ed-stage' }, this.paper);
@@ -450,10 +480,23 @@ export class EditorScreen implements Screen {
         const name = KIND_LABEL[source.kind] + (st.drawing.parts.filter((p) => p.kind === source.kind).length > 1 ? String(n) : '');
         rows.push(h('button', { class: 'opt', text: `⧉ ${name}の絵を写す`, attrs: { 'aria-label': `${name}の絵をこのパーツに写す` }, on: { click: () => this.copyFrom(source.id) } }));
       }
-      rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '大きさ', (v) => this.updateSlot({ scale: v })));
-      rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
-      // 前へのずれ: 正面の絵の胴体につくパーツだけ (首を前に出した頭・前に出した腕)。横向きの胴体では、つなぐ位置で前後が決まる
-      if (st.drawing.parts[0].view === 'front') rows.push(stepper('前後', slot.forward ?? 0, FORWARD_STEPS, '前へのずれ', (v) => this.updateSlot({ forward: v }), (v) => (v === 0 ? '0' : `${v > 0 ? '前' : '後'}${Math.abs(Math.round(v * 100) / 100)}`)));
+      // 大きさ・厚み・前後のずれ・傾き: 数が多いので、まとめて開閉する (何か設定してあれば最初から開いている)
+      const customized = (slot.scale ?? 1) !== 1 || (slot.depth ?? 1) !== 1 || !!slot.forward || !isFlatTilt(slot.tilt);
+      const open = this.advOpen ?? customized;
+      rows.push(
+        h('button', { class: `opt${open ? ' on' : ''}`, text: `⚙ 大きさ・姿勢 ${open ? '▾' : '▸'}${customized && !open ? ' ●' : ''}`, attrs: { 'aria-expanded': String(open), 'aria-label': '大きさ・厚み・前後・傾きの設定を開く / 閉じる' }, on: { click: () => this.toggleAdv(open) } }),
+      );
+      if (open) {
+        const tiltRow = (label: string, axis: 'yaw' | 'pitch' | 'roll', aria: string): HTMLElement =>
+          stepper(label, slot.tilt?.[axis] ?? 0, TILT_STEPS, aria, (v) => this.updateSlot({ tilt: { ...slot.tilt, [axis]: v } }), (v) => `${v}°`);
+        rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '大きさ', (v) => this.updateSlot({ scale: v })));
+        rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
+        // 前へのずれ: 正面の絵の胴体につくパーツだけ (首を前に出した頭・前に出した腕)。横向きの胴体では、つなぐ位置で前後が決まる
+        if (st.drawing.parts[0].view === 'front') rows.push(stepper('前後', slot.forward ?? 0, FORWARD_STEPS, '前へのずれ', (v) => this.updateSlot({ forward: v }), (v) => (v === 0 ? '0' : `${v > 0 ? '前' : '後'}${Math.abs(Math.round(v * 100) / 100)}`)));
+        rows.push(tiltRow('ひねり', 'yaw', 'ひねり (上から見て回す。翼は+で先が後ろへ)'));
+        rows.push(tiltRow('おじぎ', 'pitch', 'おじぎ (横から見て倒す。+で上が前へ)'));
+        rows.push(tiltRow('傾き', 'roll', 'かたむき (正面から見て倒す。翼は+で先が上へ)'));
+      }
       rows.push(altRow());
       rows.push(backRow());
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
@@ -492,6 +535,7 @@ export class EditorScreen implements Screen {
     this.redoBtn.disabled = !this.state.canRedo;
     this.clearBtn.disabled = this.state.ops.length === 0;
     this.paper.classList.toggle('mounting', this.mountMode);
+    this.refreshRef();
     this.blit();
     if (this.mountMode) this.drawMount();
     this.scheduleMini();
@@ -554,6 +598,110 @@ export class EditorScreen implements Screen {
       this.layoutCache = null;
       this.refreshAll();
     }
+  }
+
+  // ===== お手本 =====
+
+  private refKey(): string {
+    return `${this.state.currentId}|${this.state.page}`;
+  }
+
+  private currentRef(): RefTransform | null {
+    const img = this.refImg;
+    if (!img) return null;
+    const key = this.refKey();
+    let t = this.refXf.get(key);
+    if (!t) {
+      t = defaultRef(img.width, img.height);
+      this.refXf.set(key, t);
+    }
+    return t;
+  }
+
+  /** お手本の画像を読む。長辺が大きければ縮める。読めなければ (画像でないなど) 何も変えずに知らせる。 */
+  private async loadRef(): Promise<void> {
+    const file = this.refInput.files?.[0];
+    this.refInput.value = '';
+    if (!file) return;
+    try {
+      const bmp = await createImageBitmap(file);
+      const { w, h } = reducedSize(bmp.width, bmp.height);
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d');
+      if (!ctx) throw new Error('2D canvas is not available');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(bmp, 0, 0, w, h);
+      bmp.close();
+      this.refImg = c;
+      this.refXf.clear();
+      this.refHidden = false;
+      this.refMove = false;
+      this.refreshRef();
+      toast(this.opts.host, 'お手本を敷きました。✥ で動かし、− ＋ で大きさをそろえて、なぞります');
+    } catch (e) {
+      // 画像として読めないファイル (壊れた・対応しない形式) は、何も変えない
+      console.warn('reference image failed', e);
+      toast(this.opts.host, 'その画像は読み込めませんでした');
+    }
+  }
+
+  private refreshRef(): void {
+    const img = this.refImg;
+    const ctx = this.refCanvas.getContext('2d');
+    if (ctx) {
+      const S = this.refCanvas.width;
+      ctx.clearRect(0, 0, S, S);
+      const t = this.currentRef();
+      if (img && t && !this.refHidden) {
+        const r = refRect(t, img.width, img.height);
+        ctx.globalAlpha = REF_ALPHAS[this.refAlphaIdx];
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, r.x * S, r.y * S, r.w * S, r.h * S);
+        ctx.globalAlpha = 1;
+      }
+    }
+    const has = !!img;
+    this.refBar.classList.toggle('has-ref', has);
+    this.refBar.querySelector('.ref-move')?.classList.toggle('on', this.refMove);
+    this.paper.classList.toggle('ref-moving', this.refMove && has);
+  }
+
+  private toggleRefMove(): void {
+    if (!this.refImg) return;
+    this.refMove = !this.refMove;
+    if (this.refMove) toast(this.opts.host, '紙をなぞると、お手本が動きます (もう一度 ✥ で絵を描く)');
+    this.refreshRef();
+  }
+
+  private scaleRefBy(f: number): void {
+    const t = this.currentRef();
+    if (!t) return;
+    this.refXf.set(this.refKey(), scaleRef(t, f));
+    this.refreshRef();
+  }
+
+  private cycleRefAlpha(): void {
+    this.refAlphaIdx = (this.refAlphaIdx + 1) % REF_ALPHAS.length;
+    this.refreshRef();
+  }
+
+  private toggleRefHidden(): void {
+    this.refHidden = !this.refHidden;
+    this.refreshRef();
+  }
+
+  private removeRef(): void {
+    this.refImg = null;
+    this.refXf.clear();
+    this.refMove = false;
+    this.refreshRef();
+  }
+
+  private toggleAdv(wasOpen: boolean): void {
+    this.advOpen = !wasOpen;
+    this.renderPartBox();
   }
 
   private setTool(t: Tool): void {
@@ -628,6 +776,7 @@ export class EditorScreen implements Screen {
 
   private selectPart(id: string): void {
     this.state.setPart(id);
+    this.advOpen = null;
     this.resetZoom();
     this.layoutCache = null;
     this.refreshAll();
@@ -1071,6 +1220,13 @@ export class EditorScreen implements Screen {
     e.preventDefault();
     this.hideNote();
     this.rect = this.canvas.getBoundingClientRect();
+    if (this.refMove && this.refImg) {
+      // 動かすモード: 絵は描かず、お手本を動かす
+      this.activePointer = e.pointerId;
+      this.refDrag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      capturePointer(this.canvas, e.pointerId);
+      return;
+    }
     const [x, y] = this.norm(e);
     const st = this.state;
     if (st.tool === 'pick' || st.tool === 'fill') {
@@ -1091,6 +1247,15 @@ export class EditorScreen implements Screen {
   };
 
   private readonly onMove = (e: PointerEvent): void => {
+    if (this.refDrag && e.pointerId === this.refDrag.id) {
+      const r = this.rect ?? this.canvas.getBoundingClientRect();
+      const t = this.currentRef();
+      if (t) this.refXf.set(this.refKey(), moveRef(t, (e.clientX - this.refDrag.x) / r.width, (e.clientY - this.refDrag.y) / r.height));
+      this.refDrag.x = e.clientX;
+      this.refDrag.y = e.clientY;
+      this.refreshRef();
+      return;
+    }
     if (e.pointerId !== this.activePointer || this.ignoreUntilUp || !this.strokeKind) return;
     e.preventDefault();
     const evs = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
@@ -1116,6 +1281,11 @@ export class EditorScreen implements Screen {
 
   private readonly onUp = (e: PointerEvent): void => {
     if (e.pointerId !== this.activePointer) return;
+    if (this.refDrag) {
+      this.refDrag = null;
+      this.activePointer = -1;
+      return;
+    }
     if (this.tap) {
       const t = this.tap;
       this.tap = null;
@@ -1153,6 +1323,7 @@ export class EditorScreen implements Screen {
   /** 描きかけの線 (確定前) を取り消す。2 本目の指が触れて、拡大・移動の操作になった時。 */
   private cancelStroke(): void {
     this.tap = null;
+    this.refDrag = null;
     if (this.strokeKind) {
       this.editRaster(this.state.current).endStroke();
       this.strokeKind = null;

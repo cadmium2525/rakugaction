@@ -1,6 +1,6 @@
 import { DEFAULT_BRUSH_INDEX, LIMITS, canAdd, cloneDrawing, emptyDrawing, freshId, newSlot, slotOf } from './model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from './model';
-import { sanitizeDrawing, sanitizeOp } from './sanitize';
+import { sanitizeDrawing, sanitizeOp, sanitizeTilt } from './sanitize';
 import type { Template } from './templates';
 
 /** pick = スポイト (絵の上の色を拾う) */
@@ -16,7 +16,7 @@ const HISTORY_LIMIT = 80;
 export const RECENT_COLORS = 8;
 
 /** パーツの設定の変更 (向き・ペア・置き場所・反転・取り付け位置)。 */
-export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody' | 'scale' | 'depth' | 'forward'>>;
+export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody' | 'scale' | 'depth' | 'forward' | 'tilt'>>;
 
 /**
  * エディタの状態 (DOM 非依存)。パーツごとに Undo/Redo 履歴を持つ。
@@ -266,6 +266,10 @@ export class EditorState {
     if (next.scale === undefined || next.scale === 1 || next.kind === 'body') delete next.scale;
     if (next.depth === undefined || next.depth === 1) delete next.depth;
     if (next.forward === undefined || next.forward === 0 || next.kind === 'body') delete next.forward;
+    // 傾きは、0 の軸を捨てて整える。すべて 0 なら外す。胴体には付けない
+    const tilt = next.kind === 'body' ? undefined : sanitizeTilt(next.tilt);
+    if (tilt) next.tilt = tilt;
+    else delete next.tilt;
     if (patch.pair === false && slot.pair && next.side === 'C' && slot.kind !== 'head' && slot.kind !== 'tail') next.side = 'L';
     if (id === 'body') {
       next.pair = false;

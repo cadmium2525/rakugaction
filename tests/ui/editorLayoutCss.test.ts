@@ -40,4 +40,8 @@ describe('エディタの右の欄 (色・太さ・全体像)', () => {
     const block = css.slice(css.indexOf('@media (max-height: 460px) and (min-width: 640px)'));
     expect(block).toMatch(/'colors part'\s*'mini part'/);
   });
+
+  it('パーツの設定の行は縮まない (行が多いと重なって読めなくなる。縦にスクロールする)', () => {
+    expect(ruleBody('.ed-part > *')).toMatch(/flex:\s*none/);
+  });
 });

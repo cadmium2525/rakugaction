@@ -475,6 +475,10 @@
   flex-direction: column;
   gap: 4px;
 }
+/* 行が多いとき、縮んで重ならない (縦にスクロールする) */
+.ed-part > * {
+  flex: none;
+}
 .seg {
   display: flex;
   gap: 3px;
@@ -883,4 +887,58 @@
 }
 .ed-paper.zoomed .zoom-v {
   background: #fff1e6;
+}
+
+/* お手本 (紙の下に敷いて、なぞる画像) */
+.ed-ref {
+  pointer-events: none;
+}
+.ed-paper.mounting .ed-ref {
+  visibility: hidden;
+}
+.ed-paper.ref-moving .ed-canvas {
+  cursor: move;
+}
+.ed-refbar {
+  position: absolute;
+  z-index: 3;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid #e6d8bb;
+}
+.ref-b {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  color: var(--ink);
+  padding: 0;
+}
+.ref-b.on {
+  background: #fff1e6;
+  box-shadow: 0 0 0 2px var(--accent) inset;
+}
+/* 画像を敷くまでは、🖼 だけ */
+.ed-refbar:not(.has-ref) .ref-more {
+  display: none;
+}
+.ed-ref-input {
+  display: none;
+}
+
+/* 紙が小さい (幅か高さが 330px 以下) とき: お手本の操作を、拡大の操作の上の段に出す (横に並べると重なる) */
+@container (max-width: 330px) or (max-height: 330px) {
+  .ed-refbar {
+    bottom: 40px;
+  }
 }

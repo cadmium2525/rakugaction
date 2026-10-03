@@ -167,11 +167,13 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
   const Tb = bodyGeo.thickness;
   const hipY = L.hipY * S;
   bodyGroup.position.set(0, hipY, 0);
-  const attach = (parent: THREE.Object3D, slotId: string, view: 'front' | 'side', mirrored: boolean, name: string): THREE.Mesh => {
+  const attach = (parent: THREE.Object3D, slotId: string, view: 'front' | 'side', mirrored: boolean, name: string, tilt?: THREE.Quaternion): THREE.Mesh => {
     const mesh = new THREE.Mesh((geos.get(slotId) as PartGeometryResult).geometry, mats.get(slotId));
     mesh.name = name;
-    // 横向きの絵は、絵の右が +z (前) になるよう 90° 回す。正面の絵のペアの鏡像側は x を反転する
-    if (view === 'side') mesh.rotation.y = -Math.PI / 2;
+    // 横向きの絵は、絵の右が +z (前) になるよう 90° 回す。正面の絵のペアの鏡像側は x を反転する。
+    // 傾き (姿勢) は、キャラクターの向きで関節を中心に回すので、絵の向きの回転の後にかける (メッシュの回転 = 傾き × 絵の向き)
+    if (view === 'side') mesh.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+    if (tilt) mesh.quaternion.premultiply(tilt);
     if (mirrored) mesh.scale.x = -1;
     parent.add(mesh);
     return mesh;
@@ -210,15 +212,27 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
         return 0;
     }
   };
-  const makePivot = (p: PlacedPart): THREE.Group => {
+  const makePivot = (p: PlacedPart, tilt?: THREE.Quaternion): THREE.Group => {
     const pivot = new THREE.Group();
     pivot.name = `${p.slotId}${p.twin ? '-twin' : ''}`;
-    attach(pivot, p.slotId, p.view, p.mirrored, `${pivot.name}Mesh`);
+    attach(pivot, p.slotId, p.view, p.mirrored, `${pivot.name}Mesh`, tilt);
     return pivot;
   };
+  /** 傾き (度) → 回転。順序は ひねり (y) → おじぎ (x) → かたむき (z)。ペアの相手は、ひねりとかたむきが逆向き (左右対称) */
+  const tiltQuat = (slotId: string, twin: boolean): THREE.Quaternion | undefined => {
+    const t = prepared.find((q) => q.slot.id === slotId)?.slot.tilt;
+    if (!t) return undefined;
+    const d = Math.PI / 180;
+    const sgn = twin ? -1 : 1;
+    return new THREE.Quaternion().setFromEuler(new THREE.Euler((t.pitch ?? 0) * d, (t.yaw ?? 0) * d * sgn, (t.roll ?? 0) * d * sgn, 'YXZ'));
+  };
+  /** 頭の傾き。頭の子 (角・耳) は、位置も向きも頭の傾きについていく */
+  let headTilt: THREE.Quaternion | null = null;
   const ordered = [...L.placed.filter((p) => p.kind !== 'body' && p.parent === 'body'), ...L.placed.filter((p) => p.parent === 'head')];
   for (const p of ordered) {
-    const pivot = makePivot(p);
+    const own = tiltQuat(p.slotId, p.twin === 1);
+    const inherit = p.parent === 'head' && headTilt ? headTilt : null;
+    const pivot = makePivot(p, inherit ? inherit.clone().multiply(own ?? new THREE.Quaternion()) : own);
     const y = (p.jy - L.hipY) * S;
     const x = sideBody ? p.lateral * latDist : p.ja * S;
     const z = zOf(p);
@@ -226,6 +240,7 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
       // 頭の子: 頭のピボットからの相対位置
       const hx = sideBody ? headPlaced.lateral * latDist : headPlaced.ja * S;
       pivot.position.set(x - hx, y - (headPlaced.jy - L.hipY) * S, z - zOf(headPlaced));
+      if (inherit) pivot.position.applyQuaternion(inherit);
       headGroup.add(pivot);
     } else {
       pivot.position.set(x, y, z);
@@ -234,6 +249,7 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     if (p.kind === 'head' && !headGroup) {
       headGroup = pivot;
       headPlaced = p;
+      headTilt = own ?? null;
     }
     rigParts.push({ slotId: p.slotId, kind: p.kind, view: p.view, side: p.side, rank: p.rank, count: p.count, pivot });
   }

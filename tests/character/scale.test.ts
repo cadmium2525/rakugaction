@@ -195,3 +195,91 @@ describe('パーツごとの前へのずれ (PartSlot.forward)', () => {
     expect(st.duplicatePart('legs')).toBeTruthy();
   });
 });
+
+describe('パーツの傾き (PartSlot.tilt)', () => {
+  const birdWith = (tilt: PartSlot['tilt']): DrawingData => {
+    const d = cloneDrawing(creatureDoodles().find((c) => c.name === 'bird')!.data);
+    const wi = d.parts.findIndex((p) => p.kind === 'wing');
+    d.parts[wi] = { ...d.parts[wi], ...(tilt ? { tilt } : {}) };
+    return d;
+  };
+  const wingBoxes = (c: ReturnType<typeof buildCharacter>): THREE.Box3[] => partsOf(c.rig, 'wing').map((w) => boundsOf(w.pivot));
+
+  it('ひねり (yaw): 翼の先が後ろへ回る。ペアの両方が左右対称に後ろへ動き、横の広がりは縮む', () => {
+    const a = buildCharacter(birdWith(undefined), { targetHeight: 1.6 });
+    const b = buildCharacter(birdWith({ yaw: 40 }), { targetHeight: 1.6 });
+    const [a1, a2] = wingBoxes(a);
+    const [b1, b2] = wingBoxes(b);
+    for (const [x, y] of [[a1, b1], [a2, b2]] as const) {
+      expect(y.min.z).toBeLessThan(x.min.z - 0.1);
+      expect(y.max.x - y.min.x).toBeLessThan(x.max.x - x.min.x);
+    }
+    // 左右対称: z の範囲が同じ
+    expect(b1.min.z).toBeCloseTo(b2.min.z, 3);
+    expect(b1.max.z).toBeCloseTo(b2.max.z, 3);
+    a.rig.dispose();
+    b.rig.dispose();
+  });
+
+  it('かたむき (roll): 翼の先が上がる (両方)。おじぎ (pitch): 上が前へ倒れる', () => {
+    const a = buildCharacter(birdWith(undefined), { targetHeight: 1.6 });
+    const r = buildCharacter(birdWith({ roll: 35 }), { targetHeight: 1.6 });
+    const [a1] = wingBoxes(a);
+    const [r1, r2] = wingBoxes(r);
+    expect(r1.max.y).toBeGreaterThan(a1.max.y + 0.05);
+    expect(r2.max.y).toBeCloseTo(r1.max.y, 3);
+    // 頭: 上が前へ
+    const h0 = buildCharacter(standardDoodle(), { targetHeight: 1.6 });
+    const h1 = buildCharacter(withSlot('head', { tilt: { pitch: 40 } }), { targetHeight: 1.6 });
+    const top = (c: ReturnType<typeof buildCharacter>): number => boundsOf(partsOf(c.rig, 'head')[0].pivot).max.z;
+    expect(top(h1)).toBeGreaterThan(top(h0) + 0.03);
+    a.rig.dispose();
+    r.rig.dispose();
+    h0.rig.dispose();
+    h1.rig.dispose();
+  });
+
+  it('頭の傾きは、頭の子 (角) の位置と向きにもついていく。もようも頭についていく', () => {
+    const chimera = creatureDoodles().find((c) => c.name === 'chimera')!.data;
+    const tilted = cloneDrawing(chimera);
+    const hi = tilted.parts.findIndex((p) => p.kind === 'head');
+    tilted.parts[hi] = { ...tilted.parts[hi], tilt: { pitch: 50 } };
+    const a = buildCharacter(chimera, { targetHeight: 1.6 });
+    const b = buildCharacter(tilted, { targetHeight: 1.6 });
+    const horn = (c: ReturnType<typeof buildCharacter>): THREE.Vector3 => {
+      const o = c.rig.parts.find((p) => p.kind === 'ornament')!.pivot;
+      c.rig.root.updateMatrixWorld(true);
+      return new THREE.Vector3().setFromMatrixPosition(o.matrixWorld);
+    };
+    // 角は頭の上にあるので、頭が前へ倒れると、角も前へ動く (関節の高さからの距離は変わらない)
+    expect(horn(b).z).toBeGreaterThan(horn(a).z + 0.05);
+    const head = (c: ReturnType<typeof buildCharacter>): THREE.Vector3 => new THREE.Vector3().setFromMatrixPosition(partsOf(c.rig, 'head')[0].pivot.matrixWorld);
+    expect(horn(b).distanceTo(head(b))).toBeCloseTo(horn(a).distanceTo(head(a)), 3);
+    a.rig.dispose();
+    b.rig.dispose();
+  });
+
+  it('保存データ: 整数の度・範囲内・0 の軸は捨てる・全部 0 なら外す。胴体には付かない。EditorState でも同じ。複製は傾きも写す', () => {
+    const d = cloneDrawing(standardDoodle());
+    const raw = JSON.parse(JSON.stringify(d)) as { parts: Record<string, unknown>[] };
+    raw.parts[0].tilt = { yaw: 30 };
+    raw.parts[1].tilt = { yaw: 400, pitch: -12.6, roll: 0, junk: 5 };
+    raw.parts[2].tilt = { yaw: 0, pitch: 0, roll: 0 };
+    raw.parts[3].tilt = 'x';
+    const s = sanitizeDrawing(raw);
+    expect(slotOf(s, 'body')!.tilt).toBeUndefined();
+    expect(slotOf(s, 'head')!.tilt).toEqual({ yaw: 120, pitch: -13 });
+    expect(slotOf(s, 'arms')!.tilt).toBeUndefined();
+    expect(slotOf(s, 'legs')!.tilt).toBeUndefined();
+    expect(sanitizeDrawing(JSON.parse(JSON.stringify(s)))).toEqual(s);
+    const st = new EditorState(standardDoodle());
+    st.updatePart('legs', { tilt: { yaw: 15, pitch: 0 } });
+    expect(slotOf(st.drawing, 'legs')!.tilt).toEqual({ yaw: 15 });
+    const dup = st.duplicatePart('legs');
+    expect(dup?.tilt).toEqual({ yaw: 15 });
+    st.updatePart('legs', { tilt: { yaw: 0 } });
+    expect(slotOf(st.drawing, 'legs')!.tilt).toBeUndefined();
+    st.updatePart('body', { tilt: { yaw: 20 } });
+    expect(slotOf(st.drawing, 'body')!.tilt).toBeUndefined();
+  });
+});

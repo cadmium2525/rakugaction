@@ -89,6 +89,13 @@ export interface Mount {
   v: number;
 }
 
+/** パーツの傾き (度)。省略した軸は 0 */
+export interface Tilt {
+  yaw?: number;
+  pitch?: number;
+  roll?: number;
+}
+
 export interface PartSlot {
   /** 一意な名前 (英数字)。胴体は 'body'。編集の履歴などのキーになる。 */
   id: string;
@@ -116,6 +123,14 @@ export interface PartSlot {
    * 首を前に出した頭・前に突き出した腕など、姿勢をつけるため。「もう一つの向きの絵」のずらしは、パーツ自身の紙の半分までしか届かない。
    */
   forward?: number;
+  /**
+   * 傾き (省略 = まっすぐ)。関節 (つなぐ点) を中心に、パーツをキャラクターの向きで回す。単位は度。
+   *  - yaw (ひねり): 上から見て回す。主の側 (左) の翼は、+ で先が後ろへ回る (しっぽ・頭は向きを変える)
+   *  - pitch (おじぎ): 横から見て倒す。+ で上が前へ倒れる
+   *  - roll (かたむき): 正面から見て倒す。主の側 (左) の翼は、+ で先が上がる
+   * ペアの相手 (反対側) は、yaw と roll が逆向きになる (左右対称に動く)。胴体には使わない。
+   */
+  tilt?: Tilt;
   /**
    * もう一つの向きの絵 (省略 = 無し)。正面の絵のパーツなら「横から見た絵」、横向きの絵のパーツなら「正面から見た絵」
    * (翼としっぽは「上から見た絵」。altModeOf を見る)。前後 (または左右) の厚みと姿勢 (前かがみ・そり) の形を、この絵の輪郭で決め、
@@ -169,6 +184,14 @@ export const DEPTH_RANGE = { min: 0.2, max: 2.5 } as const;
 /** 前へのずれ (胴体の紙の幅に対する比) */
 export const FORWARD_STEPS = [-0.6, -0.45, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8] as const;
 export const FORWARD_RANGE = { min: -1, max: 1 } as const;
+/** 傾きの段階と範囲 (度) */
+export const TILT_STEPS = [-90, -75, -60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60, 75, 90] as const;
+export const TILT_RANGE = { min: -120, max: 120 } as const;
+
+/** 傾きが何も付いていない (すべて 0) か */
+export function isFlatTilt(t: Tilt | undefined): boolean {
+  return !t || (!t.yaw && !t.pitch && !t.roll);
+}
 
 /** 入力の上限。巨大/悪意あるデータで端末を重くしない。 */
 export const LIMITS = {
@@ -221,6 +244,7 @@ export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'i
     ...(o.scale !== undefined && o.scale !== 1 && kind !== 'body' ? { scale: o.scale } : {}),
     ...(o.depth !== undefined && o.depth !== 1 ? { depth: o.depth } : {}),
     ...(o.forward !== undefined && o.forward !== 0 && kind !== 'body' ? { forward: o.forward } : {}),
+    ...(o.tilt && !isFlatTilt(o.tilt) && kind !== 'body' ? { tilt: o.tilt } : {}),
     ...(o.alt ? { alt: o.alt } : {}),
     ...(o.back ? { back: o.back } : {}),
     ops: o.ops ?? [],

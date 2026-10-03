@@ -1,6 +1,6 @@
 import { clamp } from '../core/math';
-import { DEPTH_RANGE, FORWARD_RANGE, KIND_MAX, LEGACY_PART_KEYS, LIMITS, PART_KINDS, SCALE_RANGE, newSlot, upgradeLegacy } from './model';
-import type { DrawOp, DrawingData, LegacyDrawingData, PartKind, PartSide, PartSlot, PartView } from './model';
+import { DEPTH_RANGE, FORWARD_RANGE, KIND_MAX, TILT_RANGE, LEGACY_PART_KEYS, LIMITS, PART_KINDS, SCALE_RANGE, newSlot, upgradeLegacy } from './model';
+import type { DrawOp, DrawingData, LegacyDrawingData, PartKind, PartSide, PartSlot, PartView, Tilt } from './model';
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 const ID_RE = /^[A-Za-z0-9]{1,12}$/;
@@ -82,6 +82,19 @@ export function sanitizeFactor(raw: unknown, min: number, max: number): number |
   return Math.round(clamp(raw, min, max) * 100) / 100;
 }
 
+/** 傾き: 数でない軸・0 の軸は捨て、範囲に収めて整数 (度) にする。何も残らなければ undefined。 */
+export function sanitizeTilt(raw: unknown): Tilt | undefined {
+  if (!isObj(raw)) return undefined;
+  const out: Tilt = {};
+  for (const k of ['yaw', 'pitch', 'roll'] as const) {
+    const v = raw[k];
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const d = Math.round(clamp(v, TILT_RANGE.min, TILT_RANGE.max));
+    if (d !== 0) out[k] = d;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function sanitizeSlot(raw: unknown, index: number): PartSlot | null {
   if (!isObj(raw)) return null;
   const kind = PART_KINDS.includes(raw.kind as PartKind) ? (raw.kind as PartKind) : null;
@@ -96,7 +109,7 @@ function sanitizeSlot(raw: unknown, index: number): PartSlot | null {
   const scale = sanitizeFactor(raw.scale, SCALE_RANGE.min, SCALE_RANGE.max);
   const depth = sanitizeFactor(raw.depth, DEPTH_RANGE.min, DEPTH_RANGE.max);
   const forward = sanitizeFactor(raw.forward, FORWARD_RANGE.min, FORWARD_RANGE.max);
-  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: (kind === 'ornament' || kind === 'decal') && raw.onBody === true, scale, depth, forward, alt: Array.isArray(raw.alt) ? sanitizeOps(raw.alt) : undefined, back: Array.isArray(raw.back) ? sanitizeOps(raw.back) : undefined, ops: sanitizeOps(raw.ops) });
+  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: (kind === 'ornament' || kind === 'decal') && raw.onBody === true, scale, depth, forward, tilt: sanitizeTilt(raw.tilt), alt: Array.isArray(raw.alt) ? sanitizeOps(raw.alt) : undefined, back: Array.isArray(raw.back) ? sanitizeOps(raw.back) : undefined, ops: sanitizeOps(raw.ops) });
 }
 
 /** 旧形式 (固定 6 パーツ) を安全な新形式にする。 */
