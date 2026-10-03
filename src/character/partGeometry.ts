@@ -53,9 +53,10 @@ const MIN_THETA = 0.1;
  *  4. 背面は前面の鏡像。UV は前面からの平面投影 (輪郭の線の色が縁にそのまま出る)
  *
  * @param ax,ay  パーツ画像内のアンカー (ラスタのピクセル座標)。ジオメトリの原点になる。
- * @param scale  キャンバス幅 1.0 あたりのメートル数 (u → m)
+ * @param scale  キャンバス幅 1.0 あたりのメートル数 (u → m)。パーツごとの大きさの倍率 (PartSlot.scale) を含む
+ * @param depth  前後の厚みの倍率 (PartSlot.depth。1 = 標準)
  */
-export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number, ay: number, scale: number): PartGeometryResult {
+export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number, ay: number, scale: number, depth = 1): PartGeometryResult {
   const res = part.res;
   const mask = part.mask;
   // ---- 外接矩形 ----
@@ -192,7 +193,7 @@ export function buildPartGeometry(kind: PartKind, part: CleanedPart, ax: number,
   }
 
   // ---- メッシュ: 前面の頂点 [0, nIn) / 輪郭の頂点 / 背面の頂点 / 多角形の重心 (前後) ----
-  const puff = K * PUFF[kind];
+  const puff = K * PUFF[kind] * depth;
   const px: number[] = []; // 格子の単位ではなく、画像の px 座標
   const py: number[] = [];
   const pz: number[] = []; // 格子の単位 (後で px に直す)

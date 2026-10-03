@@ -96,6 +96,13 @@ export interface PartSlot {
   mount: Mount | null;
   /** 飾り (角・背びれ・甲羅など) だけ: true なら、頭があっても胴体に付ける。省略 = 頭があれば頭に付ける */
   onBody?: boolean;
+  /**
+   * このパーツの絵を貼る大きさの倍率 (省略 = 1)。どのパーツも同じ縮尺のキャンバスに描くので、小さな部品 (頭・爪・目など) は
+   * 細かく描けない。キャンバスいっぱいに大きく描いて、0.3 倍などで貼れば、細部まで描ける。胴体には使わない (胴体が基準)。
+   */
+  scale?: number;
+  /** 前後の厚みの倍率 (省略 = 1)。翼や膜は薄く (0.4)、丸い胴体は厚く (1.5) */
+  depth?: number;
   ops: DrawOp[];
 }
 
@@ -106,12 +113,18 @@ export interface DrawingData {
   parts: PartSlot[];
 }
 
+/** 大きさ・厚みの倍率の、エディタで選べる段階と、保存データの範囲 */
+export const SCALE_STEPS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.75, 1, 1.3, 1.6, 2, 2.5] as const;
+export const DEPTH_STEPS = [0.3, 0.5, 0.75, 1, 1.3, 1.7, 2.2] as const;
+export const SCALE_RANGE = { min: 0.1, max: 3 } as const;
+export const DEPTH_RANGE = { min: 0.2, max: 2.5 } as const;
+
 /** 入力の上限。巨大/悪意あるデータで端末を重くしない。 */
 export const LIMITS = {
   maxOpsPerPart: 400,
   maxPointsPerStroke: 3000,
   maxTotalPointsPerPart: 24000,
-  minWidth: 0.012,
+  minWidth: 0.006,
   maxWidth: 0.3,
   /** 座標の保存精度 (1/4096) */
   coordQuant: 4096,
@@ -122,7 +135,10 @@ export const LIMITS = {
 /** ラスタライズ解像度 (正方形)。エディタ表示と 3D 化で同じものを使う。 */
 export const RASTER_RES = 384;
 
-export const BRUSH_SIZES = [0.02, 0.045, 0.08, 0.14] as const;
+/** 筆の太さ (キャンバス幅に対する比)。細い線は、小さな目や爪を描くため */
+export const BRUSH_SIZES = [0.01, 0.02, 0.045, 0.08, 0.14] as const;
+/** 最初に選ばれている太さ (BRUSH_SIZES の番号。0.045) */
+export const DEFAULT_BRUSH_INDEX = 2;
 
 /** 基本パレット。色相は能力傾向 (赤=POWER 青=DEFENSE 緑=SPEED 黄=JUMP 紫=特殊) と対応する。 */
 export const BASE_PALETTE: readonly { name: string; hex: string }[] = [
@@ -151,6 +167,8 @@ export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'i
     flip: o.flip ?? false,
     mount: o.mount ?? null,
     ...(o.onBody ? { onBody: true } : {}),
+    ...(o.scale !== undefined && o.scale !== 1 && kind !== 'body' ? { scale: o.scale } : {}),
+    ...(o.depth !== undefined && o.depth !== 1 ? { depth: o.depth } : {}),
     ops: o.ops ?? [],
   };
 }

@@ -1,5 +1,5 @@
 import { clamp } from '../core/math';
-import { KIND_MAX, LEGACY_PART_KEYS, LIMITS, PART_KINDS, newSlot, upgradeLegacy } from './model';
+import { DEPTH_RANGE, KIND_MAX, LEGACY_PART_KEYS, LIMITS, PART_KINDS, SCALE_RANGE, newSlot, upgradeLegacy } from './model';
 import type { DrawOp, DrawingData, LegacyDrawingData, PartKind, PartSide, PartSlot, PartView } from './model';
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -76,6 +76,12 @@ export function sanitizeOps(raw: unknown): DrawOp[] {
   return ops;
 }
 
+/** 倍率 (大きさ・厚み): 数でなければ undefined (= 1)。範囲に収め、小数 2 桁にする。 */
+export function sanitizeFactor(raw: unknown, min: number, max: number): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  return Math.round(clamp(raw, min, max) * 100) / 100;
+}
+
 function sanitizeSlot(raw: unknown, index: number): PartSlot | null {
   if (!isObj(raw)) return null;
   const kind = PART_KINDS.includes(raw.kind as PartKind) ? (raw.kind as PartKind) : null;
@@ -87,7 +93,9 @@ function sanitizeSlot(raw: unknown, index: number): PartSlot | null {
   if (isObj(raw.mount) && typeof raw.mount.u === 'number' && typeof raw.mount.v === 'number' && Number.isFinite(raw.mount.u) && Number.isFinite(raw.mount.v)) {
     mount = { u: Math.round(clamp(raw.mount.u, 0, 1) * 1000) / 1000, v: Math.round(clamp(raw.mount.v, 0, 1) * 1000) / 1000 };
   }
-  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: kind === 'ornament' && raw.onBody === true, ops: sanitizeOps(raw.ops) });
+  const scale = sanitizeFactor(raw.scale, SCALE_RANGE.min, SCALE_RANGE.max);
+  const depth = sanitizeFactor(raw.depth, DEPTH_RANGE.min, DEPTH_RANGE.max);
+  return newSlot(id, kind, { view, side, pair: raw.pair === true, flip: raw.flip === true, mount, onBody: kind === 'ornament' && raw.onBody === true, scale, depth, ops: sanitizeOps(raw.ops) });
 }
 
 /** 旧形式 (固定 6 パーツ) を安全な新形式にする。 */
@@ -125,7 +133,11 @@ export function sanitizeDrawing(raw: unknown): DrawingData {
     const slot = sanitizeSlot(r, i);
     if (!slot) return;
     if (slot.kind === 'body') {
-      if (!body) body = { ...slot, id: 'body', pair: false, side: 'C', mount: null };
+      if (!body) {
+        const { scale: _scale, ...rest } = slot;
+        void _scale;
+        body = { ...rest, id: 'body', pair: false, side: 'C', mount: null };
+      }
       return;
     }
     if (out.length + 1 >= LIMITS.maxSlots) return;

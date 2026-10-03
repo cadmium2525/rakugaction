@@ -81,14 +81,15 @@ export function measureBody(prepared: readonly PreparedSlot[], layout: Character
     const prep = bySlot.get(p.slotId) as PreparedSlot;
     const m = L.metrics.get(p.slotId)!;
     const res = prep.cleaned.res;
-    const dx = U(m.cx - p.ax);
+    const k = p.k;
+    const dx = U(m.cx - p.ax) * k;
     return {
-      width: U(m.width),
-      height: U(m.height),
-      area: prep.cleaned.area / (res * res),
-      thickness: (2 * prep.cleaned.inscribedRadius) / res,
+      width: U(m.width) * k,
+      height: U(m.height) * k,
+      area: (prep.cleaned.area / (res * res)) * k * k,
+      thickness: ((2 * prep.cleaned.inscribedRadius) / res) * k,
       cx: p.mirrored ? p.ja - dx : p.ja + dx,
-      cy: p.jy + U(p.ay - m.cy),
+      cy: p.jy + U(p.ay - m.cy) * k,
     };
   };
   const instances = L.placed.map((p) => ({ p, m: measureOf(p) }));
@@ -117,8 +118,8 @@ export function measureBody(prepared: readonly PreparedSlot[], layout: Character
     const xs: number[] = [];
     for (const { p } of legInst) {
       const m = L.metrics.get(p.slotId)!;
-      const l = p.mirrored ? p.ja - U(m.x1 + 1 - p.ax) : p.ja + U(m.x0 - p.ax);
-      const r = p.mirrored ? p.ja - U(m.x0 - p.ax) : p.ja + U(m.x1 + 1 - p.ax);
+      const l = p.mirrored ? p.ja - U(m.x1 + 1 - p.ax) * p.k : p.ja + U(m.x0 - p.ax) * p.k;
+      const r = p.mirrored ? p.ja - U(m.x0 - p.ax) * p.k : p.ja + U(m.x1 + 1 - p.ax) * p.k;
       xs.push(l, r);
     }
     footprint = Math.max(...xs) - Math.min(...xs);

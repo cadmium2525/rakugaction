@@ -116,7 +116,7 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     const first = L.placed.find((p) => p.slotId === prep.slot.id);
     if (!first) continue;
     // レイアウトはダウンサンプル座標なので、フル解像度の座標へ
-    const g = buildPartGeometry(prep.slot.kind, prep.cleaned, first.ax * LAYOUT_FACTOR, first.ay * LAYOUT_FACTOR, S);
+    const g = buildPartGeometry(prep.slot.kind, prep.cleaned, first.ax * LAYOUT_FACTOR, first.ay * LAYOUT_FACTOR, S * first.k, prep.slot.depth ?? 1);
     geos.set(prep.slot.id, g);
     const rim = rimOf(prep.cleaned.outline);
     const frontMat = characterMaterial({ map: textureFromRgba(prep.cleaned.texture, TEX_RES), vertexColors: true }, rim);
@@ -210,7 +210,7 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
   const mean = (kind: 'arm' | 'leg'): number => {
     const list = L.placed.filter((p) => p.kind === kind);
     if (list.length === 0) return 0;
-    return list.reduce((s, p) => s + U((L.metrics.get(p.slotId) as { height: number }).height), 0) / list.length;
+    return list.reduce((s, p) => s + U((L.metrics.get(p.slotId) as { height: number }).height) * p.k, 0) / list.length;
   };
   root.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(root);
@@ -220,7 +220,7 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
   const metrics: RigMetrics = {
     armLength: mean('arm'),
     legLength: mean('leg'),
-    headHeight: hm ? U(hm.height) : 0,
+    headHeight: hm ? U(hm.height) * (L.placed.find((p) => p.kind === 'head')?.k ?? 1) : 0,
     bodyHeight: U(bm.height),
     bodyWidth: U(bm.width),
     width: Math.max(size.x, size.z, 0.05),

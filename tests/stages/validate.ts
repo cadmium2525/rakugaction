@@ -1,6 +1,7 @@
 import { expect } from 'vitest';
 import { getBuild } from '../../src/character/stats';
 import { statsToParams } from '../../src/game/params';
+import { ENEMY_SPECS } from '../../src/game/enemies';
 import { GameSim } from '../../src/game/sim';
 import { terrainHeightAt } from '../../src/stages/terrain';
 import type { StageDef } from '../../src/stages/types';
@@ -56,6 +57,8 @@ export async function validateStage(stage: StageDef): Promise<void> {
   for (const e of stage.enemies ?? []) {
     expect(ids.has(e.id), `enemy id ${e.id} が重複`).toBe(false);
     ids.add(e.id);
+    // 同じ種類の敵は、同じ倒し方 (方針): 敵ごとに toughness を変えない。ACTION で倒せない敵が欲しい時は、新しい種類 (EnemyKind) にする
+    expect(e.toughness === undefined || e.toughness === ENEMY_SPECS[e.kind].toughness, `enemy ${e.id} (${e.kind}) の toughness が種類の標準と違う (同じ敵なのに倒し方が変わる)`).toBe(true);
     const pts: readonly (readonly number[])[] = e.kind === 'chaser' && e.leash
       ? [e.points[0], e.leash.min, e.leash.max, [e.leash.min[0], e.points[0][1], e.leash.max[2]], [e.leash.max[0], e.points[0][1], e.leash.min[2]]]
       : e.points;

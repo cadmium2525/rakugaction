@@ -80,4 +80,45 @@ describe('輪郭の線の除去 (縁を暗くするシェーダーが引くの�
       expect(dark).toBe(0);
     }
   });
+
+  it('輪郭の色が、縁にふれる塗りの色 (青) に近くても、細い脚の白い部分は塗り替わらない (近い色の塗りまで輪郭と見なして、帯が深くなっていた)', () => {
+    // 見本のオオカミの脚の再現テストで見つかった例: 上が太い青い毛の塊 + 細い白いすね。輪郭の線は灰青色 (青との差が 56 未満) で、
+    // 青い塊の輪郭の線は塗りと同じ青で、脚の輪郭の上にまで重なる (縁のうち上は青、すねの縁は灰青色になる)
+    const GREY_BLUE = '#9a9aa6';
+    const BLUE = '#6772cf';
+    const leg = [0.1, 0.055, 0.34, 0.055, 0.33, 0.2, 0.27, 0.26, 0.265, 0.5, 0.185, 0.5, 0.18, 0.27, 0.1, 0.2, 0.1, 0.055];
+    const upper = [0.102, 0.059, 0.324, 0.059, 0.327, 0.122, 0.31, 0.2, 0.26, 0.23, 0.2, 0.215, 0.12, 0.2, 0.088, 0.12, 0.102, 0.059];
+    const ops: DrawOp[] = [pen(GREY_BLUE, 0.012, leg), fill('#ffffff', 0.225, 0.4), pen(BLUE, 0.012, upper), fill(BLUE, 0.22, 0.12)];
+    const c = cleanPart(rasterize(ops, RASTER_RES));
+    const f = Math.round(c.res / TEX_RES);
+    let whiteLower = 0;
+    let totalLower = 0;
+    for (let y = Math.round(TEX_RES * 0.32); y < Math.round(TEX_RES * 0.48); y++) {
+      for (let x = 0; x < TEX_RES; x++) {
+        if (!c.mask[y * f * c.res + x * f]) continue;
+        totalLower++;
+        const i = (y * TEX_RES + x) * 4;
+        if (c.texture[i] > 215 && c.texture[i + 1] > 215 && c.texture[i + 2] > 215) whiteLower++;
+      }
+    }
+    expect(totalLower).toBeGreaterThan(100);
+    expect(whiteLower / totalLower, '下の白い部分').toBeGreaterThan(0.5);
+  });
+
+  it('細い輪郭の線 (最小の太さ) なら、縁から少し内側の細部 (爪・ひれ) が残る (帯は線の太さ + 2 画素まで)', () => {
+    // 幅 0.3 の丸い塊 (縁から中心まで約 29 画素)。輪郭は最小の太さ。縁から 6〜8 画素の所に緑の点を置く
+    const DARK = '#2a1a1a';
+    const ops: DrawOp[] = [pen(DARK, 0.006, circle(0.5, 0.5, 0.3)), fill(ORANGE, 0.5, 0.5), pen('#43a047', 0.03, [0.5, 0.215, 0.5, 0.215])];
+    const c = cleanPart(rasterize(ops, RASTER_RES));
+    const f = Math.round(c.res / TEX_RES);
+    let green = 0;
+    for (let y = 0; y < TEX_RES; y++) {
+      for (let x = 0; x < TEX_RES; x++) {
+        if (!c.mask[y * f * c.res + x * f]) continue;
+        const i = (y * TEX_RES + x) * 4;
+        if (c.texture[i + 1] > c.texture[i] + 30 && c.texture[i + 1] > c.texture[i + 2] + 30) green++;
+      }
+    }
+    expect(green, '縁の近くの緑の点').toBeGreaterThan(3);
+  });
 });

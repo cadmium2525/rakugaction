@@ -1,16 +1,19 @@
-import { LIMITS, canAdd, cloneDrawing, emptyDrawing, freshId, newSlot, slotOf } from './model';
+import { DEFAULT_BRUSH_INDEX, LIMITS, canAdd, cloneDrawing, emptyDrawing, freshId, newSlot, slotOf } from './model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from './model';
 import { sanitizeDrawing, sanitizeOp } from './sanitize';
 import type { Template } from './templates';
 
-export type Tool = 'pen' | 'eraser' | 'fill';
+/** pick = スポイト (絵の上の色を拾う) */
+export type Tool = 'pen' | 'eraser' | 'fill' | 'pick';
 
 export type CommitResult = 'ok' | 'rejected' | 'limit';
 
 const HISTORY_LIMIT = 80;
+/** 「最近使った色」に残す数 */
+export const RECENT_COLORS = 8;
 
 /** パーツの設定の変更 (向き・ペア・置き場所・反転・取り付け位置)。 */
-export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody'>>;
+export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody' | 'scale' | 'depth'>>;
 
 /**
  * エディタの状態 (DOM 非依存)。パーツごとに Undo/Redo 履歴を持つ。
@@ -22,13 +25,23 @@ export class EditorState {
   currentId = 'body';
   tool: Tool = 'pen';
   color = '#202124';
-  sizeIndex = 1;
+  sizeIndex = DEFAULT_BRUSH_INDEX;
+  /** 最近使った好きな色 (新しい順。基本パレットの色は入れない) */
+  recentColors: string[] = [];
 
   private readonly undoStacks = new Map<string, DrawOp[][]>();
   private readonly redoStacks = new Map<string, DrawOp[][]>();
 
   constructor(initial?: DrawingData) {
     this.drawing = initial ? sanitizeDrawing(cloneDrawing(initial)) : emptyDrawing();
+  }
+
+  /** 色を選ぶ。基本パレット以外の色は「最近使った色」の先頭に入る (同じ色は 1 つに)。 */
+  setColor(hex: string, remember = false): void {
+    const c = hex.toLowerCase();
+    this.color = c;
+    if (!remember) return;
+    this.recentColors = [c, ...this.recentColors.filter((x) => x !== c)].slice(0, RECENT_COLORS);
   }
 
   /** 今のパーツ。 */
@@ -189,6 +202,9 @@ export class EditorState {
     const slot = this.drawing.parts[i];
     const next: PartSlot = { ...slot, ...patch };
     if (next.onBody === false || next.kind !== 'ornament') delete next.onBody;
+    // 既定値 (1) は保存しない。胴体には大きさを付けない
+    if (next.scale === undefined || next.scale === 1 || next.kind === 'body') delete next.scale;
+    if (next.depth === undefined || next.depth === 1) delete next.depth;
     if (patch.pair === false && slot.pair && next.side === 'C' && slot.kind !== 'head' && slot.kind !== 'tail') next.side = 'L';
     if (id === 'body') {
       next.pair = false;

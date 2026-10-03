@@ -1,16 +1,18 @@
 import './editor.css';
-import { EditorState } from '../../drawing/editorState';
+import { EditorState, RECENT_COLORS } from '../../drawing/editorState';
 import type { Tool } from '../../drawing/editorState';
-import { BASE_PALETTE, BRUSH_SIZES, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, canAdd, cloneDrawing, countKind, hasAnyInk } from '../../drawing/model';
+import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAnyInk } from '../../drawing/model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from '../../drawing/model';
 import { DrawingRaster } from '../../drawing/raster';
 import { resolveSlotOps } from '../../drawing/defaults';
 import { TEMPLATES } from '../../drawing/templates';
 import type { CharacterLayout } from '../../character/layout';
+import { rgbToHex } from '../../core/color';
 import { capturePointer } from '../../input/touchControls';
 import { h } from '../dom';
 import type { Screen } from '../dom';
 import { toast } from '../toast';
+import { ColorPicker } from './colorPicker';
 import { CompositePreview, layoutFromRasters } from './composite';
 import { drawGuides, partHint } from './guides';
 
@@ -22,6 +24,9 @@ export interface EditorOptions {
   /** 「生成する」: 描いた絵 (サニタイズ済み) を渡す */
   onDone(data: DrawingData): void;
 }
+
+/** 最近使った好きな色を覚えておく場所 */
+const RECENT_KEY = 'rakugaction.recentColors';
 
 /** 種類ごとの、パーツを足す時の説明 */
 const KIND_NOTE: Record<PartKind, string> = {
@@ -70,6 +75,12 @@ export class EditorScreen implements Screen {
   private readonly clearBtn: HTMLButtonElement;
   private readonly nextBtn: HTMLButtonElement;
   private readonly swatches: HTMLButtonElement[] = [];
+  private readonly customBtn: HTMLButtonElement;
+  private readonly pickBtn: HTMLButtonElement;
+  private readonly recentBtn: HTMLButtonElement;
+  private readonly colorPicker = new ColorPicker();
+  /** スポイトを使う前に選んでいた道具 (拾ったら戻す) */
+  private toolBeforePick: Tool = 'pen';
   private readonly sizeBtns: HTMLButtonElement[] = [];
   private readonly partBox: HTMLElement;
   private readonly miniCanvas: HTMLCanvasElement;
@@ -93,6 +104,7 @@ export class EditorScreen implements Screen {
 
   constructor(private readonly opts: EditorOptions) {
     this.state = new EditorState(opts.initial);
+    this.loadRecentColors();
 
     // --- キャンバス ---
     this.canvas = h('canvas', { class: 'ed-canvas', attrs: { width: String(RASTER_RES), height: String(RASTER_RES) } });
@@ -130,9 +142,10 @@ export class EditorScreen implements Screen {
     this.clearBtn = h('button', { class: 'tool-btn tool-danger', attrs: { 'aria-label': '全消去' }, on: { click: () => this.clearPart() } }, h('span', { class: 'ti', text: '🗑' }), h('span', { class: 'tl', text: '全消去' }));
     const tools = h('div', { class: 'ed-tools' }, mkTool('pen', '✏️', 'ペン'), mkTool('eraser', '🧽', '消しゴム'), mkTool('fill', '🪣', '塗り'), this.undoBtn, this.redoBtn, this.clearBtn);
 
-    // --- 右サイド ---
+    // --- 右サイド: 色・太さ (いちばん上) → このパーツの設定 → 全体像の小窓 ---
     this.miniCanvas = h('canvas', { class: 'ed-mini', attrs: { width: '220', height: '220' } });
     this.mini = new CompositePreview(this.miniCanvas);
+    const miniWrap = h('button', { class: 'ed-mini-wrap', attrs: { 'aria-label': '全体像を大きく見る' }, on: { click: () => this.openPreview() } }, this.miniCanvas);
     const palette = h('div', { class: 'ed-palette' });
     for (const c of BASE_PALETTE) {
       const b = h('button', {
@@ -144,15 +157,19 @@ export class EditorScreen implements Screen {
       this.swatches.push(b);
       palette.appendChild(b);
     }
+    this.customBtn = h('button', { class: 'swatch swatch-custom', attrs: { 'aria-label': '好きな色を選ぶ' }, on: { click: () => this.openColorPicker() } });
+    this.pickBtn = h('button', { class: 'swatch swatch-pick', text: '💧', attrs: { 'aria-label': 'スポイト (絵の上の色を拾う)' }, on: { click: () => this.togglePick() } });
+    this.recentBtn = h('button', { class: 'swatch swatch-recent', attrs: { 'aria-label': '最近使った色' }, on: { click: () => this.useRecent() } });
+    palette.append(this.customBtn, this.pickBtn, this.recentBtn);
     const sizes = h('div', { class: 'ed-sizes' });
     BRUSH_SIZES.forEach((_, i) => {
-      const dotPx = 5 + i * 5;
+      const dotPx = 3 + i * 4;
       const b = h('button', { class: 'size-btn', attrs: { 'aria-label': `太さ${i + 1}` }, on: { click: () => this.setSize(i) } }, h('span', { class: 'size-dot', style: { width: `${dotPx}px`, height: `${dotPx}px` } }));
       this.sizeBtns.push(b);
       sizes.appendChild(b);
     });
     this.partBox = h('div', { class: 'ed-part' });
-    const side = h('div', { class: 'ed-side' }, this.miniCanvas, palette, sizes, this.partBox);
+    const side = h('div', { class: 'ed-side' }, h('div', { class: 'ed-colors' }, palette, sizes), this.partBox, miniWrap);
 
     const body = h('div', { class: 'ed-body' }, tools, h('div', { class: 'ed-center' }, stage, this.hintEl), side);
 
@@ -180,7 +197,7 @@ export class EditorScreen implements Screen {
     this.picker = h('div', { class: 'ed-modal', attrs: { hidden: '' } });
     this.addDialog = h('div', { class: 'ed-modal', attrs: { hidden: '' } });
 
-    this.el = h('div', { class: 'screen editor' }, bar, body, this.modal, this.picker, this.addDialog);
+    this.el = h('div', { class: 'screen editor' }, bar, body, this.modal, this.picker, this.addDialog, this.colorPicker.el);
 
     this.bindCanvas();
     window.addEventListener('keydown', this.onKey);
@@ -298,6 +315,19 @@ export class EditorScreen implements Screen {
     const seg = (items: { label: string; on: boolean; click: () => void; aria?: string }[]): HTMLElement =>
       h('div', { class: 'seg' }, ...items.map((it) => h('button', { class: `seg-btn${it.on ? ' on' : ''}`, text: it.label, attrs: { 'aria-label': it.aria ?? it.label }, on: { click: it.click } })));
     const rows: HTMLElement[] = [];
+    // 倍率の行 (大きさ・厚み): − 値 ＋。段階は SCALE_STEPS / DEPTH_STEPS
+    const stepper = (label: string, value: number, steps: readonly number[], aria: string, set: (v: number) => void): HTMLElement => {
+      const idx = steps.reduce((best, v, i) => (Math.abs(v - value) < Math.abs(steps[best] - value) ? i : best), 0);
+      const shown = `×${Math.round(value * 100) / 100}`;
+      return h(
+        'div',
+        { class: 'step' },
+        h('span', { class: 'step-l', text: label }),
+        h('button', { class: 'step-b', text: '−', attrs: { 'aria-label': `${aria}を小さく` }, on: { click: () => set(steps[Math.max(0, idx - 1)]) } }),
+        h('span', { class: 'step-v', text: shown }),
+        h('button', { class: 'step-b', text: '＋', attrs: { 'aria-label': `${aria}を大きく` }, on: { click: () => set(steps[Math.min(steps.length - 1, idx + 1)]) } }),
+      );
+    };
     // 向き
     rows.push(
       seg([
@@ -333,6 +363,8 @@ export class EditorScreen implements Screen {
         const name = KIND_LABEL[source.kind] + (st.drawing.parts.filter((p) => p.kind === source.kind).length > 1 ? String(n) : '');
         rows.push(h('button', { class: 'opt', text: `⧉ ${name}の絵を写す`, attrs: { 'aria-label': `${name}の絵をこのパーツに写す` }, on: { click: () => this.copyFrom(source.id) } }));
       }
+      rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '大きさ', (v) => this.updateSlot({ scale: v })));
+      rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
       rows.push(h('button', { class: `opt${this.mountMode ? ' on' : ''}`, text: this.mountMode ? '📍 位置を決めています' : '📍 つなぐ位置', on: { click: () => this.toggleMountMode() } }));
       if (this.mountMode && slot.mount) rows.push(h('button', { class: 'opt', text: '自動の位置に戻す', on: { click: () => this.resetMount() } }));
@@ -340,8 +372,9 @@ export class EditorScreen implements Screen {
       if (!canAdd(st.drawing, slot.kind)) dup.setAttribute('disabled', '');
       rows.push(dup);
       rows.push(h('button', { class: 'opt opt-danger', text: '🗑 このパーツを消す', on: { click: () => this.removeCurrent() } }));
-    } else if (st.drawing.parts.length === 1) {
-      rows.push(h('div', { class: 'ed-part-note', text: '＋で腕・脚・頭などを足せます' }));
+    } else {
+      rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
+      if (st.drawing.parts.length === 1) rows.push(h('div', { class: 'ed-part-note', text: '＋で腕・脚・頭などを足せます' }));
     }
     this.partBox.replaceChildren(...rows);
   }
@@ -357,6 +390,7 @@ export class EditorScreen implements Screen {
     this.nextBtn.textContent = nextEmpty ? '次のパーツ →' : '完成 ✓';
     for (const [t, b] of this.toolBtns) b.classList.toggle('on', t === this.state.tool);
     this.swatches.forEach((b) => b.classList.toggle('on', b.dataset.hex === this.state.color));
+    this.refreshCustomColors();
     this.sizeBtns.forEach((b, i) => b.classList.toggle('on', i === this.state.sizeIndex));
     this.undoBtn.disabled = !this.state.canUndo;
     this.redoBtn.disabled = !this.state.canRedo;
@@ -372,11 +406,64 @@ export class EditorScreen implements Screen {
     this.refreshPartUi();
   }
 
-  private setColor(hex: string): void {
-    this.state.color = hex;
-    // 消しゴム選択中に色を選んだらペンに戻す (直感的)
-    if (this.state.tool === 'eraser') this.state.tool = 'pen';
+  private setColor(hex: string, remember = false): void {
+    this.state.setColor(hex, remember);
+    // 消しゴム・スポイト選択中に色を選んだらペンに戻す (直感的)。スポイトは使う前の道具に戻す
+    if (this.state.tool === 'pick') this.state.tool = this.toolBeforePick;
+    else if (this.state.tool === 'eraser') this.state.tool = 'pen';
+    if (remember) this.saveRecentColors();
     this.refreshPartUi();
+  }
+
+  /** 好きな色 (虹色のボタン) と、最近使った色のボタンの見た目。基本パレット以外の色を選んでいる時は、その色を虹色のボタンの代わりに出す。 */
+  private refreshCustomColors(): void {
+    const inBase = BASE_PALETTE.some((c) => c.hex === this.state.color);
+    this.customBtn.classList.toggle('on', !inBase);
+    this.customBtn.style.background = inBase ? '' : this.state.color;
+    this.customBtn.classList.toggle('has-color', !inBase);
+    const recent = this.state.recentColors.find((c) => c !== this.state.color) ?? '';
+    this.recentBtn.style.background = recent;
+    this.recentBtn.disabled = recent === '';
+    this.recentBtn.dataset.hex = recent;
+    this.pickBtn.classList.toggle('on', this.state.tool === 'pick');
+  }
+
+  private useRecent(): void {
+    const hex = this.recentBtn.dataset.hex;
+    if (hex) this.setColor(hex);
+  }
+
+  private openColorPicker(): void {
+    this.colorPicker.open(this.state.color, this.state.recentColors, (hex) => this.setColor(hex, true));
+  }
+
+  private togglePick(): void {
+    if (this.state.tool === 'pick') {
+      this.state.tool = this.toolBeforePick;
+    } else {
+      this.toolBeforePick = this.state.tool;
+      this.state.tool = 'pick';
+      toast(this.opts.host, '拾いたい色の所をタッチしてください');
+    }
+    this.refreshPartUi();
+  }
+
+  /** 最近使った好きな色は、端末に覚えておく (使えない環境では覚えない) */
+  private saveRecentColors(): void {
+    try {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(this.state.recentColors));
+    } catch {
+      // プライベートモードなどで保存できなくてもよい (その回だけの色になる)
+    }
+  }
+
+  private loadRecentColors(): void {
+    try {
+      const raw = JSON.parse(localStorage.getItem(RECENT_KEY) ?? '[]') as unknown;
+      if (Array.isArray(raw)) this.state.recentColors = raw.filter((c): c is string => typeof c === 'string' && /^#[0-9a-f]{6}$/.test(c)).slice(0, RECENT_COLORS);
+    } catch {
+      // 壊れた保存データは無視する
+    }
   }
 
   private setSize(i: number): void {
@@ -590,7 +677,7 @@ export class EditorScreen implements Screen {
     }
     const hp = L.placed.find((x) => x.slotId === parent.id);
     if (!hp) return null;
-    return { u: (hp.ax + (p.ja - hp.ja) * L.res) / L.res, v: (hp.ay - (p.jy - hp.jy) * L.res) / L.res };
+    return { u: (hp.ax + ((p.ja - hp.ja) * L.res) / hp.k) / L.res, v: (hp.ay - ((p.jy - hp.jy) * L.res) / hp.k) / L.res };
   }
 
   private drawMount(): void {
@@ -744,6 +831,10 @@ export class EditorScreen implements Screen {
     this.rect = this.canvas.getBoundingClientRect();
     const [x, y] = this.norm(e);
     const st = this.state;
+    if (st.tool === 'pick') {
+      this.pickColorAt(x, y);
+      return;
+    }
     if (st.tool === 'fill') {
       const r = this.editRaster(st.current);
       const dirty = r.applyOp({ kind: 'fill', color: st.color, x, y });
@@ -822,6 +913,20 @@ export class EditorScreen implements Screen {
       if (res === 'limit') toast(this.opts.host, 'これ以上は描けません。「戻す」か「全消去」で整理してください');
     }
     this.afterCommit();
+  }
+
+  /** スポイト: 絵の上の (x, y) の色を拾う。何も描いていない所 (透明) は拾えない。 */
+  private pickColorAt(x: number, y: number): void {
+    const r = this.editRaster(this.state.current);
+    const px = Math.min(r.res - 1, Math.max(0, Math.floor(x * r.res)));
+    const py = Math.min(r.res - 1, Math.max(0, Math.floor(y * r.res)));
+    const i = (py * r.res + px) * 4;
+    if (r.rgba[i + 3] < 128) {
+      toast(this.opts.host, '色の付いている所をタッチしてください');
+      return;
+    }
+    const hex = rgbToHex(r.rgba[i], r.rgba[i + 1], r.rgba[i + 2]);
+    this.setColor(hex, !BASE_PALETTE.some((c) => c.hex === hex));
   }
 
   private afterCommit(): void {

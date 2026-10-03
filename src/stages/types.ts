@@ -107,7 +107,10 @@ export interface EnemyDef {
   aggro?: number;
   /** 大きさの倍率 (既定 1) */
   scale?: number;
-  /** 種類ごとの既定値の上書き */
+  /**
+   * 種類ごとの既定値の上書き。toughness は、同じ種類の敵は同じ倒し方にする方針なのでステージ定義では使わない
+   * (tests/stages/validate.ts が検査)。ACTION で倒せない敵が欲しい時は、新しい種類 (EnemyKind) を作る。
+   */
   toughness?: number;
   damage?: number;
   /** true = 足元の高さは経路ではなく地形 (StageDef.terrain) から決める (起伏のあるフィールドを歩く敵) */

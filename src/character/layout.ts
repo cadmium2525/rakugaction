@@ -38,6 +38,8 @@ export interface PlacedPart {
   mirrored: boolean;
   /** 付く先: 胴体か頭 (飾りは頭があれば頭に付く) */
   parent: 'body' | 'head';
+  /** 絵を貼る大きさの倍率 (PartSlot.scale。胴体は 1)。絵の中の長さ (px) は、この倍率をかけて実際の長さにする */
+  k: number;
 }
 
 export interface CharacterLayout {
@@ -91,6 +93,8 @@ interface Item {
   ay: number;
   rank: number;
   count: number;
+  /** 絵を貼る大きさの倍率 */
+  k: number;
 }
 
 /**
@@ -112,7 +116,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
     const root = rootOf(input.slot.kind, input.slot.view, input.mask, res, m);
     const rank = rankOf.get(input.slot.kind) ?? 0;
     rankOf.set(input.slot.kind, rank + 1);
-    items.push({ input, m, ax: root.ax, ay: root.ay, rank, count: countOf.get(input.slot.kind) ?? 1 });
+    items.push({ input, m, ax: root.ax, ay: root.ay, rank, count: countOf.get(input.slot.kind) ?? 1, k: input.slot.kind === 'body' ? 1 : (input.slot.scale ?? 1) });
   }
 
   // ---- 胴体 ----
@@ -140,7 +144,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
 
   // ---- 脚: 腰の高さ = 脚の長さ (足が地面に着くように胴体の高さを決める) ----
   const legYrel = (it: Item): number => (it.input.slot.mount ? mountYrel(it.input.slot.mount.v) : overlap);
-  const legLen = (it: Item): number => U(it.m.y1 + 1 - it.ay);
+  const legLen = (it: Item): number => U(it.m.y1 + 1 - it.ay) * it.k;
   let bodyBottomY = 0.02;
   if (legs.length > 0) bodyBottomY = Math.max(0.02 - overlap, ...legs.map((l) => legLen(l) - legYrel(l)));
   const hipY = bodyBottomY + overlap;
@@ -163,6 +167,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
       count: it.count,
       mirrored: twin === 1 && it.input.slot.view === 'front',
       parent,
+      k: it.k,
     });
   };
   /** スロットの設定 (ペア/左右) から、置く向きの一覧 */
@@ -179,7 +184,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
   let headJy = 0;
   const head = heads[0];
   if (head) {
-    const headH = U(head.m.height);
+    const headH = U(head.m.height) * head.k;
     const headOverlap = Math.min(0.08, headH * 0.2);
     const mt = head.input.slot.mount;
     if (mt) {
@@ -200,7 +205,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
   const rowStep = clamp(bodyH * 0.2, 0.05, 0.22);
   for (const arm of arms) {
     const slot = arm.input.slot;
-    const aw = U(arm.m.width);
+    const aw = U(arm.m.width) * arm.k;
     for (const { twin, side } of sidesOf(slot)) {
       let ja: number;
       let jy: number;
@@ -234,7 +239,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
     return U(px || body.width);
   })();
   // 左右の脚の位置: 腰幅の 24% か、いちばん細い脚の幅の 46% (旧形式と同じ)
-  const minLegW = legs.length > 0 ? Math.min(...legs.map((l) => U(l.m.width))) : 0;
+  const minLegW = legs.length > 0 ? Math.min(...legs.map((l) => U(l.m.width) * l.k)) : 0;
   for (const leg of legs) {
     const slot = leg.input.slot;
     for (const { twin, side } of sidesOf(slot)) {
@@ -315,12 +320,13 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
       let jy: number;
       if (toHead && head) {
         const hm = head.m;
-        const hc = headJa + U(hm.cx - head.ax); // 頭の中心 (a)
-        const hw = U(hm.width);
-        const top = headJy + U(head.ay - hm.y0) - 0.015; // 頭のてっぺん
+        const hk = head.k;
+        const hc = headJa + U(hm.cx - head.ax) * hk; // 頭の中心 (a)
+        const hw = U(hm.width) * hk;
+        const top = headJy + U(head.ay - hm.y0) * hk - 0.015; // 頭のてっぺん
         if (slot.mount) {
-          ja = headJa + U(slot.mount.u * res - head.ax);
-          jy = headJy + U(head.ay - slot.mount.v * res);
+          ja = headJa + U(slot.mount.u * res - head.ax) * hk;
+          jy = headJy + U(head.ay - slot.mount.v * res) * hk;
           if (slot.pair && twin === 1 && bodyItem.input.slot.view === 'front') ja = 2 * hc - ja;
         } else {
           const off = slot.pair ? (twin === 0 ? 1 : -1) * hw * 0.28 : 0;
@@ -352,10 +358,10 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
   for (const p of placed) {
     const it = items.find((x) => x.input.slot.id === p.slotId) as Item;
     const m = it.m;
-    totalHeight = Math.max(totalHeight, p.jy + U(p.ay - m.y0));
+    totalHeight = Math.max(totalHeight, p.jy + U(p.ay - m.y0) * p.k);
     if (p.view === bodyItem.input.slot.view) {
-      const l = p.mirrored ? p.ja - U(m.x1 + 1 - p.ax) : p.ja + U(m.x0 - p.ax);
-      const r = p.mirrored ? p.ja - U(m.x0 - p.ax) : p.ja + U(m.x1 + 1 - p.ax);
+      const l = p.mirrored ? p.ja - U(m.x1 + 1 - p.ax) * p.k : p.ja + U(m.x0 - p.ax) * p.k;
+      const r = p.mirrored ? p.ja - U(m.x0 - p.ax) * p.k : p.ja + U(m.x1 + 1 - p.ax) * p.k;
       minA = Math.min(minA, l);
       maxA = Math.max(maxA, r);
     }

@@ -1,5 +1,5 @@
 import { Rng } from '../core/rng';
-import { BASE_PALETTE, BRUSH_SIZES, LEGACY_PART_KEYS, upgradeLegacy } from '../drawing/model';
+import { BASE_PALETTE, LEGACY_PART_KEYS, upgradeLegacy } from '../drawing/model';
 import type { DrawOp, DrawingData, LegacyDrawingData, LegacyPartKey, PartKind, PartSlot } from '../drawing/model';
 import { TEMPLATES } from '../drawing/templates';
 
@@ -55,7 +55,7 @@ function blobOps(rng: Rng, key: BlobKey, p: DoodleProfile, palette: string[]): D
   // 腕/脚は上端が上寄り (関節が上)、体は中央
   const cy = isLimb ? Math.min(0.95 - ry, 0.1 + ry + rng.range(0, 0.1)) : 0.5 + rng.range(-0.05, 0.05);
   const outline = rng.pick(palette.slice(-3));
-  const w = rng.pick(BRUSH_SIZES.slice(0, 3));
+  const w = rng.pick([0.02, 0.045, 0.08]);
   const fillColor = rng.pick(palette);
   const ops: DrawOp[] = [{ kind: 'pen', color: outline, width: w, pts: circlePts(cx, cy, rx, ry, rng.int(6, 16), rng, wild ? 0.25 : 0.08) }];
   if (rng.chance(0.85)) ops.push({ kind: 'fill', color: fillColor, x: clamp01(cx), y: clamp01(cy) });

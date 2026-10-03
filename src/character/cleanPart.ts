@@ -12,7 +12,7 @@ export const TEX_RES = 192;
 export const PAPER_RGB: readonly [number, number, number] = [255, 248, 236];
 
 /** これ以下の太さのパーツは膨らませる (キャンバス幅に対する比)。 */
-const MIN_FEATURE = 0.05;
+const MIN_FEATURE = 0.034;
 /** 常に行う基本の膨張 (キャンバス幅に対する比)。極細の線で押し出し形状が壊れないようにする。384px で 2px。 */
 const BASE_DILATE = 0.0052;
 
@@ -353,12 +353,24 @@ function stripOutline(tex: Uint8ClampedArray, mask: Uint8Array, res: number): [n
       queue.push(j);
     }
   }
-  // 太さの見積り (面積 ÷ 周長)。大きすぎる (全体が同じ色) ならそのまま
-  const thickness = queue.length / edgeCount;
+  // 太さの見積り: 縁から内側へ、「輪郭の色に近い色でつながった画素」が各深さの画素の半分以上を占める深さまで。
+  // (面積 ÷ 周長で見積もると、輪郭の色に近い塗りがあるだけで太さが過大になり、帯が深くなってパーツ全体が別の色に塗り替わっていた。
+  //  本物の輪郭の線は一定の太さで、その内側では急に割合が下がる。近い色の塗りや黒い模様は、深さとともに割合が下がっても、帯の外へは伸びない)
+  const totalAt = new Int32Array(maxLevel + 2);
+  const closeAt = new Int32Array(maxLevel + 2);
+  for (let i = 0; i < level.length; i++) if (inside[i]) totalAt[level[i]]++;
+  for (const i of queue) closeAt[level[i]]++;
+  let thickness = 0;
+  for (let l = 1; l <= maxLevel; l++) {
+    if (totalAt[l] > 0 && closeAt[l] / totalAt[l] >= 0.5) thickness = l;
+    else break;
+  }
+  // 全体が同じ色 (線と塗りが同じ色) の時や、細いパーツ (線より内側が無い) では何もしない
   if (thickness > 0.45 * maxLevel || maxLevel < thickness + 2) return oc;
+  thickness = Math.max(1, thickness);
   // 線 (とその周りのアンチエイリアスの混ざった色) を含む縁の帯を、内側の塗りの色で置き換える。
   // 縁は立体の急な側面で、テクスチャが放射状に引き伸ばされるので、帯の中に色のばらつきが残ると筋になる
-  const cap = Math.ceil(thickness * 1.5) + 3;
+  const cap = thickness + 2;
   // 帯 = 縁から cap の深さまで。それより内側は、輪郭の線と同じ色でつながっていても (縞・ぶち・黒髪・黒い靴など) 絵の一部として残す
   const byLevel: number[][] = Array.from({ length: cap + 1 }, () => []);
   const inBand = new Uint8Array(tr * tr);

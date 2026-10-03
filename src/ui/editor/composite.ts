@@ -80,15 +80,16 @@ export class CompositePreview {
       const img = this.partCanvas(p.slotId, r);
       const px = ox + p.ja * scale;
       const py = gy - p.jy * scale;
-      const ax = (p.ax / layout.res) * scale;
-      const ay = (p.ay / layout.res) * scale;
+      const pk = scale * p.k; // パーツごとの大きさの倍率
+      const ax = (p.ax / layout.res) * pk;
+      const ay = (p.ay / layout.res) * pk;
       ctx.save();
       ctx.translate(px, py);
       // 反転 (鏡像側)・胴体と違う向きのパーツは薄く縮める
       const thin = p.view !== layout.bodyView ? 0.3 : 1;
       ctx.scale((p.mirrored ? -1 : 1) * thin, 1);
       if (p.view !== layout.bodyView) ctx.globalAlpha = 0.85;
-      ctx.drawImage(img, -ax, -ay, scale, scale);
+      ctx.drawImage(img, -ax, -ay, pk, pk);
       ctx.restore();
     }
   }
