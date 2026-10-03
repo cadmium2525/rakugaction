@@ -14,6 +14,7 @@ import type { Screen } from '../dom';
 import { toast } from '../toast';
 import { ColorPicker } from './colorPicker';
 import { CompositePreview, layoutFromRasters } from './composite';
+import { EDITOR_FEATURES } from './features';
 import { CharacterPreview3D } from './preview3d';
 import { REF_ALPHAS, defaultRef, moveRef, reducedSize, refRect, scaleRef } from './refImage';
 import type { RefTransform } from './refImage';
@@ -169,7 +170,8 @@ export class EditorScreen implements Screen {
       refBtn('✕', 'お手本を外す', () => this.removeRef(), 'ref-b ref-more'),
       this.refInput,
     );
-    this.viewEl = h('div', { class: 'ed-view' }, this.refCanvas, this.guideCanvas, this.canvas, this.mountCanvas);
+    // お手本の機能を止めている時 (EDITOR_FEATURES.referenceImage = false) は、お手本の canvas も操作も紙に付けない
+    this.viewEl = h('div', { class: 'ed-view' }, ...(EDITOR_FEATURES.referenceImage ? [this.refCanvas] : []), this.guideCanvas, this.canvas, this.mountCanvas);
     this.zoomLabel = h('button', { class: 'zoom-v', text: '1×', attrs: { 'aria-label': '拡大をもとに戻す' }, on: { click: () => this.resetZoom() } });
     const zoomBox = h(
       'div',
@@ -178,7 +180,7 @@ export class EditorScreen implements Screen {
       this.zoomLabel,
       h('button', { class: 'zoom-b', text: '＋', attrs: { 'aria-label': '拡大' }, on: { click: () => this.zoomBy(1.5) } }),
     );
-    this.paper = h('div', { class: 'ed-paper' }, this.viewEl, this.noteEl, zoomBox, this.refBar);
+    this.paper = h('div', { class: 'ed-paper' }, this.viewEl, this.noteEl, zoomBox, ...(EDITOR_FEATURES.referenceImage ? [this.refBar] : []));
     this.hintEl = h('div', { class: 'ed-hint' });
     this.pagesEl = h('div', { class: 'seg ed-pages', attrs: { hidden: '' } });
     const stage = h('div', { class: 'ed-stage' }, this.paper);
@@ -620,6 +622,7 @@ export class EditorScreen implements Screen {
 
   /** お手本の画像を読む。長辺が大きければ縮める。読めなければ (画像でないなど) 何も変えずに知らせる。 */
   private async loadRef(): Promise<void> {
+    if (!EDITOR_FEATURES.referenceImage) return;
     const file = this.refInput.files?.[0];
     this.refInput.value = '';
     if (!file) return;
@@ -648,6 +651,7 @@ export class EditorScreen implements Screen {
   }
 
   private refreshRef(): void {
+    if (!EDITOR_FEATURES.referenceImage) return;
     const img = this.refImg;
     const ctx = this.refCanvas.getContext('2d');
     if (ctx) {
