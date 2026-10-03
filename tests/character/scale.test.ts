@@ -142,3 +142,56 @@ describe('保存データ (sanitize) と エディタの状態', () => {
     expect(dup?.depth).toBe(0.5);
   });
 });
+
+describe('パーツごとの前へのずれ (PartSlot.forward)', () => {
+  const z = (obj: THREE.Object3D): number => {
+    const b = boundsOf(obj);
+    return (b.min.z + b.max.z) / 2;
+  };
+
+  it('頭を前へずらすと、頭のメッシュが前 (+z) へ動く。ずらしの量は胴体の紙の幅 × 1 あたりのメートル数。他のパーツは動かない', () => {
+    const a = buildCharacter(standardDoodle(), { targetHeight: 1.6 });
+    const b = buildCharacter(withSlot('head', { forward: 0.3 }), { targetHeight: 1.6 });
+    const dz = z(partsOf(b.rig, 'head')[0].pivot) - z(partsOf(a.rig, 'head')[0].pivot);
+    expect(dz).toBeCloseTo(0.3 * b.rig.metrics!.scale, 3);
+    expect(z(partsOf(b.rig, 'leg')[0].pivot)).toBeCloseTo(z(partsOf(a.rig, 'leg')[0].pivot), 6);
+    expect(boundsOf(b.rig.body.getObjectByName('bodyMesh')!).max.z).toBeCloseTo(boundsOf(a.rig.body.getObjectByName('bodyMesh')!).max.z, 6);
+    a.rig.dispose();
+    b.rig.dispose();
+  });
+
+  it('頭の子 (角) とももようも、頭といっしょに前へ動く', () => {
+    const chimera = creatureDoodles().find((c) => c.name === 'chimera')!.data;
+    const base = buildCharacter(chimera, { targetHeight: 1.6 });
+    const moved = cloneDrawing(chimera);
+    const hi = moved.parts.findIndex((p) => p.kind === 'head');
+    moved.parts[hi] = { ...moved.parts[hi], forward: 0.25 };
+    const m = buildCharacter(moved, { targetHeight: 1.6 });
+    const horn = (c: ReturnType<typeof buildCharacter>): THREE.Object3D => c.rig.parts.find((p) => p.kind === 'ornament')!.pivot;
+    expect(z(horn(m)) - z(horn(base))).toBeCloseTo(0.25 * m.rig.metrics!.scale, 3);
+    base.rig.dispose();
+    m.rig.dispose();
+  });
+
+  it('保存データ: 範囲に収めて小数 2 桁。0 は保存しない。胴体には付かない。EditorState でも同じ', () => {
+    const d = cloneDrawing(standardDoodle());
+    const raw = JSON.parse(JSON.stringify(d)) as { parts: Record<string, unknown>[] };
+    raw.parts[0].forward = 0.5;
+    raw.parts[1].forward = 7;
+    raw.parts[2].forward = -0.123456;
+    raw.parts[3].forward = 0;
+    const s = sanitizeDrawing(raw);
+    expect(slotOf(s, 'body')!.forward).toBeUndefined();
+    expect(slotOf(s, 'head')!.forward).toBe(1);
+    expect(slotOf(s, 'arms')!.forward).toBe(-0.12);
+    expect(slotOf(s, 'legs')!.forward).toBeUndefined();
+    const st = new EditorState(standardDoodle());
+    st.updatePart('head', { forward: 0.3 });
+    expect(slotOf(st.drawing, 'head')!.forward).toBe(0.3);
+    st.updatePart('head', { forward: 0 });
+    expect(slotOf(st.drawing, 'head')!.forward).toBeUndefined();
+    st.updatePart('body', { forward: 0.3 });
+    expect(slotOf(st.drawing, 'body')!.forward).toBeUndefined();
+    expect(st.duplicatePart('legs')).toBeTruthy();
+  });
+});

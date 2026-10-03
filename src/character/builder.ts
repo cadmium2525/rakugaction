@@ -188,15 +188,24 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
   /** 前後 (z) の位置: 正面の胴体では、脚/腕を複数組つけた時は奥行きに並べ、しっぽ・翼は後ろへ */
   const zOf = (p: PlacedPart): number => {
     if (sideBody) return p.ja * S;
+    // 前へのずれ (姿勢): 頭の子 (角・耳) は、頭のずれにもついていく
+    const fwd = (p.forward + (p.parent === 'head' && headPlaced ? headPlaced.forward : 0)) * S;
+    return fwd + zBase(p);
+  };
+  bodyGeo.geometry.computeBoundingBox();
+  const bodyZ = { lo: (bodyGeo.geometry.boundingBox as THREE.Box3).min.z, hi: (bodyGeo.geometry.boundingBox as THREE.Box3).max.z };
+  const zBase = (p: PlacedPart): number => {
     switch (p.kind) {
       case 'leg':
         return ((p.count - 1) / 2 - p.rank) * depthGap;
       case 'arm':
         return ((p.count - 1) / 2 - p.rank) * depthGap * 0.35;
       case 'tail':
-        return -0.45 * Tb;
+        // しっぽ・翼は、胴体の背中側 (後ろ) に付ける。胴体の前後の位置は、もう一つの向きの絵 (前かがみ) で中心がずれることがあるので、
+        // 胴体のメッシュの実際の前後の範囲から決める (対称な胴体では、これまでと同じ値)
+        return bodyZ.lo + 0.05 * Tb;
       case 'wing':
-        return -0.12 * Tb;
+        return (bodyZ.lo + bodyZ.hi) / 2 - 0.12 * Tb;
       default:
         return 0;
     }

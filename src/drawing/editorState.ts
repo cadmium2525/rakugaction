@@ -16,7 +16,7 @@ const HISTORY_LIMIT = 80;
 export const RECENT_COLORS = 8;
 
 /** パーツの設定の変更 (向き・ペア・置き場所・反転・取り付け位置)。 */
-export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody' | 'scale' | 'depth'>>;
+export type SlotPatch = Partial<Pick<PartSlot, 'view' | 'side' | 'pair' | 'flip' | 'mount' | 'onBody' | 'scale' | 'depth' | 'forward'>>;
 
 /**
  * エディタの状態 (DOM 非依存)。パーツごとに Undo/Redo 履歴を持つ。
@@ -265,6 +265,7 @@ export class EditorState {
     // 既定値 (1) は保存しない。胴体には大きさを付けない
     if (next.scale === undefined || next.scale === 1 || next.kind === 'body') delete next.scale;
     if (next.depth === undefined || next.depth === 1) delete next.depth;
+    if (next.forward === undefined || next.forward === 0 || next.kind === 'body') delete next.forward;
     if (patch.pair === false && slot.pair && next.side === 'C' && slot.kind !== 'head' && slot.kind !== 'tail') next.side = 'L';
     if (id === 'body') {
       next.pair = false;

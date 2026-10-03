@@ -40,6 +40,8 @@ export interface PlacedPart {
   parent: 'body' | 'head';
   /** 絵を貼る大きさの倍率 (PartSlot.scale。胴体は 1)。絵の中の長さ (px) は、この倍率をかけて実際の長さにする */
   k: number;
+  /** 前へのずれ (PartSlot.forward。胴体の紙の幅を 1 とした長さ) */
+  forward: number;
 }
 
 export interface CharacterLayout {
@@ -169,6 +171,7 @@ export function computeLayout(inputs: LayoutSlot[]): CharacterLayout {
       mirrored: twin === 1 && it.input.slot.view === 'front',
       parent,
       k: it.k,
+      forward: it.input.slot.forward ?? 0,
     });
   };
   /** スロットの設定 (ペア/左右) から、置く向きの一覧 */

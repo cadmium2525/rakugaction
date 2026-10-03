@@ -112,6 +112,11 @@ export interface PartSlot {
   /** 前後の厚みの倍率 (省略 = 1)。翼や膜は薄く (0.4)、丸い胴体は厚く (1.5) */
   depth?: number;
   /**
+   * 前へのずれ (省略 = 0)。胴体の紙の幅を 1 とした長さで、正が前・負が後ろ。正面の絵の胴体につくパーツだけ (横向きの胴体では使わない)。
+   * 首を前に出した頭・前に突き出した腕など、姿勢をつけるため。「もう一つの向きの絵」のずらしは、パーツ自身の紙の半分までしか届かない。
+   */
+  forward?: number;
+  /**
    * もう一つの向きの絵 (省略 = 無し)。正面の絵のパーツなら「横から見た絵」、横向きの絵のパーツなら「正面から見た絵」
    * (翼としっぽは「上から見た絵」。altModeOf を見る)。前後 (または左右) の厚みと姿勢 (前かがみ・そり) の形を、この絵の輪郭で決め、
    * 横から (正面から) 見える面の色もこの絵から取る。1 枚目の絵と、高さ (または横の位置) をそろえて描く。
@@ -161,6 +166,9 @@ export const SCALE_STEPS = [0.2, 0.3, 0.4, 0.5, 0.6, 0.75, 1, 1.3, 1.6, 2, 2.5] 
 export const DEPTH_STEPS = [0.3, 0.5, 0.75, 1, 1.3, 1.7, 2.2] as const;
 export const SCALE_RANGE = { min: 0.1, max: 3 } as const;
 export const DEPTH_RANGE = { min: 0.2, max: 2.5 } as const;
+/** 前へのずれ (胴体の紙の幅に対する比) */
+export const FORWARD_STEPS = [-0.6, -0.45, -0.3, -0.2, -0.1, -0.05, 0, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8] as const;
+export const FORWARD_RANGE = { min: -1, max: 1 } as const;
 
 /** 入力の上限。巨大/悪意あるデータで端末を重くしない。 */
 export const LIMITS = {
@@ -212,6 +220,7 @@ export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'i
     ...(o.onBody ? { onBody: true } : {}),
     ...(o.scale !== undefined && o.scale !== 1 && kind !== 'body' ? { scale: o.scale } : {}),
     ...(o.depth !== undefined && o.depth !== 1 ? { depth: o.depth } : {}),
+    ...(o.forward !== undefined && o.forward !== 0 && kind !== 'body' ? { forward: o.forward } : {}),
     ...(o.alt ? { alt: o.alt } : {}),
     ...(o.back ? { back: o.back } : {}),
     ops: o.ops ?? [],

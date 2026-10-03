@@ -1,7 +1,7 @@
 import './editor.css';
 import { EditorState, RECENT_COLORS } from '../../drawing/editorState';
 import type { Page, Tool } from '../../drawing/editorState';
-import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
+import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, FORWARD_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from '../../drawing/model';
 import { DrawingRaster } from '../../drawing/raster';
 import { resolveSlotOps } from '../../drawing/defaults';
@@ -370,9 +370,9 @@ export class EditorScreen implements Screen {
       h('div', { class: 'seg' }, ...items.map((it) => h('button', { class: `seg-btn${it.on ? ' on' : ''}`, text: it.label, attrs: { 'aria-label': it.aria ?? it.label }, on: { click: it.click } })));
     const rows: HTMLElement[] = [];
     // 倍率の行 (大きさ・厚み): − 値 ＋。段階は SCALE_STEPS / DEPTH_STEPS
-    const stepper = (label: string, value: number, steps: readonly number[], aria: string, set: (v: number) => void): HTMLElement => {
+    const stepper = (label: string, value: number, steps: readonly number[], aria: string, set: (v: number) => void, fmt: (v: number) => string = (v) => `×${Math.round(v * 100) / 100}`): HTMLElement => {
       const idx = steps.reduce((best, v, i) => (Math.abs(v - value) < Math.abs(steps[best] - value) ? i : best), 0);
-      const shown = `×${Math.round(value * 100) / 100}`;
+      const shown = fmt(value);
       return h(
         'div',
         { class: 'step' },
@@ -452,6 +452,8 @@ export class EditorScreen implements Screen {
       }
       rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '大きさ', (v) => this.updateSlot({ scale: v })));
       rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
+      // 前へのずれ: 正面の絵の胴体につくパーツだけ (首を前に出した頭・前に出した腕)。横向きの胴体では、つなぐ位置で前後が決まる
+      if (st.drawing.parts[0].view === 'front') rows.push(stepper('前後', slot.forward ?? 0, FORWARD_STEPS, '前へのずれ', (v) => this.updateSlot({ forward: v }), (v) => (v === 0 ? '0' : `${v > 0 ? '前' : '後'}${Math.abs(Math.round(v * 100) / 100)}`)));
       rows.push(altRow());
       rows.push(backRow());
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
