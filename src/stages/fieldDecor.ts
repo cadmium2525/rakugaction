@@ -99,7 +99,7 @@ export function scatterMeadow(kit: FieldKit, rng: Rng, o: MeadowScatter): void {
 }
 
 /** 軽い雲 (平たい楕円体 3 つ。角の数が少ない)。 */
-function lightCloud(push: Push, rng: RngT, x: number, y: number, z: number, s: number): void {
+export function lightCloud(push: Push, rng: RngT, x: number, y: number, z: number, s: number): void {
   for (let i = 0; i < 3; i++) {
     const r = s * rng.range(0.6, 1);
     push({ shape: 'ellipsoid', pos: [x + (i - 1) * s * 0.75 + rng.range(-0.3, 0.3) * s, y + rng.range(-0.1, 0.25) * s, z + rng.range(-0.3, 0.3) * s], size: [r, r * 0.55, r * 0.8], color: 0xffffff, glow: 1.8, seg: 5 });

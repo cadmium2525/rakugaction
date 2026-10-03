@@ -8,6 +8,31 @@
 export const PAINT = { grass: 0, dirt: 1, sand: 2, rock: 3 } as const;
 export type PaintId = (typeof PAINT)[keyof typeof PAINT];
 
+/**
+ * 地形の色 (0xRRGGBB)。ステージごとに変えられる (草原は緑、強風の谷は赤い土)。見た目だけ。
+ * grass の 3 色 = 地面の標準の種類 (PAINT.grass) の、むら (明 / 暗) つきの色。earth = 急な斜面 (崖) の土の色。
+ */
+export interface TerrainPalette {
+  grass: number;
+  grassHi: number;
+  grassDark: number;
+  dirt: number;
+  sand: number;
+  rock: number;
+  earth: number;
+}
+
+/** STAGE 1 の草原の色 (palette を省略したステージの既定) */
+export const DEFAULT_TERRAIN_PALETTE: TerrainPalette = {
+  grass: 0x6fcf4b,
+  grassHi: 0x8fe05c,
+  grassDark: 0x4fb040,
+  dirt: 0xb98450,
+  sand: 0xf2dc9b,
+  rock: 0xa59d8e,
+  earth: 0x9b6a3f,
+};
+
 export interface TerrainDef {
   /** 範囲の最小の角 (x, z) と 1 セルの一辺 (m) */
   x0: number;
@@ -20,6 +45,8 @@ export interface TerrainDef {
   heights: Float32Array;
   /** 頂点の地面の種類 (PAINT) */
   paint: Uint8Array;
+  /** 地面の色 (省略 = 草原の既定) */
+  palette?: TerrainPalette;
 }
 
 export const terrainIdx = (t: Pick<TerrainDef, 'nz'>, ix: number, iz: number): number => ix * (t.nz + 1) + iz;

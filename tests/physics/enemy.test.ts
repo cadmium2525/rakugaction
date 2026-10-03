@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { Bot } from '../../src/game/bot';
 import { hopCharge, patrolFeetAt } from '../../src/game/enemies';
+import { emptyInput } from '../../src/input/types';
 import { slab } from '../../src/stages/helpers';
 import { TEST_ARENA } from '../../src/stages/testArena';
-import type { EnemyDef, StageDef } from '../../src/stages/types';
+import type { EnemyDef, StageDef, WaypointDef } from '../../src/stages/types';
 import { makeSim, rapier, run } from '../helpers/headless';
 
 /** 床 (上面 y=0) の上に敵を置いただけの小さなステージ */
@@ -134,6 +136,48 @@ describe('敵 (巡回・当たり判定)', () => {
     const speed = await tryDash('SPEED');
     expect(speed.defeated).toBe(false);
     expect(speed.how).toContain('guard');
+  });
+
+  it('カタマル (armor): ACTION は、攻撃力の高い POWER / EXTREME でも、どのキャラでもはね返される (倒せず、ダメージも受けない)', async () => {
+    for (const build of ['STANDARD', 'POWER', 'EXTREME']) {
+      const sim = await makeSim(stage([still('armor', 0, 1.0)]), build);
+      sim.player.placeFeet(0, 0.05, -0.4, 0);
+      const ev = run(sim, 40, (i) => ({ actionPressed: i === 2 }));
+      expect(ev.some((e) => e.type === 'enemy' && e.how === 'guard'), `${build}: はね返されない`).toBe(true);
+      expect(ev.some((e) => e.type === 'enemy' && e.how === 'dash'), `${build}: ACTION で倒せてしまった`).toBe(false);
+      expect(sim.enemies[0].defeated, build).toBe(false);
+      expect(sim.hits, build).toBe(0);
+      expect(sim.player.pos.z, `${build}: 押し戻されていない`).toBeLessThan(0.2);
+    }
+  });
+
+  it('カタマルは、上から落ちて踏めば、どのキャラでも倒せて、ダメージは受けない', async () => {
+    for (const build of ['STANDARD', 'SPEED', 'HEAVY', 'EXTREME']) {
+      const sim = await makeSim(stage([still('armor', 0, 0)]), build);
+      sim.player.placeFeet(0, 2.5, 0);
+      const ev = run(sim, 90);
+      expect(ev.some((e) => e.type === 'enemy' && e.how === 'stomp'), `${build}: 踏めない`).toBe(true);
+      expect(sim.enemies[0].defeated, build).toBe(true);
+      expect(sim.hits, build).toBe(0);
+    }
+  });
+
+  it('ボット (clear): ACTION が効かないカタマルを、踏みつけで倒して先へ進む (全ビルド)', async () => {
+    const def: EnemyDef = { id: 'e0', kind: 'armor', points: [[-4, 0, 6], [4, 0, 6]], speed: 1.3 };
+    const route: WaypointDef[] = [{ pos: [0, 0, -3], radius: 1.5 }, { pos: [0, 0, 5], radius: 4, clear: ['e0'] }, { pos: [0, 0, 14], radius: 1.5 }];
+    for (const build of ['STANDARD', 'SPEED', 'POWER', 'HEAVY', 'EXTREME']) {
+      const sim = await makeSim(stage([def]), build);
+      sim.player.placeFeet(0, 0.05, -3);
+      const bot = new Bot(sim, route);
+      const input = emptyInput();
+      for (let i = 0; i < 60 * 25 && sim.player.pos.z < 13; i++) {
+        bot.next(input);
+        sim.step(input);
+      }
+      expect(sim.enemies[0].defeated, `${build}: カタマルを倒せていない (idx ${bot.idx})`).toBe(true);
+      expect(sim.player.pos.z, `${build}: 先へ進めていない`).toBeGreaterThan(12);
+      expect(sim.hits, `${build}: 踏みつけに失敗して被弾した`).toBeLessThanOrEqual(1);
+    }
   });
 
   it('追いかける敵 (chaser): 近づくと追いかけ、範囲 leash の外には出ない。離れると待機位置へ戻る', async () => {

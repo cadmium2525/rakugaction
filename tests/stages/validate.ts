@@ -1,7 +1,7 @@
 import { expect } from 'vitest';
 import { getBuild } from '../../src/character/stats';
 import { statsToParams } from '../../src/game/params';
-import { ENEMY_SPECS } from '../../src/game/enemies';
+import { ENEMY_SPECS, killableByAll } from '../../src/game/enemies';
 import { GameSim } from '../../src/game/sim';
 import { terrainHeightAt } from '../../src/stages/terrain';
 import type { StageDef } from '../../src/stages/types';
@@ -89,7 +89,7 @@ export async function validateStage(stage: StageDef): Promise<void> {
       const e = (stage.enemies ?? []).find((x) => x.id === id);
       expect(e, `pickup ${k.id} の出現条件の敵 ${id} が存在しない`).toBeDefined();
       if (!e) continue;
-      expect(['blob', 'hopper', 'chaser'], `pickup ${k.id} の出現条件の敵 ${id} (${e.kind}) は踏みつけで倒せない種類`).toContain(e.kind);
+      expect(killableByAll(e.kind), `pickup ${k.id} の出現条件の敵 ${id} (${e.kind}) は踏みつけで倒せない種類`).toBe(true);
       const d = Math.min(...e.points.map((p) => Math.hypot(p[0] - k.pos[0], p[2] - k.pos[2])));
       expect(d, `pickup ${k.id} の出現条件の敵 ${id} が星から遠すぎる (${d.toFixed(0)}m)`).toBeLessThanOrEqual(30);
     }

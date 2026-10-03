@@ -19,12 +19,25 @@ export interface EnemySpec {
   hopPeriod: number;
 }
 
+/** ACTION では (どれほど攻撃力が高くても) 倒せない敵の toughness。攻撃力は 0.4〜2.4 倍の範囲なので、必ず届かない。 */
+export const UNBREAKABLE = 99;
+
 export const ENEMY_SPECS: Record<EnemyKind, EnemySpec> = {
   blob: { label: 'プルン', radius: 0.55, height: 0.9, toughness: 0.5, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
   hopper: { label: 'ピョンタ', radius: 0.5, height: 0.95, toughness: 0.5, stompable: true, damage: 1, hopHeight: 1.1, hopPeriod: 1.3 },
   spiky: { label: 'トゲマル', radius: 0.62, height: 0.95, toughness: 0.95, stompable: false, damage: 1, hopHeight: 0, hopPeriod: 1 },
   chaser: { label: 'チェイサー', radius: 0.55, height: 0.95, toughness: 0.5, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
+  // カタマル: 甲羅が硬く、ACTION は誰でもはね返される。上から踏めば、どのキャラでも倒せる (低い甲羅なので踏みやすい)
+  armor: { label: 'カタマル', radius: 0.62, height: 0.8, toughness: UNBREAKABLE, stompable: true, damage: 1, hopHeight: 0, hopPeriod: 1 },
 };
+
+/**
+ * この敵を、すべてのキャラが倒せるか。踏みつけはどのキャラでもできるが、ACTION は攻撃力が足りないと届かない (トゲマルなど)。
+ * 星の出現条件 (PickupDef.appearAfter) に使える敵は、これが true の種類だけ (倒せないキャラが、星を永久に封印してしまうため)。
+ */
+export function killableByAll(kind: EnemyKind): boolean {
+  return ENEMY_SPECS[kind].stompable;
+}
 
 /** 定義 (scale/上書き) を反映した、この敵の実際の性能。 */
 export function resolveSpec(def: EnemyDef): EnemySpec {

@@ -127,8 +127,12 @@ export class Bot {
     }
 
     const wp = this.route[this.idx];
-    // 敵を全員倒すまで、敵を追いかけて倒す (出現条件のある星の手前)
-    if (wp.clear && this.hunt(wp, out)) return;
+    // 敵を全員倒すまで、敵を追いかけて倒す (出現条件のある星の手前)。倒し終えたら次のウェイポイントへ進んだので、このステップはここまで
+    // (進んだ後に、古い wp のまま到着判定へ進むと、次のウェイポイントを飛ばしてしまう)
+    if (wp.clear) {
+      const idx0 = this.idx;
+      if (this.hunt(wp, out) || this.idx !== idx0) return;
+    }
     // 移動床待ち: 目標地点に床が来るまでその場で待つ
     const wm = wp.waitMover;
     if (wm) {
@@ -251,7 +255,16 @@ export class Bot {
       out.moveX = (best.pos.x - p.pos.x) / bestD;
       out.moveZ = (best.pos.z - p.pos.z) / bestD;
     }
-    if (this.opts.fight !== false) this.fight(out);
+    if (this.opts.fight !== false) {
+      this.fight(out);
+      // ACTION が効かない敵 (カタマル): 踏みつけで倒す。助走をつけて、敵の手前から跳び、上から落ちる
+      if (p.params.attackPower + 1e-6 < best.spec.toughness && best.spec.stompable && p.grounded && bestD <= this.stompJumpDist()) {
+        out.jumpPressed = true;
+        out.jumpHeld = true;
+        this.holdJump = true;
+        return true;
+      }
+    }
     // 追いかけている間に壁に阻まれたら、跳んで乗り越える
     if (p.grounded && p.horizontalSpeed < p.params.maxSpeed * 0.3 && bestD > 1.8) {
       this.blockedTime += 1 / 60;
@@ -263,6 +276,20 @@ export class Bot {
       }
     } else this.blockedTime = 0;
     return true;
+  }
+
+  /**
+   * 敵を踏む時の踏み切りの距離 (水平, m): ジャンプの滞空時間 (上り + 敵の高さまでの下り) の間に進める距離。
+   * 走り込んでいる間は遠くから、止まっている時は近くから跳ぶ (その場で跳んで、真上から落ちる)。
+   */
+  private stompJumpDist(): number {
+    const p = this.sim.player;
+    const g = p.params.gravity;
+    const v = p.params.jumpVelocity;
+    const apex = (v * v) / (2 * g);
+    const fall = Math.sqrt((2 * Math.max(0.1, apex - 0.8)) / (g * p.params.fallGravityMul));
+    const airTime = v / g + fall;
+    return Math.max(1.2, p.horizontalSpeed * airTime * 0.9);
   }
 
   /**
@@ -291,23 +318,40 @@ export class Bot {
 
   /**
    * 風域を今すぐ渡るか、風が弱まるまで待つかを、所要時間の見積りで決める。
-   *  - 今渡る: 風に抗える (風速 × 効きやすさ × 接地係数 が最高速度の 93% 以内) なら、斜めに進んで渡る (前進速度 = √(最高速度² − 流される速度²))
+   *  - 今渡る: 進む向き (待っているウェイポイント → 次のウェイポイント) に対して、風で流される速さ (風速 × 効きやすさ × 接地係数) を
+   *    進行方向 (追い風 +・向かい風 −) と横方向に分ける。横に流される分は、斜めに進んで打ち消す (最高速度の 93% 以内なら可)。
+   *    前進速度 = √(最高速度² − 横に流される速さ²) + 進行方向の流され (追い風なら速く、向かい風なら遅い)
    *  - 待つ: 風が弱くなるまでの待ち時間 + 全速で渡る時間
    */
   private decideCross(c: { zones: readonly string[]; length: number }): boolean {
     const sim = this.sim;
-    const params = sim.player.params;
-    const seconds = (c.length / params.maxSpeed) * 1.1 + 0.2;
+    const p = sim.player;
+    const params = p.params;
+    const S = params.maxSpeed;
+    const seconds = (c.length / S) * 1.1 + 0.2;
     // 風が今まさに弱い (渡り切れるだけ続く) なら迷わず渡る
     if (sim.isCalmFor(c.zones, seconds)) return true;
-    const wz = sim.stage.winds ?? [];
-    let maxWind = 0;
-    for (const w of wz) if (c.zones.includes(w.id)) maxWind = Math.max(maxWind, Math.hypot(w.vel[0], w.vel[2]));
-    const drift = maxWind * params.windResistance * 0.55;
-    if (drift > params.maxSpeed * 0.93) return false; // 抗えない → 待つ
-    const forward = Math.sqrt(params.maxSpeed * params.maxSpeed - drift * drift);
+    // 進む向き (xz の単位ベクトル)
+    const from = this.route[this.idx - 1]?.pos ?? [p.pos.x, 0, p.pos.z];
+    const to = this.route[this.idx]?.pos ?? [p.pos.x, 0, p.pos.z + 1];
+    let ux = to[0] - from[0];
+    let uz = to[2] - from[2];
+    const ul = Math.hypot(ux, uz) || 1;
+    ux /= ul;
+    uz /= ul;
+    let forward = Infinity;
+    for (const w of sim.stage.winds ?? []) {
+      if (!c.zones.includes(w.id)) continue;
+      const dx = w.vel[0] * params.windResistance * 0.55;
+      const dz = w.vel[2] * params.windResistance * 0.55;
+      const along = dx * ux + dz * uz;
+      const side = Math.hypot(dx - along * ux, dz - along * uz);
+      if (side > S * 0.93) return false; // 横に抗えない → 待つ
+      forward = Math.min(forward, Math.sqrt(S * S - side * side) + along);
+    }
+    if (!(forward > 0.5)) return false; // ほとんど進めない (向かい風が強すぎる) → 待つ
     const tNow = c.length / forward;
-    const tWait = sim.waitUntilCalm(c.zones, seconds) + c.length / params.maxSpeed;
+    const tWait = sim.waitUntilCalm(c.zones, seconds) + c.length / S;
     return tNow <= tWait + 0.2;
   }
 

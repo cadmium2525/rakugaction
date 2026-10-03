@@ -1,6 +1,6 @@
 import { clamp, lerp, smoothstep } from '../core/math';
 import { PAINT, terrainHeightAt, terrainIdx, terrainNormalAt } from './terrain';
-import type { PaintId, TerrainDef } from './terrain';
+import type { PaintId, TerrainDef, TerrainPalette } from './terrain';
 
 /** 整数格子点の疑似乱数 (0..1)。同じ (ix, iz, seed) なら必ず同じ値 = 地形は決定的。 */
 function hash2(ix: number, iz: number, seed: number): number {
@@ -191,6 +191,34 @@ export class TerrainBuilder {
       if (dist <= 0) return h;
       return lerp(h, drop, smoothstep(0, rim, dist));
     });
+  }
+
+  /**
+   * 谷 (深い裂け目): 折れ線 (x, z の列) に沿って、半幅 halfWidth の中を floor (絶対値) まで落とし、外側 rim の幅で地面へ戻す。
+   * rim が狭いほど切り立つ (格子 2m では、rim 5m・深さ 40m でほぼ垂直な崖)。落ちたら復活する深さにすること。
+   * 縁 (落ちる手前) の傾きがきつい所は、岩の色にする。
+   */
+  chasm(points: readonly (readonly [number, number])[], halfWidth: number, rim: number, floor: number): this {
+    return this.set((x, z, h) => {
+      let best = Infinity;
+      for (let k = 0; k + 1 < points.length; k++) {
+        const [ax, az] = points[k];
+        const [bx, bz] = points[k + 1];
+        const sx = bx - ax;
+        const sz = bz - az;
+        const len2 = sx * sx + sz * sz;
+        const t = len2 < 1e-9 ? 0 : clamp(((x - ax) * sx + (z - az) * sz) / len2, 0, 1);
+        best = Math.min(best, Math.hypot(x - (ax + sx * t), z - (az + sz * t)));
+      }
+      if (best >= halfWidth + rim) return h;
+      return lerp(floor, h, smoothstep(halfWidth, halfWidth + rim, best));
+    });
+  }
+
+  /** 地面の色 (ステージの雰囲気に合わせる。省略 = 草原の既定)。 */
+  palette(p: TerrainPalette): this {
+    this.def.palette = p;
+    return this;
   }
 
   /** 円の中の地面の種類を変える (見た目だけ)。 */

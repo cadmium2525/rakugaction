@@ -1,5 +1,6 @@
 import type { GameSim } from '../game/sim';
 import { terrainIdx } from '../stages/terrain';
+import type { TerrainPalette } from '../stages/terrain';
 import type { StageDef } from '../stages/types';
 import { h } from './dom';
 
@@ -9,6 +10,17 @@ const VIEW_RADIUS = 62;
 const MAP_RES = 1.1;
 
 const _tmp = { x: 0, y: 0 };
+
+type Rgb = readonly [number, number, number];
+
+/** 地図の地面の色 (草 / 土 / 砂 / 岩)。草原 (palette なし) は、見やすいよう少しやわらかい色にしてある。 */
+const DEFAULT_MAP_COLORS = { grass: [120, 190, 100] as Rgb, dirt: [201, 160, 108] as Rgb, sand: [236, 220, 160] as Rgb, rock: [160, 154, 142] as Rgb };
+
+function minimapColors(p: TerrainPalette | undefined): typeof DEFAULT_MAP_COLORS {
+  if (!p) return DEFAULT_MAP_COLORS;
+  const rgb = (c: number): Rgb => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+  return { grass: rgb(p.grass), dirt: rgb(p.dirt), sand: rgb(p.sand), rock: rgb(p.rock) };
+}
 
 /**
  * フィールド型ステージのミニマップ (丸い窓)。プレイヤーを中心に、カメラの向きが上になるよう回転する。
@@ -48,6 +60,7 @@ export class Minimap {
     const g = c.getContext('2d')!;
     const img = g.createImageData(w, hgt);
     const waters = stage.waters ?? [];
+    const ground = minimapColors(t.palette);
     for (let py = 0; py < hgt; py++) {
       for (let px = 0; px < w; px++) {
         const x = t.x0 + (px + 0.5) * MAP_RES;
@@ -68,12 +81,10 @@ export class Minimap {
         const hx = t.heights[terrainIdx(t, Math.min(t.nx, ix + 1), iz)] - t.heights[terrainIdx(t, Math.max(0, ix - 1), iz)];
         const hz = t.heights[terrainIdx(t, ix, Math.min(t.nz, iz + 1))] - t.heights[terrainIdx(t, ix, Math.max(0, iz - 1))];
         const shade = Math.max(0.62, Math.min(1.25, 1 + (-hx * 0.5 - hz * 0.5) * 0.09 + Math.min(hh, 14) * 0.012));
-        let r = 120;
-        let gr = 190;
-        let b = 100;
-        if (kind === 1) [r, gr, b] = [201, 160, 108];
-        else if (kind === 2) [r, gr, b] = [236, 220, 160];
-        else if (kind === 3) [r, gr, b] = [160, 154, 142];
+        let [r, gr, b] = ground.grass;
+        if (kind === 1) [r, gr, b] = ground.dirt;
+        else if (kind === 2) [r, gr, b] = ground.sand;
+        else if (kind === 3) [r, gr, b] = ground.rock;
         for (const wa of waters) {
           if (x >= wa.min[0] && x <= wa.max[0] && z >= wa.min[2] && z <= wa.max[2] && hh < wa.max[1]) {
             [r, gr, b] = [86, 170, 214];

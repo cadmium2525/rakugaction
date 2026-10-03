@@ -13,6 +13,7 @@ const PALETTE: Record<EnemyKind, { body: number; accent: number; puff: number }>
   hopper: { body: 0xffa63d, accent: 0xffe39a, puff: 0xffc46b },
   spiky: { body: 0x7a4bb8, accent: 0xfff0b0, puff: 0xc9a3ff },
   chaser: { body: 0xff5b5b, accent: 0xffd0c8, puff: 0xff9a8a },
+  armor: { body: 0x5e84b0, accent: 0xe4edf7, puff: 0xbcd2ea },
 };
 
 const INK = 0x1b1411;
@@ -135,7 +136,7 @@ class Parts {
 }
 
 /**
- * 敵の描画。プルン/ピョンタ/トゲマル/チェイサー を、球・円錐などのプリミティブと黒い縁取り (反転した殻) で作る
+ * 敵の描画。プルン/ピョンタ/トゲマル/チェイサー/カタマル を、球・円錐などのプリミティブと黒い縁取り (反転した殻) で作る
  * (ラクガキ風のぷっくりした見た目)。動きは sim の状態からの手続きアニメーション。
  * パーツは 1 体ごとに結合して軽くする (塗り 1 + 縁取り 1 + 動く部品)。倒した時の煙と星は InstancedMesh 1 つ (1 draw call)。
  */
@@ -281,6 +282,28 @@ export class EnemyView {
       // おこったまゆ毛
       for (const side of [-1, 1]) fp.add(this.box, { pos: [side * 0.17, 0.2, 0.12], scale: [0.2, 0.05, 0.04], rot: [0, 0, -side * 0.5], color: INK });
       finish(fp, face);
+    } else if (kind === 'armor') {
+      // カタマル: 青い鋼の低い甲羅 (ふちとこぶがうすい色)。顔と足だけが出ている。ACTION がはね返される硬さに見える
+      const p = new Parts();
+      const dome = { cy: 0.36, rx: 0.62, ry: 0.44 };
+      p.add(this.sphere, { pos: [0, dome.cy, -0.04], scale: [dome.rx, dome.ry, dome.rx], color: pal.body, outline: 1.08 });
+      p.add(this.sphere, { pos: [0, 0.16, -0.04], scale: [dome.rx + 0.05, 0.1, dome.rx + 0.05], color: pal.accent, outline: 1.1 });
+      for (const [bx, bz] of [[0, -0.2], [-0.27, 0.06], [0.27, 0.06]] as const) {
+        const rr = Math.sqrt(Math.max(0, 1 - (bx / dome.rx) ** 2 - (bz / dome.rx) ** 2));
+        p.add(this.sphereLow, { pos: [bx, dome.cy + dome.ry * rr - 0.02, bz - 0.04], scale: [0.12, 0.08, 0.12], color: pal.accent });
+      }
+      // 顔 (甲羅の前から出ている)。まゆ毛で少し きりっと
+      const skin = 0xf2d3a4;
+      p.add(this.sphere, { pos: [0, 0.27, 0.52], scale: [0.24, 0.2, 0.22], color: skin, outline: 1.1 });
+      this.eyes(p, body, node, 0.11, 0.33, 0.62, 0.085);
+      for (const side of [-1, 1]) p.add(this.box, { pos: [side * 0.11, 0.45, 0.6], scale: [0.14, 0.035, 0.03], rot: [0, 0, -side * 0.4], color: INK });
+      finish(p, body);
+      for (const side of [-1, 1]) {
+        const lp = new Parts().add(this.sphereLow, { scale: [0.14, 0.09, 0.2], color: skin, outline: 1.15 });
+        const leg = finish(lp, body);
+        leg.position.set(side * 0.3, 0.08, 0.22);
+        node.legs.push(leg);
+      }
     } else {
       // チェイサー: 赤い丸に とがった耳。追いかける時は足が速く動き、頭の上に ! が出る
       const p = new Parts();
@@ -322,7 +345,9 @@ export class EnemyView {
     const cy = rt.pos.y;
     const cz = rt.pos.z;
     if (how === 'guard') {
-      this.spawn(cx, cy, cz, 5, 0xffffff, 0.12, 0.25, 4.5, false);
+      // 硬い甲羅 (カタマル) は、金属を叩いたような黄色い火花を大きめに散らす
+      if (rt.def.kind === 'armor') this.spawn(cx, cy + 0.2, cz, 10, 0xfff3b0, 0.16, 0.32, 5.5, false);
+      else this.spawn(cx, cy, cz, 5, 0xffffff, 0.12, 0.25, 4.5, false);
       return;
     }
     this.spawn(cx, cy, cz, 7, pal.puff, 0.32, 0.55, 2.6, true); // 煙 (ふくらんで消える)
@@ -398,6 +423,13 @@ export class EnemyView {
         node.roll += d / 0.42;
         if (node.spin) node.spin.rotation.x = node.roll;
         sy = 1 + 0.03 * Math.sin(t * 9);
+      } else if (rt.def.kind === 'armor') {
+        // のしのし歩く: 足を交互に出し、甲羅がゆっくり上下する
+        const w = Math.sin(t * 7);
+        sy = 1 + 0.025 * Math.sin(t * 7 * 2);
+        node.legs.forEach((leg, i) => {
+          leg.position.z = 0.22 + (i === 0 ? w : -w) * 0.07;
+        });
       } else {
         const fast = rt.chasing ? 1 : 0.35;
         const w = Math.sin(t * 16 * fast);

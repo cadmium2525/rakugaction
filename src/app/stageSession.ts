@@ -311,9 +311,17 @@ export class StageSession {
           this.hud.toast('木箱を破壊', 700);
           break;
         case 'enemy': {
-          // 星を守る敵を倒した: 星が現れるまで、あと何体か (最後の 1 体は pickupAppear の知らせを出す)
-          if (e.how === 'guard') break;
           const sim = this.scene.sim;
+          if (e.how === 'guard') {
+            // ACTION が効かない敵 (カタマル) にはね返された時、倒し方を教える (続けてはね返されても、同じ説明を重ねて出さない)
+            const hit = sim.enemies.find((x) => x.def.id === e.id);
+            if (hit?.def.kind === 'armor' && sim.time - this.lastGuardToast > 4) {
+              this.lastGuardToast = sim.time;
+              this.hud.toast('硬い甲羅は、体当たりがはね返される　上から踏みつけよう', 2400);
+            }
+            break;
+          }
+          // 星を守る敵を倒した: 星が現れるまで、あと何体か (最後の 1 体は pickupAppear の知らせを出す)
           for (const k of this.deps.stage.pickups ?? []) {
             if (!k.appearAfter?.includes(e.id) || sim.revealed.has(k.id)) continue;
             const left = sim.pickupLockedRemaining(k.id);

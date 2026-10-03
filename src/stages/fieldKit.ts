@@ -16,6 +16,7 @@ import type {
   SurfaceStyle,
   WaterDef,
   WaypointDef,
+  WindDef,
 } from './types';
 
 /**
@@ -34,6 +35,7 @@ export class FieldKit {
   readonly decor: DecorDef[] = [];
   readonly checkpoints: CheckpointDef[] = [];
   readonly waters: WaterDef[] = [];
+  readonly winds: WindDef[] = [];
   private n = 0;
 
   constructor(readonly terrain: TerrainDef) {}
@@ -105,7 +107,7 @@ export class FieldKit {
       id: this.id('en'),
       kind,
       points,
-      speed: kind === 'chaser' ? 3.4 : kind === 'spiky' ? 2.0 : 1.8,
+      speed: kind === 'chaser' ? 3.4 : kind === 'spiky' ? 2.0 : kind === 'armor' ? 1.3 : 1.8,
       pause: 0.4,
       onTerrain: !explicit,
       ...rest,
@@ -165,6 +167,16 @@ export class FieldKit {
     const w: WaterDef = { id, min: [x0, surface - depth, z0], max: [x1, surface, z1] };
     this.waters.push(w);
     return w;
+  }
+
+  /**
+   * 風域: 中心 (cx, cz)・水平の大きさ (w = 東西, d = 南北)・足元の高さ y0 から高さ h。vel = 最大の風速 (m/s)。
+   * gust = 周期的に吹く/止む、pulse = 常に吹いて強さが脈打つ (どちらもなければ常に吹く)。
+   */
+  wind(id: string, cx: number, cz: number, w: number, d: number, y0: number, h: number, vel: V3t, o: { gust?: WindDef['gust']; pulse?: WindDef['pulse'] } = {}): WindDef {
+    const def: WindDef = { id, min: [cx - w / 2, y0, cz - d / 2], max: [cx + w / 2, y0 + h, cz + d / 2], vel, ...o };
+    this.winds.push(def);
+    return def;
   }
 
   /** 装飾を足す関数 (decorKit の Push と同じ形)。 */

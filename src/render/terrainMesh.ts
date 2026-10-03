@@ -1,20 +1,35 @@
 import * as THREE from 'three';
 import { clamp, lerp, smoothstep } from '../core/math';
-import { PAINT, terrainIdx } from '../stages/terrain';
-import type { TerrainDef } from '../stages/terrain';
+import { DEFAULT_TERRAIN_PALETTE, PAINT, terrainIdx } from '../stages/terrain';
+import type { TerrainDef, TerrainPalette } from '../stages/terrain';
 import { fbm } from '../stages/terrainBuilder';
-import { STYLE_COLORS } from './stageStyles';
 import type { StaticChunk } from './stageMesh';
 import { styleId } from './surfaceMaterial';
 
-const GRASS = new THREE.Color(STYLE_COLORS.grass.top);
-const GRASS_HI = new THREE.Color(0x8fe05c);
-const GRASS_DARK = new THREE.Color(0x4fb040);
-const DIRT = new THREE.Color(0xb98450);
-const SAND = new THREE.Color(0xf2dc9b);
-const ROCK = new THREE.Color(0xa59d8e);
-const EARTH = new THREE.Color(STYLE_COLORS.grass.side);
 const _c = new THREE.Color();
+
+/** 地形の色 (THREE.Color にしたもの。チャンクを作る間だけ使う)。 */
+interface Colors {
+  grass: THREE.Color;
+  grassHi: THREE.Color;
+  grassDark: THREE.Color;
+  dirt: THREE.Color;
+  sand: THREE.Color;
+  rock: THREE.Color;
+  earth: THREE.Color;
+}
+
+function colorsOf(p: TerrainPalette): Colors {
+  return {
+    grass: new THREE.Color(p.grass),
+    grassHi: new THREE.Color(p.grassHi),
+    grassDark: new THREE.Color(p.grassDark),
+    dirt: new THREE.Color(p.dirt),
+    sand: new THREE.Color(p.sand),
+    rock: new THREE.Color(p.rock),
+    earth: new THREE.Color(p.earth),
+  };
+}
 
 /** 頂点 (ix, iz) の法線 (高さの中央差分。なめらかな陰影にする)。 */
 function vertexNormal(t: TerrainDef, ix: number, iz: number, out: THREE.Vector3): void {
@@ -29,25 +44,25 @@ function vertexNormal(t: TerrainDef, ix: number, iz: number, out: THREE.Vector3)
 }
 
 /** 頂点の色: 地面の種類 + 草のむら + 高さ + 傾き (急な所は土/岩の崖の色) + 雲海より下は暗く。 */
-function vertexColor(t: TerrainDef, ix: number, iz: number, ny: number, out: THREE.Color): void {
+function vertexColor(t: TerrainDef, ix: number, iz: number, ny: number, out: THREE.Color, c: Colors): void {
   const i = terrainIdx(t, ix, iz);
   const x = t.x0 + ix * t.cell;
   const z = t.z0 + iz * t.cell;
   const h = t.heights[i];
   const kind = t.paint[i];
-  if (kind === PAINT.dirt) out.copy(DIRT);
-  else if (kind === PAINT.sand) out.copy(SAND);
-  else if (kind === PAINT.rock) out.copy(ROCK);
+  if (kind === PAINT.dirt) out.copy(c.dirt);
+  else if (kind === PAINT.sand) out.copy(c.sand);
+  else if (kind === PAINT.rock) out.copy(c.rock);
   else {
-    // 草: 大きなむら (明るい/暗い) + 高い所ほど明るい黄緑
+    // 草 (標準の地面): 大きなむら (明るい/暗い) + 高い所ほど明るい色
     const v = fbm(x / 14, z / 14, 7, 2);
-    out.copy(GRASS).lerp(v > 0 ? GRASS_HI : GRASS_DARK, Math.abs(v) * 0.9);
-    out.lerp(GRASS_HI, clamp(h / 30, 0, 0.35));
+    out.copy(c.grass).lerp(v > 0 ? c.grassHi : c.grassDark, Math.abs(v) * 0.9);
+    out.lerp(c.grassHi, clamp(h / 30, 0, 0.35));
   }
   // 急な斜面: 土 (または岩) の崖
   const slope = Math.acos(clamp(ny, -1, 1));
   const cliff = smoothstep(0.62, 0.95, slope);
-  if (cliff > 0) out.lerp(kind === PAINT.rock ? ROCK : EARTH, cliff);
+  if (cliff > 0) out.lerp(kind === PAINT.rock ? c.rock : c.earth, cliff);
   // 島の縁より下 (崖の根元・雲海の下) は暗く
   const shade = lerp(1, 0.55, smoothstep(-1, -16, h));
   out.multiplyScalar(shade);
@@ -63,6 +78,7 @@ function vertexColor(t: TerrainDef, ix: number, iz: number, ny: number, out: THR
 export function buildTerrainChunks(t: TerrainDef, cells = 24): StaticChunk[] {
   const out: StaticChunk[] = [];
   const n = new THREE.Vector3();
+  const colors = colorsOf(t.palette ?? DEFAULT_TERRAIN_PALETTE);
   for (let cx0 = 0; cx0 < t.nx; cx0 += cells) {
     for (let cz0 = 0; cz0 < t.nz; cz0 += cells) {
       const cx1 = Math.min(t.nx, cx0 + cells);
@@ -84,7 +100,7 @@ export function buildTerrainChunks(t: TerrainDef, cells = 24): StaticChunk[] {
           nor[k] = n.x;
           nor[k + 1] = n.y;
           nor[k + 2] = n.z;
-          vertexColor(t, ix, iz, n.y, _c);
+          vertexColor(t, ix, iz, n.y, _c, colors);
           col[k] = _c.r;
           col[k + 1] = _c.g;
           col[k + 2] = _c.b;

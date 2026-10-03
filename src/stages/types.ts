@@ -85,8 +85,9 @@ export interface SweeperDef {
  *   hopper  = ピョンタ: 巡回しながら跳ねる。ふんづけ / ACTION で倒せる。
  *   spiky   = トゲマル: 巡回する。上からふんでもトゲで痛い。ACTION は攻撃力が足りるキャラだけが倒せる (POWER の出番)。
  *   chaser  = チェイサー: 気づくと追いかけてくる (決められた範囲 leash の中だけ)。ふんづけ / ACTION で倒せる。
+ *   armor   = カタマル: 硬い甲羅の巡回者。ACTION は (どのキャラでも) はね返される。上からふんづけた時だけ倒せる (STAGE 2 から)。
  */
-export type EnemyKind = 'blob' | 'hopper' | 'spiky' | 'chaser';
+export type EnemyKind = 'blob' | 'hopper' | 'spiky' | 'chaser' | 'armor';
 
 /**
  * 敵。巡回する敵の位置は経過時間だけで決まる (移動床/鉄球と同じ = 決定的)。chaser だけはプレイヤーの位置で動く (それも決定的)。
