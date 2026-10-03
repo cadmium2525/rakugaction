@@ -8,9 +8,13 @@
  */
 
 /** パーツの種類 */
-export type PartKind = 'body' | 'head' | 'arm' | 'leg' | 'tail' | 'wing' | 'ornament';
+/**
+ * decal = 「もよう」: 立体にせず、頭や胴体の表面にそのまま貼る絵 (顔・縞・ぶち・ロゴ・服の柄)。
+ * 自分の紙に描くので、細かく (紙の解像度のまま) 描ける。形・輪郭・能力には関係しない (色の計測にだけ入る)。
+ */
+export type PartKind = 'body' | 'head' | 'arm' | 'leg' | 'tail' | 'wing' | 'ornament' | 'decal';
 
-export const PART_KINDS: readonly PartKind[] = ['body', 'head', 'arm', 'leg', 'tail', 'wing', 'ornament'];
+export const PART_KINDS: readonly PartKind[] = ['body', 'head', 'arm', 'leg', 'tail', 'wing', 'ornament', 'decal'];
 
 /** 絵の向き: front = 正面から見た絵 (キャラの向きと垂直な面) / side = 横から見た絵 (右を向いて描く) */
 export type PartView = 'front' | 'side';
@@ -27,6 +31,7 @@ export const KIND_LABEL: Record<PartKind, string> = {
   tail: 'しっぽ',
   wing: '翼',
   ornament: '飾り',
+  decal: 'もよう',
 };
 
 export const KIND_ICON: Record<PartKind, string> = {
@@ -37,6 +42,7 @@ export const KIND_ICON: Record<PartKind, string> = {
   tail: '〰️',
   wing: '🪽',
   ornament: '🎀',
+  decal: '🔖',
 };
 
 /** 種類ごとに付けられるパーツ (スロット) の最大数。腕・脚は「ペア 1 組 = 1 スロット」なので、脚 3 組 = 6 本まで。 */
@@ -48,6 +54,7 @@ export const KIND_MAX: Record<PartKind, number> = {
   tail: 2,
   wing: 2,
   ornament: 3,
+  decal: 4,
 };
 
 export interface PenOp {
@@ -94,11 +101,12 @@ export interface PartSlot {
   flip: boolean;
   /** 胴体の絵のどこにつなぐか。null = 種類ごとの標準の位置に自動で決める。胴体自身は使わない */
   mount: Mount | null;
-  /** 飾り (角・背びれ・甲羅など) だけ: true なら、頭があっても胴体に付ける。省略 = 頭があれば頭に付ける */
+  /** 飾り (角・背びれ・甲羅など) ともよう: true なら、頭があっても胴体に付ける。省略 = 頭があれば頭に付ける */
   onBody?: boolean;
   /**
    * このパーツの絵を貼る大きさの倍率 (省略 = 1)。どのパーツも同じ縮尺のキャンバスに描くので、小さな部品 (頭・爪・目など) は
    * 細かく描けない。キャンバスいっぱいに大きく描いて、0.3 倍などで貼れば、細部まで描ける。胴体には使わない (胴体が基準)。
+   * もようは、貼り先 (頭か胴体) の紙の幅に対する倍率 (0.5 = 貼り先の半分の幅)。
    */
   scale?: number;
   /** 前後の厚みの倍率 (省略 = 1)。翼や膜は薄く (0.4)、丸い胴体は厚く (1.5) */

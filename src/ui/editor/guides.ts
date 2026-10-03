@@ -115,6 +115,17 @@ export function drawGuides(canvas: HTMLCanvasElement, slot: PartSlot): void {
       dot(0.1, 0.5);
       label('根元', 0.1, 0.43);
       break;
+    case 'decal':
+      ctx.rect(u(0.04), u(0.04), u(0.92), u(0.92)); // 貼る絵の範囲 (この中に描く)
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(u(0.5), u(0.44));
+      ctx.lineTo(u(0.5), u(0.56));
+      ctx.moveTo(u(0.44), u(0.5));
+      ctx.lineTo(u(0.56), u(0.5));
+      ctx.stroke();
+      label('貼る場所の中心', 0.5, 0.62);
+      break;
     case 'ornament':
       ctx.moveTo(u(0.5), u(0.14));
       ctx.lineTo(u(0.66), u(0.88));
@@ -135,7 +146,7 @@ export function partHint(slot: PartSlot): string {
     case 'body':
       return slot.view === 'side' ? `${common}。横から見た絵を、右向きに描きます` : `${common}。他のパーツをつなぐ目安が薄く出ています`;
     case 'head':
-      return slot.view === 'side' ? '顔を描き込んでもかまいません。右向きで、首のつなぎ目が左下です' : '顔を描き込んでもかまいません。下の「首」が胴体とつながります';
+      return slot.view === 'side' ? '右向きで、首のつなぎ目が左下です。顔は「＋足す」の「もよう」で貼ると細かく描けます' : '下の「首」が胴体とつながります。顔は「＋足す」の「もよう」で貼ると細かく描けます (ここに描いてもかまいません)';
     case 'arm':
       return '上の「肩」から下に伸びる腕を描きます';
     case 'leg':
@@ -146,6 +157,8 @@ export function partHint(slot: PartSlot): string {
       return '左端の「根元」から、右へ広がる翼を描きます。左右の翼は自動でそろいます';
     case 'ornament':
       return '下の「根元」から上へ伸びる角や耳を描きます。頭に付きます (「胴体に」を選ぶと、背びれや甲羅のように胴体に付きます)';
+    case 'decal':
+      return '頭や胴体の表面にそのまま貼る絵です (顔・縞・ぶち・柄)。立体にならないので、紙いっぱいに細かく描けます。「貼る位置」「大きさ」で場所と大きさを決めます';
   }
 }
 

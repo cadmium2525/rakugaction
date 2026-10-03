@@ -1,10 +1,13 @@
 import { resolveSlotOps, defaultOps } from '../drawing/defaults';
+import { emptyWeights } from './colorClass';
 import { downsampleMask } from '../drawing/downsample';
 import { rasterize } from '../drawing/raster';
 import { altModeOf, hasAlt, hasBack, mirrorOps } from '../drawing/model';
 import type { DrawOp, DrawingData, PartSlot } from '../drawing/model';
 import { TEX_RES, cleanPart } from './cleanPart';
 import type { CleanedPart } from './cleanPart';
+import { decalTexture } from './decal';
+import type { DecalTexture } from './decal';
 import { buildDepthProfile } from './profile';
 import type { DepthProfile } from './profile';
 import { computeLayout } from './layout';
@@ -22,6 +25,8 @@ export interface PreparedSlot {
   /** もう一つの向きの絵 (PartSlot.alt) の整形結果と、そこから作った厚みの形。無ければ null (計測だけの軽量版でも null) */
   alt: CleanedPart | null;
   profile: DepthProfile | null;
+  /** もよう (PartKind 'decal') の貼る絵。もよう以外と、何も描いていないもようは null (計測だけの軽量版でも null) */
+  decal: DecalTexture | null;
 }
 
 /**
@@ -32,6 +37,13 @@ export function prepareSlots(drawing: DrawingData, opts: { rasterRes?: number; t
   return drawing.parts.map((slot) => {
     const r = resolveSlotOps(slot);
     let raster = rasterize(r.ops, opts.rasterRes);
+    if (slot.kind === 'decal') {
+      // もよう: 立体にしない。色の計測 (cleanPart のインク集計) だけ通して、絵はそのまま貼る絵にする
+      const hasInk = raster.hasInk();
+      const base = cleanPart(hasInk ? raster : rasterize(defaultOps('head', 'front'), opts.rasterRes), { texture: false, kind: 'decal' });
+      const cleaned = hasInk ? base : { ...base, inkPixels: 0, colorWeights: emptyWeights() };
+      return { slot, cleaned, usedDefault: false, alt: null, profile: null, decal: opts.texture !== false ? decalTexture(raster) : null };
+    }
     let usedDefault = r.usedDefault;
     // 線はあるが全て消された場合など、ラスタが空なら既定形状へ
     if (!raster.hasInk()) {
@@ -61,16 +73,19 @@ export function prepareSlots(drawing: DrawingData, opts: { rasterRes?: number; t
         cleaned.backTexture = mergeBack(bc, cleaned.backTexture ?? cleaned.texture);
       }
     }
-    return { slot, cleaned, usedDefault, alt, profile };
+    return { slot, cleaned, usedDefault, alt, profile, decal: null };
   });
 }
 
 /** 整形済みパーツ (縮小したマスク) から配置を計算する。 */
 export function layoutOfPrepared(prepared: readonly PreparedSlot[]): CharacterLayout {
-  const inputs: LayoutSlot[] = prepared.map((p) => {
+  // もよう (decal) は形を持たないので、配置の計算には入れない
+  const inputs: LayoutSlot[] = prepared
+    .filter((p) => p.slot.kind !== 'decal')
+    .map((p) => {
     const d = downsampleMask(p.cleaned.mask, p.cleaned.res, LAYOUT_FACTOR, 1);
-    return { slot: p.slot, mask: d.mask, res: d.res };
-  });
+      return { slot: p.slot, mask: d.mask, res: d.res };
+    });
   return computeLayout(inputs);
 }
 

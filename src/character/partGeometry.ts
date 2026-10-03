@@ -33,6 +33,7 @@ const PUFF: Record<PartKind, number> = {
   tail: 1,
   wing: 0.45,
   ornament: 0.9,
+  decal: 1, // もようは立体にしない (使われない)
 };
 
 /** 内側の格子点の数の目安 (多いほど滑らかで重い)。前後 2 面で三角形はこの約 4 倍。 */

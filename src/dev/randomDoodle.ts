@@ -128,6 +128,7 @@ const BLOB_KEY: Record<PartKind, (side: boolean) => BlobKey> = {
   tail: () => 'tail',
   wing: () => 'wing',
   ornament: () => 'ornament',
+  decal: () => 'ornament', // もようは作らない (使われない)
 };
 
 /**
@@ -145,7 +146,7 @@ export function randomCreature(rng: Rng, profile: DoodleProfile = 'plausible'): 
   const parts: PartSlot[] = tpl.make();
   // 足す: 腕・脚・翼・飾りを 0〜2 個 (上限はエディタと同じく kind ごと/全体)
   const extra: PartKind[] = ['arm', 'leg', 'wing', 'ornament', 'tail'];
-  const MAX: Record<PartKind, number> = { body: 1, head: 1, arm: 4, leg: 4, tail: 1, wing: 1, ornament: 3 };
+  const MAX: Record<PartKind, number> = { body: 1, head: 1, arm: 4, leg: 4, tail: 1, wing: 1, ornament: 3, decal: 0 };
   for (let i = rng.int(0, 2); i > 0; i--) {
     const kind = rng.pick(extra);
     if (parts.length >= 12 || parts.filter((p) => p.kind === kind).length >= MAX[kind]) continue;

@@ -26,6 +26,8 @@ export function defaultOps(kind: PartKind, view: PartView = 'front'): DrawOp[] {
       return cap(0.2, [0.1, 0.5, 0.85, 0.5]);
     case 'ornament':
       return cap(0.12, [0.5, 0.9, 0.5, 0.4]);
+    case 'decal':
+      return []; // もようは、描かなければ何も貼らない (既定の形はない)
   }
 }
 
@@ -36,7 +38,7 @@ export function defaultOps(kind: PartKind, view: PartView = 'front'): DrawOp[] {
  */
 export function resolveSlotOps(slot: PartSlot): { ops: DrawOp[]; usedDefault: boolean } {
   const raw = slot.flip ? mirrorOps(slot.ops) : slot.ops.slice();
-  if (raw.some((o) => o.kind === 'pen')) return { ops: raw, usedDefault: false };
+  if (raw.some((o) => o.kind === 'pen') || slot.kind === 'decal') return { ops: raw, usedDefault: false };
   const def = defaultOps(slot.kind, slot.view);
   return { ops: slot.flip ? mirrorOps(def) : def, usedDefault: true };
 }

@@ -203,7 +203,8 @@ export class EditorState {
     if (kind === 'body' || !canAdd(this.drawing, kind)) return null;
     const bodyView = this.drawing.parts[0].view;
     const pairByDefault = kind === 'arm' || kind === 'leg' || kind === 'wing' || kind === 'ornament';
-    const slot = newSlot(freshId(this.drawing), kind, { view: o.view ?? bodyView, pair: o.pair ?? pairByDefault, side: o.side ?? 'C' });
+    // もようは、貼り先の半分の幅から始める (顔や縞を貼るのにちょうどよい)
+    const slot = newSlot(freshId(this.drawing), kind, { view: o.view ?? bodyView, pair: o.pair ?? pairByDefault, side: o.side ?? 'C', ...(kind === 'decal' ? { scale: 0.5 } : {}) });
     this.drawing.parts.push(slot);
     this.currentId = slot.id;
     return slot;
@@ -260,7 +261,7 @@ export class EditorState {
     if (i < 0) return false;
     const slot = this.drawing.parts[i];
     const next: PartSlot = { ...slot, ...patch };
-    if (next.onBody === false || next.kind !== 'ornament') delete next.onBody;
+    if (next.onBody === false || (next.kind !== 'ornament' && next.kind !== 'decal')) delete next.onBody;
     // 既定値 (1) は保存しない。胴体には大きさを付けない
     if (next.scale === undefined || next.scale === 1 || next.kind === 'body') delete next.scale;
     if (next.depth === undefined || next.depth === 1) delete next.depth;

@@ -3,6 +3,7 @@ import { altModeOf } from '../drawing/model';
 import type { DrawingData } from '../drawing/model';
 import { characterMaterial } from '../render/toon';
 import { TEX_RES } from './cleanPart';
+import { buildDecalPatches } from './decal';
 import type { CharacterLayout, PlacedPart } from './layout';
 import { measureBody, measureColors } from './measure';
 import type { BodyMeasures, ColorMeasures } from './measure';
@@ -43,8 +44,10 @@ export interface BuildReport {
   totalTriangles: number;
   /** メッシュの数 (置かれたパーツの数) */
   meshes: number;
-  /** 描画呼び出しの数 (背中側に別の絵を持つパーツは 2 回) */
+  /** 描画呼び出しの数 (背中側に別の絵を持つパーツは 2 回。もようは 1 面につき 1 回) */
   drawCalls: number;
+  /** 貼ったもようの面の数 (ペアなら 2) */
+  decals: number;
   ms: number;
 }
 
@@ -226,6 +229,42 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     rigParts.push({ slotId: p.slotId, kind: p.kind, view: p.view, side: p.side, rank: p.rank, count: p.count, pivot });
   }
 
+  // ---- もよう: 貼り先 (頭または胴体) のメッシュの表面に、薄いパッチとして貼る (立体にはしない) ----
+  let decalCount = 0;
+  const hasHead = prepared.some((p) => p.slot.kind === 'head');
+  for (const prep of prepared) {
+    if (prep.slot.kind !== 'decal' || !prep.decal) continue;
+    const parentId = hasHead && !prep.slot.onBody ? (prepared.find((p) => p.slot.kind === 'head') as { slot: { id: string } }).slot.id : 'body';
+    const placed = L.placed.find((p) => p.slotId === parentId);
+    const parentGeo = geos.get(parentId);
+    const metrics = L.metrics.get(parentId);
+    const parentPrep = prepared.find((p) => p.slot.id === parentId);
+    const parentMesh = parentId === 'body' ? bodyMesh : rigParts.find((p) => p.slotId === parentId)?.pivot.children.find((c) => (c as THREE.Mesh).isMesh);
+    if (!placed || !parentGeo || !metrics || !parentPrep || !parentMesh) continue;
+    const patches = buildDecalPatches(prep.slot, {
+      geometry: parentGeo.geometry,
+      ax: placed.ax * LAYOUT_FACTOR,
+      ay: placed.ay * LAYOUT_FACTOR,
+      res: parentPrep.cleaned.res,
+      scale: S * placed.k,
+      maskCx: metrics.cx * LAYOUT_FACTOR,
+      maskCy: metrics.cy * LAYOUT_FACTOR,
+      sideView: placed.view === 'side',
+    });
+    if (patches.length === 0) continue;
+    const tex = textureFromRgbaSized(prep.decal.rgba, prep.decal.res, prep.decal.res);
+    // 貼り先の縁取りの色 (縁の暗さ) をそのまま使う: シルエットのふちにかかるもようも、貼り先と同じ縁になる
+    const mat = characterMaterial({ map: tex, vertexColors: true, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }, rimOf(parentPrep.cleaned.outline));
+    for (const patch of patches) {
+      const dm = new THREE.Mesh(patch.geometry, mat);
+      dm.name = `${prep.slot.id}${patch.index ? '-twin' : ''}Decal`;
+      dm.renderOrder = 2;
+      parentMesh.add(dm);
+      decalCount++;
+      totalTris += (patch.geometry.getIndex()?.count ?? 0) / 3;
+    }
+  }
+
   // ---- 計測 (アニメーションの振れ幅調整用) ----
   const U = (px: number): number => (px / L.res) * S;
   const mean = (kind: 'arm' | 'leg'): number => {
@@ -264,7 +303,8 @@ export function buildCharacter(drawing: DrawingData, opts: BuildOptions = {}): B
     parts: reports,
     totalTriangles: totalTris,
     meshes: L.placed.length,
-    drawCalls: L.placed.reduce((n, p) => n + (Array.isArray(mats.get(p.slotId)) ? 2 : 1), 0),
+    drawCalls: L.placed.reduce((n, p) => n + (Array.isArray(mats.get(p.slotId)) ? 2 : 1), 0) + decalCount,
+    decals: decalCount,
     ms: performance.now() - t0,
   };
   return { rig: character, layout, prepared, body, color, analysis, report };

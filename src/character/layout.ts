@@ -82,6 +82,7 @@ export function rootOf(kind: PartKind, view: PartView, mask: Uint8Array, res: nu
     case 'wing':
       return leftBand();
     case 'ornament':
+    case 'decal':
       return bottomBand();
   }
 }

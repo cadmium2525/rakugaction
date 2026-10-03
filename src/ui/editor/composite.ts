@@ -10,11 +10,14 @@ const KIND_ORDER: PartKind[] = ['tail', 'wing', 'leg', 'body', 'arm', 'head', 'o
 
 /** 各パーツのラスタ (反転・既定形状を解決済み) から配置を計算 (レイアウト用に縮小したマスクを使う)。 */
 export function layoutFromRasters(drawing: DrawingData, rasters: ReadonlyMap<string, DrawingRaster>): CharacterLayout {
-  const inputs: LayoutSlot[] = drawing.parts.map((slot) => {
-    const r = rasters.get(slot.id) as DrawingRaster;
-    const d = downsampleMask(r.mask(), r.res, LAYOUT_DOWNSAMPLE, 1);
-    return { slot, mask: d.mask, res: d.res };
-  });
+  // もよう (decal) は形を持たないので、配置の計算には入れない
+  const inputs: LayoutSlot[] = drawing.parts
+    .filter((slot) => slot.kind !== 'decal')
+    .map((slot) => {
+      const r = rasters.get(slot.id) as DrawingRaster;
+      const d = downsampleMask(r.mask(), r.res, LAYOUT_DOWNSAMPLE, 1);
+      return { slot, mask: d.mask, res: d.res };
+    });
   return computeLayout(inputs);
 }
 
@@ -46,7 +49,7 @@ export class CompositePreview {
     return e.canvas;
   }
 
-  draw(rasters: ReadonlyMap<string, DrawingRaster>, layout: CharacterLayout): void {
+  draw(rasters: ReadonlyMap<string, DrawingRaster>, layout: CharacterLayout, drawing?: DrawingData): void {
     const c = this.canvas;
     const ctx = c.getContext('2d');
     if (!ctx) return;
@@ -91,6 +94,44 @@ export class CompositePreview {
       if (p.view !== layout.bodyView) ctx.globalAlpha = 0.85;
       ctx.drawImage(img, -ax, -ay, pk, pk);
       ctx.restore();
+    }
+    if (drawing) this.drawDecals(ctx, drawing, rasters, layout, scale, ox, gy);
+  }
+
+  /**
+   * もよう (decal): 貼り先 (頭、無ければ胴体) の絵の上の貼る位置に、貼り先の紙の幅 × 大きさ で重ねる。
+   * 3D と同じ決め方 (貼る位置を決めていなければ、貼り先のシルエットの重心。ペアは重心について左右対称)。
+   */
+  private drawDecals(ctx: CanvasRenderingContext2D, drawing: DrawingData, rasters: ReadonlyMap<string, DrawingRaster>, layout: CharacterLayout, scale: number, ox: number, gy: number): void {
+    const head = drawing.parts.find((p) => p.kind === 'head');
+    for (const slot of drawing.parts) {
+      if (slot.kind !== 'decal') continue;
+      const r = rasters.get(slot.id);
+      if (!r || !r.hasInk()) continue;
+      const parentId = head && !slot.onBody ? head.id : 'body';
+      const p = layout.placed.find((x) => x.slotId === parentId);
+      const m = layout.metrics.get(parentId);
+      if (!p || !m) continue;
+      const img = this.partCanvas(slot.id, r);
+      const pk = scale * p.k;
+      const px = ox + p.ja * scale;
+      const py = gy - p.jy * scale;
+      const res = layout.res;
+      // 貼り先の紙の上の位置 (layout の解像度の px)
+      const mu = slot.mount ? slot.mount.u * res : m.cx;
+      const mv = slot.mount ? slot.mount.v * res : m.cy;
+      const size = (slot.scale ?? 1) * pk;
+      const targets: { mu: number; flip: boolean }[] = [{ mu, flip: false }];
+      if (slot.pair && p.view !== 'side') targets.push({ mu: 2 * m.cx - mu, flip: true });
+      for (const t of targets) {
+        const cx = px + ((t.mu - p.ax) / res) * pk;
+        const cy = py + ((mv - p.ay) / res) * pk;
+        ctx.save();
+        ctx.translate(cx, cy);
+        if (t.flip) ctx.scale(-1, 1);
+        ctx.drawImage(img, -size / 2, -size / 2, size, size);
+        ctx.restore();
+      }
     }
   }
 }

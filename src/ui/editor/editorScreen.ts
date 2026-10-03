@@ -41,6 +41,7 @@ const KIND_NOTE: Record<PartKind, string> = {
   tail: '後ろにつくしっぽ',
   wing: '左右ペアで足す。羽ばたく',
   ornament: '角・耳・背びれなど。頭か胴体に付く',
+  decal: '顔・縞・ぶち・柄。立体にせず、表面に貼る',
 };
 
 /** つなぐ位置を決めている間の説明 */
@@ -107,7 +108,8 @@ export class EditorScreen implements Screen {
   private readonly modal: HTMLElement;
   private readonly modalCanvas: HTMLCanvasElement;
   private readonly modalPreview: CompositePreview;
-  private readonly modal3dCanvas: HTMLCanvasElement;
+  /** 3D プレビューの canvas。WebGL を捨てると (forceContextLoss) その canvas は二度と使えないので、閉じるたびに作り直す */
+  private modal3dCanvas: HTMLCanvasElement;
   private readonly modalTabs: HTMLElement;
   private preview3d: CharacterPreview3D | null = null;
   private previewMode: '3d' | '2d' = '3d';
@@ -319,7 +321,7 @@ export class EditorScreen implements Screen {
       this.miniRaf = 0;
       if (this.disposed) return;
       const rs = this.previewRasters();
-      this.mini.draw(rs, this.layout());
+      this.mini.draw(rs, this.layout(), this.state.drawing);
     });
   }
 
@@ -389,6 +391,30 @@ export class EditorScreen implements Screen {
       hasBack(slot) || slot.back
         ? h('button', { class: 'opt opt-danger', text: `🗑 ${backLabel(slot)}を消す`, attrs: { 'aria-label': `${backLabel(slot)}を消す` }, on: { click: () => this.removeBack() } })
         : h('button', { class: 'opt', text: `＋ ${backLabel(slot)}も描く`, attrs: { 'aria-label': `${backLabel(slot)}も描いて、反対側の面の絵にする` }, on: { click: () => this.addBack() } });
+    if (slot.kind === 'decal') {
+      // もよう: 立体にしない絵。向き・厚み・もう一つの向きの絵は無い (貼り先の表面にそのまま貼る)
+      rows.push(h('button', { class: `opt${slot.pair ? ' on' : ''}`, text: slot.pair ? '⇄ 左右にも貼る' : '⇄ 左右にも貼る (両目など)', attrs: { 'aria-label': '反対側にも、反転して貼る' }, on: { click: () => this.updateSlot({ pair: !slot.pair }) } }));
+      if (st.drawing.parts.some((p) => p.kind === 'head')) {
+        rows.push(
+          seg([
+            { label: '頭に', on: !slot.onBody, click: () => this.updateSlot({ onBody: false }), aria: '頭に貼る (顔)' },
+            { label: '胴体に', on: !!slot.onBody, click: () => this.updateSlot({ onBody: true }), aria: '胴体に貼る (縞・ぶち・柄)' },
+          ]),
+        );
+      }
+      const source = this.inked(slot) ? undefined : st.drawing.parts.find((p) => p.id !== slot.id && p.kind === slot.kind && this.inked(p));
+      if (source) rows.push(h('button', { class: 'opt', text: '⧉ もようの絵を写す', on: { click: () => this.copyFrom(source.id) } }));
+      rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '貼る大きさ', (v) => this.updateSlot({ scale: v })));
+      rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 左右反転', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
+      rows.push(h('button', { class: `opt${this.mountMode ? ' on' : ''}`, text: this.mountMode ? '📍 位置を決めています' : '📍 貼る位置', on: { click: () => this.toggleMountMode() } }));
+      if (this.mountMode && slot.mount) rows.push(h('button', { class: 'opt', text: '中心に戻す', on: { click: () => this.resetMount() } }));
+      const dupD = h('button', { class: 'opt', text: '⧉ 複製して足す', on: { click: () => this.duplicateCurrent() } });
+      if (!canAdd(st.drawing, slot.kind)) dupD.setAttribute('disabled', '');
+      rows.push(dupD);
+      rows.push(h('button', { class: 'opt opt-danger', text: '🗑 このパーツを消す', on: { click: () => this.removeCurrent() } }));
+      this.partBox.replaceChildren(...rows);
+      return;
+    }
     // 向き
     rows.push(
       seg([
@@ -784,7 +810,7 @@ export class EditorScreen implements Screen {
   /** つなぐ位置を決める時の土台になるパーツ (飾りは頭、頭が無ければ胴体。それ以外は胴体)。 */
   private mountParent(slot: PartSlot): PartSlot {
     const d = this.state.drawing;
-    if (slot.kind === 'ornament' && !slot.onBody) {
+    if ((slot.kind === 'ornament' || slot.kind === 'decal') && !slot.onBody) {
       const head = d.parts.find((p) => p.kind === 'head');
       if (head) return head;
     }
@@ -793,6 +819,19 @@ export class EditorScreen implements Screen {
 
   /** パーツのつなぐ位置 (土台の絵の上の座標 0..1)。位置を指定していなければ、自動配置の結果から求める。 */
   private mountPos(slot: PartSlot, twin: 0 | 1 = 0): Mount | null {
+    if (slot.kind === 'decal') {
+      // もよう: 貼る位置 (決めていなければ貼り先のシルエットの重心)。ペアの相手は、重心について左右対称 (3D と同じ決め方)
+      const L = this.layout();
+      const parent = this.mountParent(slot);
+      const m = L.metrics.get(parent.id);
+      if (!m) return null;
+      const cu = m.cx / L.res;
+      const cv = m.cy / L.res;
+      const u = slot.mount?.u ?? cu;
+      const v = slot.mount?.v ?? cv;
+      if (twin === 0) return { u, v };
+      return parent.view === 'side' ? { u, v } : { u: 2 * cu - u, v };
+    }
     // 手で決めた位置は、そのまま (反対側のペアは、配置の計算結果から求める = 3D と同じ位置)
     if (slot.mount && twin === 0) return slot.mount;
     const L = this.layout();
@@ -835,6 +874,31 @@ export class EditorScreen implements Screen {
       const m = this.mountPos(slot);
       if (!m) continue;
       const on = slot.id === cur.id;
+      if (slot.kind === 'decal' && on) {
+        // もよう: 貼る絵をそのままの大きさで重ねて見せる (貼り先の紙の幅 × 大きさ)
+        const dr = this.previewRaster(slot);
+        const side = (slot.scale ?? 1) * S;
+        const dc = document.createElement('canvas');
+        dc.width = dr.res;
+        dc.height = dr.res;
+        dc.getContext('2d')?.putImageData(new ImageData(dr.rgba, dr.res, dr.res), 0, 0);
+        const centres: { m: Mount; flip: boolean }[] = [{ m, flip: false }];
+        const m2d = slot.pair ? this.mountPos(slot, 1) : null;
+        if (m2d && Math.hypot(m2d.u - m.u, m2d.v - m.v) > 0.01) centres.push({ m: m2d, flip: true });
+        for (const c of centres) {
+          ctx.save();
+          ctx.translate(c.m.u * S, c.m.v * S);
+          if (c.flip) ctx.scale(-1, 1);
+          ctx.globalAlpha = 0.85;
+          ctx.drawImage(dc, -side / 2, -side / 2, side, side);
+          ctx.globalAlpha = 1;
+          ctx.setLineDash([S * 0.015, S * 0.015]);
+          ctx.strokeStyle = 'rgba(255,122,61,0.8)';
+          ctx.lineWidth = S * 0.004;
+          ctx.strokeRect(-side / 2, -side / 2, side, side);
+          ctx.restore();
+        }
+      }
       ctx.beginPath();
       ctx.arc(m.u * S, m.v * S, S * (on ? 0.032 : 0.018), 0, Math.PI * 2);
       ctx.fillStyle = on ? '#ff7a3d' : 'rgba(80,90,120,0.7)';
@@ -935,7 +999,7 @@ export class EditorScreen implements Screen {
       }
     } else {
       this.closePreview3d();
-      this.modalPreview.draw(this.previewRasters(), this.layout());
+      this.modalPreview.draw(this.previewRasters(), this.layout(), this.state.drawing);
     }
     const seg = (label: string, mode: '3d' | '2d'): HTMLElement => h('button', { class: `seg-btn${this.previewMode === mode ? ' on' : ''}`, text: label, on: { click: () => this.setPreviewMode(mode) } });
     this.modalTabs.replaceChildren(...(CharacterPreview3D.available() ? [seg('3D (ドラッグで回す)', '3d'), seg('2D (絵の面)', '2d')] : []));
@@ -947,8 +1011,13 @@ export class EditorScreen implements Screen {
   }
 
   private closePreview3d(): void {
-    this.preview3d?.dispose();
+    if (!this.preview3d) return;
+    this.preview3d.dispose();
     this.preview3d = null;
+    const fresh = h('canvas', { class: 'ed-modal-canvas ed-modal-3d' });
+    fresh.style.display = this.modal3dCanvas.style.display;
+    this.modal3dCanvas.replaceWith(fresh);
+    this.modal3dCanvas = fresh;
   }
 
   private closePreview(): void {
