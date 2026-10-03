@@ -6,8 +6,8 @@ import type { Template } from './templates';
 /** pick = スポイト (絵の上の色を拾う) */
 export type Tool = 'pen' | 'eraser' | 'fill' | 'pick';
 
-/** 描いているページ: main = 1 枚目の絵、alt = もう一つの向きの絵 */
-export type Page = 'main' | 'alt';
+/** 描いているページ: main = 1 枚目の絵、alt = もう一つの向きの絵、back = 反対側から見た絵 */
+export type Page = 'main' | 'alt' | 'back';
 
 export type CommitResult = 'ok' | 'rejected' | 'limit';
 
@@ -60,12 +60,12 @@ export class EditorState {
   }
 
   private opsOf(slot: PartSlot, page: Page): readonly DrawOp[] {
-    return page === 'alt' ? (slot.alt ?? []) : slot.ops;
+    return page === 'alt' ? (slot.alt ?? []) : page === 'back' ? (slot.back ?? []) : slot.ops;
   }
 
   /** 履歴のキー (ページごとに別の履歴) */
   private key(id: string, page: Page = this.page): string {
-    return page === 'alt' ? `${id}#alt` : id;
+    return page === 'main' ? id : `${id}#${page}`;
   }
 
   private undoOf(key: string): DrawOp[][] {
@@ -97,7 +97,7 @@ export class EditorState {
   private setOps(slot: PartSlot, ops: DrawOp[], page: Page = this.page): void {
     const i = this.drawing.parts.findIndex((p) => p.id === slot.id);
     if (i < 0) return;
-    this.drawing.parts[i] = page === 'alt' ? { ...slot, alt: ops } : { ...slot, ops };
+    this.drawing.parts[i] = page === 'alt' ? { ...slot, alt: ops } : page === 'back' ? { ...slot, back: ops } : { ...slot, ops };
   }
 
   private pushHistory(slot: PartSlot, page: Page = this.page): void {
@@ -108,22 +108,31 @@ export class EditorState {
     this.redoStacks.set(k, []);
   }
 
-  /** ページを切り替える。もう一つの向きの絵が無いパーツでは、空の絵を作って切り替える (胴体以外のパーツ・胴体とも可)。 */
+  /** ページを切り替える。その絵が無いパーツでは、空の絵を作って切り替える (胴体も可)。 */
   setPage(page: Page): void {
     if (page === 'alt' && !this.current.alt) this.setOps(this.current, [], 'alt');
+    if (page === 'back' && !this.current.back) this.setOps(this.current, [], 'back');
     this.page = page;
   }
 
-  /** もう一つの向きの絵を捨てる (1 枚目のページに戻る)。無ければ false。 */
+  /** もう一つの向きの絵・反対側の絵を捨てる (1 枚目のページに戻る)。無ければ false。 */
   removeAlt(id: string = this.currentId): boolean {
+    return this.removeExtra(id, 'alt');
+  }
+
+  removeBack(id: string = this.currentId): boolean {
+    return this.removeExtra(id, 'back');
+  }
+
+  private removeExtra(id: string, page: 'alt' | 'back'): boolean {
     const i = this.drawing.parts.findIndex((p) => p.id === id);
-    if (i < 0 || !this.drawing.parts[i].alt) return false;
-    const { alt: _alt, ...rest } = this.drawing.parts[i];
-    void _alt;
-    this.drawing.parts[i] = rest as PartSlot;
-    this.undoStacks.delete(this.key(id, 'alt'));
-    this.redoStacks.delete(this.key(id, 'alt'));
-    if (id === this.currentId) this.page = 'main';
+    if (i < 0 || !this.drawing.parts[i][page]) return false;
+    const next = { ...this.drawing.parts[i] };
+    delete next[page];
+    this.drawing.parts[i] = next;
+    this.undoStacks.delete(this.key(id, page));
+    this.redoStacks.delete(this.key(id, page));
+    if (id === this.currentId && this.page === page) this.page = 'main';
     return true;
   }
 
@@ -207,7 +216,7 @@ export class EditorState {
   duplicatePart(id: string): PartSlot | null {
     const src = slotOf(this.drawing, id);
     if (!src || src.kind === 'body' || !canAdd(this.drawing, src.kind)) return null;
-    const slot: PartSlot = { ...src, id: freshId(this.drawing), mount: null, ops: JSON.parse(JSON.stringify(src.ops)) as DrawOp[], ...(src.alt ? { alt: JSON.parse(JSON.stringify(src.alt)) as DrawOp[] } : {}) };
+    const slot: PartSlot = { ...src, id: freshId(this.drawing), mount: null, ops: JSON.parse(JSON.stringify(src.ops)) as DrawOp[], ...(src.alt ? { alt: JSON.parse(JSON.stringify(src.alt)) as DrawOp[] } : {}), ...(src.back ? { back: JSON.parse(JSON.stringify(src.back)) as DrawOp[] } : {}) };
     this.drawing.parts.push(slot);
     this.currentId = slot.id;
     return slot;
@@ -234,8 +243,10 @@ export class EditorState {
     this.drawing.parts.splice(i, 1);
     this.undoStacks.delete(id);
     this.redoStacks.delete(id);
-    this.undoStacks.delete(this.key(id, 'alt'));
-    this.redoStacks.delete(this.key(id, 'alt'));
+    for (const pg of ['alt', 'back'] as const) {
+      this.undoStacks.delete(this.key(id, pg));
+      this.redoStacks.delete(this.key(id, pg));
+    }
     if (this.currentId === id) {
       this.currentId = 'body';
       this.page = 'main';

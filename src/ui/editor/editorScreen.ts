@@ -1,7 +1,7 @@
 import './editor.css';
 import { EditorState, RECENT_COLORS } from '../../drawing/editorState';
 import type { Page, Tool } from '../../drawing/editorState';
-import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk } from '../../drawing/model';
+import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, KIND_ICON, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from '../../drawing/model';
 import { DrawingRaster } from '../../drawing/raster';
 import { resolveSlotOps } from '../../drawing/defaults';
@@ -15,7 +15,7 @@ import { toast } from '../toast';
 import { ColorPicker } from './colorPicker';
 import { CompositePreview, layoutFromRasters } from './composite';
 import { CharacterPreview3D } from './preview3d';
-import { altHint, altLabel, drawAltGuides, drawGuides, mainLabel, partHint } from './guides';
+import { altHint, altLabel, backHint, backLabel, drawAltGuides, drawBackGuides, drawGuides, mainLabel, partHint } from './guides';
 
 export interface EditorOptions {
   initial?: DrawingData;
@@ -25,6 +25,9 @@ export interface EditorOptions {
   /** 「生成する」: 描いた絵 (サニタイズ済み) を渡す */
   onDone(data: DrawingData): void;
 }
+
+/** 紙の拡大の上限 */
+const ZOOM_MAX = 4;
 
 /** 最近使った好きな色を覚えておく場所 */
 const RECENT_KEY = 'rakugaction.recentColors';
@@ -65,6 +68,19 @@ export class EditorScreen implements Screen {
   private readonly guideCanvas: HTMLCanvasElement;
   private readonly mountCanvas: HTMLCanvasElement;
   private readonly paper: HTMLElement;
+  /** 紙の中身 (下書き・絵・つなぐ位置): 拡大・移動はこの要素の CSS 変換で行う */
+  private readonly viewEl: HTMLElement;
+  private readonly zoomLabel: HTMLElement;
+  private zoom = 1;
+  private panX = 0;
+  private panY = 0;
+  /** 画面に触れている指 (2 本で拡大・移動) */
+  private readonly touches = new Map<number, { x: number; y: number }>();
+  private gesture: { d0: number; zoom0: number; mx0: number; my0: number; panX0: number; panY0: number } | null = null;
+  /** マウスの右 / 中ボタンのドラッグで紙を動かしている */
+  private panDrag: { id: number; x: number; y: number } | null = null;
+  /** 塗り・スポイトは、指を離した時に行う (拡大の 2 本指の 1 本目で、うっかり塗らないように) */
+  private tap: { id: number; x: number; y: number; cx: number; cy: number } | null = null;
   private readonly hintEl: HTMLElement;
   /** もう一つの向きの絵を持つパーツで、ページ (1 枚目 / もう一つの向き) を切り替える */
   private readonly pagesEl: HTMLElement;
@@ -121,7 +137,16 @@ export class EditorScreen implements Screen {
     this.guideCanvas = h('canvas', { class: 'ed-guides', attrs: { width: '512', height: '512' } });
     this.mountCanvas = h('canvas', { class: 'ed-mount', attrs: { width: '512', height: '512' } });
     this.noteEl = h('div', { class: 'ed-note', attrs: { 'aria-live': 'polite' } });
-    this.paper = h('div', { class: 'ed-paper' }, this.guideCanvas, this.canvas, this.mountCanvas, this.noteEl);
+    this.viewEl = h('div', { class: 'ed-view' }, this.guideCanvas, this.canvas, this.mountCanvas);
+    this.zoomLabel = h('button', { class: 'zoom-v', text: '1×', attrs: { 'aria-label': '拡大をもとに戻す' }, on: { click: () => this.resetZoom() } });
+    const zoomBox = h(
+      'div',
+      { class: 'ed-zoom' },
+      h('button', { class: 'zoom-b', text: '−', attrs: { 'aria-label': '縮小' }, on: { click: () => this.zoomBy(1 / 1.5) } }),
+      this.zoomLabel,
+      h('button', { class: 'zoom-b', text: '＋', attrs: { 'aria-label': '拡大' }, on: { click: () => this.zoomBy(1.5) } }),
+    );
+    this.paper = h('div', { class: 'ed-paper' }, this.viewEl, this.noteEl, zoomBox);
     this.hintEl = h('div', { class: 'ed-hint' });
     this.pagesEl = h('div', { class: 'seg ed-pages', attrs: { hidden: '' } });
     const stage = h('div', { class: 'ed-stage' }, this.paper);
@@ -231,7 +256,7 @@ export class EditorScreen implements Screen {
       e = { raster: new DrawingRaster(RASTER_RES), ops: null };
       this.rasters.set(key, e);
     }
-    const ops = page === 'alt' ? (slot.alt ?? []) : slot.ops;
+    const ops = this.opsOfPage(slot, page);
     if (e.ops !== ops) {
       e.raster.replay(ops);
       e.ops = ops;
@@ -240,7 +265,11 @@ export class EditorScreen implements Screen {
   }
 
   private rasterKey(id: string, page: Page): string {
-    return page === 'alt' ? `${id}#alt` : id;
+    return page === 'main' ? id : `${id}#${page}`;
+  }
+
+  private opsOfPage(slot: PartSlot, page: Page): DrawOp[] {
+    return page === 'alt' ? (slot.alt ?? []) : page === 'back' ? (slot.back ?? []) : slot.ops;
   }
 
   /** いま描いているページの描きかけのラスタを、保存されている絵と合わせ直させる (描き途中のインクを消す) */
@@ -356,6 +385,10 @@ export class EditorScreen implements Screen {
       hasAlt(slot) || slot.alt
         ? h('button', { class: 'opt opt-danger', text: `🗑 ${altLabel(slot)}を消す`, attrs: { 'aria-label': `${altLabel(slot)}を消す` }, on: { click: () => this.removeAlt() } })
         : h('button', { class: 'opt', text: `＋ ${altLabel(slot)}も描く`, attrs: { 'aria-label': `${altLabel(slot)}も描いて、厚みと姿勢の形にする` }, on: { click: () => this.addAlt() } });
+    const backRow = (): HTMLElement =>
+      hasBack(slot) || slot.back
+        ? h('button', { class: 'opt opt-danger', text: `🗑 ${backLabel(slot)}を消す`, attrs: { 'aria-label': `${backLabel(slot)}を消す` }, on: { click: () => this.removeBack() } })
+        : h('button', { class: 'opt', text: `＋ ${backLabel(slot)}も描く`, attrs: { 'aria-label': `${backLabel(slot)}も描いて、反対側の面の絵にする` }, on: { click: () => this.addBack() } });
     // 向き
     rows.push(
       seg([
@@ -394,6 +427,7 @@ export class EditorScreen implements Screen {
       rows.push(stepper('大きさ', slot.scale ?? 1, SCALE_STEPS, '大きさ', (v) => this.updateSlot({ scale: v })));
       rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
       rows.push(altRow());
+      rows.push(backRow());
       rows.push(h('button', { class: `opt${slot.flip ? ' on' : ''}`, text: '↔ 向きを逆に', on: { click: () => this.updateSlot({ flip: !slot.flip }) } }));
       rows.push(h('button', { class: `opt${this.mountMode ? ' on' : ''}`, text: this.mountMode ? '📍 位置を決めています' : '📍 つなぐ位置', on: { click: () => this.toggleMountMode() } }));
       if (this.mountMode && slot.mount) rows.push(h('button', { class: 'opt', text: '自動の位置に戻す', on: { click: () => this.resetMount() } }));
@@ -404,6 +438,7 @@ export class EditorScreen implements Screen {
     } else {
       rows.push(stepper('厚み', slot.depth ?? 1, DEPTH_STEPS, '厚み', (v) => this.updateSlot({ depth: v })));
       rows.push(altRow());
+      rows.push(backRow());
       if (st.drawing.parts.length === 1) rows.push(h('div', { class: 'ed-part-note', text: '＋で腕・脚・頭などを足せます' }));
     }
     this.partBox.replaceChildren(...rows);
@@ -412,8 +447,9 @@ export class EditorScreen implements Screen {
   private refreshPartUi(): void {
     const slot = this.state.current;
     if (this.state.page === 'alt') drawAltGuides(this.guideCanvas, slot, this.previewRaster(slot));
+    else if (this.state.page === 'back') drawBackGuides(this.guideCanvas, this.previewRaster(slot));
     else drawGuides(this.guideCanvas, slot);
-    this.hintEl.textContent = this.mountMode ? MOUNT_HINT : this.state.page === 'alt' ? altHint(slot) : partHint(slot);
+    this.hintEl.textContent = this.mountMode ? MOUNT_HINT : this.pageHint(slot);
     this.renderPages(slot);
     if (this.mountMode) this.showNote(MOUNT_HINT, true);
     else if (this.noteSticky) this.hideNote();
@@ -433,16 +469,23 @@ export class EditorScreen implements Screen {
     this.scheduleMini();
   }
 
-  /** ページ切り替え (1 枚目 / もう一つの向き)。もう一つの向きの絵を持つパーツだけに出す。 */
+  private pageHint(slot: PartSlot): string {
+    return this.state.page === 'alt' ? altHint(slot) : this.state.page === 'back' ? backHint(slot) : partHint(slot);
+  }
+
+  /** ページ切り替え (1 枚目 / もう一つの向き / 反対側)。2 枚目以降の絵を持つパーツだけに出す。 */
   private renderPages(slot: PartSlot): void {
-    if (!slot.alt) {
+    if (!slot.alt && !slot.back) {
       this.pagesEl.setAttribute('hidden', '');
       return;
     }
     this.pagesEl.removeAttribute('hidden');
     const btn = (page: Page, label: string): HTMLElement =>
       h('button', { class: `seg-btn${this.state.page === page ? ' on' : ''}`, text: label, on: { click: () => this.setPage(page) } });
-    this.pagesEl.replaceChildren(btn('main', mainLabel(slot)), btn('alt', altLabel(slot)));
+    const list = [btn('main', mainLabel(slot))];
+    if (slot.alt) list.push(btn('alt', altLabel(slot)));
+    if (slot.back) list.push(btn('back', backLabel(slot)));
+    this.pagesEl.replaceChildren(...list);
   }
 
   private setPage(page: Page): void {
@@ -450,7 +493,7 @@ export class EditorScreen implements Screen {
     this.mountMode = false;
     this.state.setPage(page);
     this.refreshAll();
-    this.showNote(page === 'alt' ? altHint(this.state.current) : partHint(this.state.current));
+    this.showNote(this.pageHint(this.state.current));
   }
 
   private addAlt(): void {
@@ -458,13 +501,28 @@ export class EditorScreen implements Screen {
     this.state.setPage('alt');
     this.refreshAll();
     this.showNote(altHint(this.state.current), false);
-    toast(this.opts.host, `${altLabel(this.state.current)}のページです。うすく映っている 1 枚目の絵に高さをそろえて描きます`);
+  }
+
+  private addBack(): void {
+    this.mountMode = false;
+    this.state.setPage('back');
+    this.refreshAll();
+    this.showNote(backHint(this.state.current), false);
   }
 
   private removeAlt(): void {
     const slot = this.state.current;
     if (hasAlt(slot) && !window.confirm(`${altLabel(slot)}を消します。よろしいですか？`)) return;
     if (this.state.removeAlt()) {
+      this.layoutCache = null;
+      this.refreshAll();
+    }
+  }
+
+  private removeBack(): void {
+    const slot = this.state.current;
+    if (hasBack(slot) && !window.confirm(`${backLabel(slot)}を消します。よろしいですか？`)) return;
+    if (this.state.removeBack()) {
       this.layoutCache = null;
       this.refreshAll();
     }
@@ -542,6 +600,7 @@ export class EditorScreen implements Screen {
 
   private selectPart(id: string): void {
     this.state.setPart(id);
+    this.resetZoom();
     this.layoutCache = null;
     this.refreshAll();
     this.showNote(partHint(this.state.current));
@@ -916,6 +975,13 @@ export class EditorScreen implements Screen {
     c.addEventListener('pointercancel', this.onUp);
     c.addEventListener('lostpointercapture', this.onUp);
     c.addEventListener('contextmenu', (e) => e.preventDefault());
+    const pp = this.paper;
+    pp.addEventListener('pointerdown', this.onPaperDown);
+    pp.addEventListener('pointermove', this.onPaperMove);
+    pp.addEventListener('pointerup', this.onPaperUp);
+    pp.addEventListener('pointercancel', this.onPaperUp);
+    pp.addEventListener('wheel', this.onWheel, { passive: false });
+    pp.addEventListener('contextmenu', (e) => e.preventDefault());
     const m = this.mountCanvas;
     m.addEventListener('pointerdown', this.onMountDown);
     m.addEventListener('pointermove', this.onMountMove);
@@ -936,26 +1002,11 @@ export class EditorScreen implements Screen {
     this.rect = this.canvas.getBoundingClientRect();
     const [x, y] = this.norm(e);
     const st = this.state;
-    if (st.tool === 'pick') {
-      this.pickColorAt(x, y);
-      return;
-    }
-    if (st.tool === 'fill') {
-      const r = this.editRaster(st.current);
-      const dirty = r.applyOp({ kind: 'fill', color: st.color, x, y });
-      if (!dirty) {
-        toast(this.opts.host, '閉じた線の内側をタッチしてください');
-        return;
-      }
-      const res = st.commitOp({ kind: 'fill', color: st.color, x, y });
-      if (res !== 'ok') {
-        this.invalidateRaster();
-        this.blit();
-        toast(this.opts.host, 'これ以上は描けません');
-        return;
-      }
-      this.blit(dirty);
-      this.afterCommit();
+    if (st.tool === 'pick' || st.tool === 'fill') {
+      // 指を離した時に行う (動いたら、紙を動かす操作なので何もしない)
+      this.tap = { id: e.pointerId, x, y, cx: e.clientX, cy: e.clientY };
+      this.activePointer = e.pointerId;
+      capturePointer(this.canvas, e.pointerId);
       return;
     }
     this.activePointer = e.pointerId;
@@ -994,7 +1045,157 @@ export class EditorScreen implements Screen {
 
   private readonly onUp = (e: PointerEvent): void => {
     if (e.pointerId !== this.activePointer) return;
+    if (this.tap) {
+      const t = this.tap;
+      this.tap = null;
+      this.activePointer = -1;
+      if (e.type === 'pointerup' && Math.hypot(e.clientX - t.cx, e.clientY - t.cy) < 12) this.applyTap(t.x, t.y);
+      return;
+    }
     this.finishStroke();
+  };
+
+  /** 塗り・スポイトの 1 回のタッチ */
+  private applyTap(x: number, y: number): void {
+    const st = this.state;
+    if (st.tool === 'pick') {
+      this.pickColorAt(x, y);
+      return;
+    }
+    const r = this.editRaster(st.current);
+    const dirty = r.applyOp({ kind: 'fill', color: st.color, x, y });
+    if (!dirty) {
+      toast(this.opts.host, '閉じた線の内側をタッチしてください');
+      return;
+    }
+    const res = st.commitOp({ kind: 'fill', color: st.color, x, y });
+    if (res !== 'ok') {
+      this.invalidateRaster();
+      this.blit();
+      toast(this.opts.host, 'これ以上は描けません');
+      return;
+    }
+    this.blit(dirty);
+    this.afterCommit();
+  }
+
+  /** 描きかけの線 (確定前) を取り消す。2 本目の指が触れて、拡大・移動の操作になった時。 */
+  private cancelStroke(): void {
+    this.tap = null;
+    if (this.strokeKind) {
+      this.editRaster(this.state.current).endStroke();
+      this.strokeKind = null;
+      this.strokePts = [];
+      this.invalidateRaster();
+      this.blit();
+    }
+    this.activePointer = -1;
+  }
+
+  // ===== 拡大・移動 =====
+
+  private applyView(): void {
+    const w = this.paper.clientWidth || 1;
+    const hgt = this.paper.clientHeight || 1;
+    this.zoom = Math.min(ZOOM_MAX, Math.max(1, this.zoom));
+    this.panX = Math.min(0, Math.max(w * (1 - this.zoom), this.panX));
+    this.panY = Math.min(0, Math.max(hgt * (1 - this.zoom), this.panY));
+    if (this.zoom === 1) {
+      this.panX = 0;
+      this.panY = 0;
+    }
+    this.viewEl.style.transform = this.zoom === 1 ? '' : `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+    this.zoomLabel.textContent = `${Math.round(this.zoom * 10) / 10}×`;
+    this.paper.classList.toggle('zoomed', this.zoom > 1);
+  }
+
+  /** 紙の上の点 (cx, cy: 紙の左上からの px) を動かさずに、拡大率を変える */
+  private zoomAt(next: number, cx: number, cy: number): void {
+    const z = Math.min(ZOOM_MAX, Math.max(1, next));
+    this.panX = cx - ((cx - this.panX) * z) / this.zoom;
+    this.panY = cy - ((cy - this.panY) * z) / this.zoom;
+    this.zoom = z;
+    this.applyView();
+  }
+
+  private zoomBy(f: number): void {
+    this.zoomAt(this.zoom * f, this.paper.clientWidth / 2, this.paper.clientHeight / 2);
+  }
+
+  private resetZoom(): void {
+    this.zoom = 1;
+    this.applyView();
+  }
+
+  private readonly onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    const r = this.paper.getBoundingClientRect();
+    this.zoomAt(this.zoom * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top);
+  };
+
+  private readonly onPaperDown = (e: PointerEvent): void => {
+    if (e.pointerType === 'mouse') {
+      // 右・中ボタンのドラッグで紙を動かす (左ボタンは描く)
+      if (e.button === 1 || e.button === 2) {
+        e.preventDefault();
+        this.panDrag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+        capturePointer(this.paper, e.pointerId);
+      }
+      return;
+    }
+    if (e.pointerType !== 'touch') return;
+    this.touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this.touches.size === 2) {
+      this.cancelStroke();
+      this.startGesture();
+    }
+  };
+
+  private startGesture(): void {
+    const [a, b] = [...this.touches.values()];
+    const r = this.paper.getBoundingClientRect();
+    this.gesture = {
+      d0: Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)),
+      zoom0: this.zoom,
+      mx0: (a.x + b.x) / 2 - r.left,
+      my0: (a.y + b.y) / 2 - r.top,
+      panX0: this.panX,
+      panY0: this.panY,
+    };
+  }
+
+  private readonly onPaperMove = (e: PointerEvent): void => {
+    if (this.panDrag && e.pointerId === this.panDrag.id) {
+      this.panX += e.clientX - this.panDrag.x;
+      this.panY += e.clientY - this.panDrag.y;
+      this.panDrag.x = e.clientX;
+      this.panDrag.y = e.clientY;
+      this.applyView();
+      return;
+    }
+    const t = this.touches.get(e.pointerId);
+    if (!t) return;
+    t.x = e.clientX;
+    t.y = e.clientY;
+    const g = this.gesture;
+    if (!g || this.touches.size < 2) return;
+    e.preventDefault();
+    const [a, b] = [...this.touches.values()];
+    const r = this.paper.getBoundingClientRect();
+    const mx = (a.x + b.x) / 2 - r.left;
+    const my = (a.y + b.y) / 2 - r.top;
+    const z = Math.min(ZOOM_MAX, Math.max(1, (g.zoom0 * Math.hypot(a.x - b.x, a.y - b.y)) / g.d0));
+    // 指を動かし始めた時に、中点の下にあった紙の点が、今の中点の下に来るように
+    this.panX = mx - ((g.mx0 - g.panX0) * z) / g.zoom0;
+    this.panY = my - ((g.my0 - g.panY0) * z) / g.zoom0;
+    this.zoom = z;
+    this.applyView();
+  };
+
+  private readonly onPaperUp = (e: PointerEvent): void => {
+    if (this.panDrag && e.pointerId === this.panDrag.id) this.panDrag = null;
+    this.touches.delete(e.pointerId);
+    if (this.touches.size < 2) this.gesture = null;
   };
 
   private finishStroke(): void {
@@ -1037,7 +1238,7 @@ export class EditorScreen implements Screen {
     // 表示中のキャンバスは既に最新なので、同期済みとして扱う (ops の参照を更新後のものに合わせる)
     const slot = this.state.current;
     const e = this.rasters.get(this.rasterKey(slot.id, this.state.page));
-    if (e) e.ops = this.state.page === 'alt' ? (slot.alt ?? []) : slot.ops;
+    if (e) e.ops = this.opsOfPage(slot, this.state.page);
     this.layoutCache = null;
     this.undoBtn.disabled = !this.state.canUndo;
     this.redoBtn.disabled = !this.state.canRedo;

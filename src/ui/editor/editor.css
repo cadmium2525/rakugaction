@@ -125,6 +125,12 @@
     0 0 0 3px #e6d8bb,
     0 6px 16px rgba(80, 60, 20, 0.18);
   overflow: hidden;
+}
+/* 紙の中身。拡大・移動はこの要素の変換で行う (方眼もいっしょに動く) */
+.ed-view {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
   background-image: linear-gradient(#f4eddc 1px, transparent 1px), linear-gradient(90deg, #f4eddc 1px, transparent 1px);
   background-size: 12.5% 12.5%;
 }
@@ -205,13 +211,15 @@
 .ed-palette {
   flex: none;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* 欄の幅に収まる列数 (1 つ 25px 以上)。固定の列数だと、狭い欄 (横持ちの小さな画面) からはみ出して、隣の欄に重なる */
+  grid-template-columns: repeat(auto-fill, minmax(25px, 1fr));
   gap: 4px;
 }
 .swatch {
   position: relative;
   aspect-ratio: 1;
-  min-height: 26px;
+  min-width: 0;
+  min-height: 0;
   border-radius: 50%;
   border: 3px solid #fff;
   box-shadow: 0 0 0 2px #d9ccb0;
@@ -245,7 +253,7 @@
 .swatch-pick.on {
   background: #fff1e6;
 }
-.swatch-recent:empty {
+.swatch-recent:disabled {
   visibility: hidden;
 }
 .ed-sizes {
@@ -381,9 +389,6 @@
   .ed-side {
     width: 138px;
     gap: 5px;
-  }
-  .swatch {
-    min-height: 24px;
   }
   .size-btn {
     height: 30px;
@@ -840,4 +845,42 @@
 .ed-pages .seg-btn {
   height: 26px;
   font-size: 11px;
+}
+
+/* 紙の拡大・縮小 */
+.ed-zoom {
+  position: absolute;
+  z-index: 3;
+  right: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 2px solid #e6d8bb;
+}
+.zoom-b,
+.zoom-v {
+  height: 26px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-weight: 900;
+  color: var(--ink);
+  padding: 0;
+}
+.zoom-b {
+  width: 26px;
+  font-size: 16px;
+}
+.zoom-v {
+  min-width: 34px;
+  font-size: 11px;
+  color: #7a4a1c;
+}
+.ed-paper.zoomed .zoom-v {
+  background: #fff1e6;
 }

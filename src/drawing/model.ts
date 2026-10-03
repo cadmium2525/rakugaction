@@ -110,6 +110,12 @@ export interface PartSlot {
    * 空の配列は「まだ描いていない」で、3D には使わない。
    */
   alt?: DrawOp[];
+  /**
+   * 反対側から見た絵 (省略 = 無し)。正面の絵のパーツなら後ろから見た絵、横向きの絵のパーツなら反対側 (左向き) から見た絵。
+   * 1 枚目と同じ大きさ・同じ位置で、「その向きから見たまま」描く (1 枚目を左右反転した形になる)。無ければ、1 枚目の絵の細かい
+   * 描き込み (顔など) を消したものを使う (正面の絵のパーツ) か、1 枚目と同じ絵を使う (横向きの絵のパーツ)。
+   */
+  back?: DrawOp[];
   ops: DrawOp[];
 }
 
@@ -123,6 +129,11 @@ export function altModeOf(kind: PartKind, view: PartView): AltMode {
   if (kind === 'wing') return 'col';
   if (kind === 'tail' && view === 'side') return 'col';
   return 'row';
+}
+
+/** 反対側から見た絵を持っていて、何か描かれているか */
+export function hasBack(slot: PartSlot): boolean {
+  return !!slot.back && slot.back.length > 0;
 }
 
 /** もう一つの向きの絵を持っていて、何か描かれているか */
@@ -194,6 +205,7 @@ export function newSlot(id: string, kind: PartKind, o: Partial<Omit<PartSlot, 'i
     ...(o.scale !== undefined && o.scale !== 1 && kind !== 'body' ? { scale: o.scale } : {}),
     ...(o.depth !== undefined && o.depth !== 1 ? { depth: o.depth } : {}),
     ...(o.alt ? { alt: o.alt } : {}),
+    ...(o.back ? { back: o.back } : {}),
     ops: o.ops ?? [],
   };
 }

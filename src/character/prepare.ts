@@ -1,9 +1,9 @@
 import { resolveSlotOps, defaultOps } from '../drawing/defaults';
 import { downsampleMask } from '../drawing/downsample';
 import { rasterize } from '../drawing/raster';
-import { altModeOf, hasAlt, mirrorOps } from '../drawing/model';
+import { altModeOf, hasAlt, hasBack, mirrorOps } from '../drawing/model';
 import type { DrawOp, DrawingData, PartSlot } from '../drawing/model';
-import { cleanPart } from './cleanPart';
+import { TEX_RES, cleanPart } from './cleanPart';
 import type { CleanedPart } from './cleanPart';
 import { buildDepthProfile } from './profile';
 import type { DepthProfile } from './profile';
@@ -52,6 +52,15 @@ export function prepareSlots(drawing: DrawingData, opts: { rasterRes?: number; t
         profile = buildDepthProfile(alt.mask, alt.res, slot.kind, slot.view, slot.pair && slot.view === 'side');
       }
     }
+    // 反対側から見た絵: 後ろから見たまま描いた絵なので、1 枚目の座標 (UV) に合わせるには左右反転する。
+    // 絵のある所はこの絵の色、絵の無い所 (1 枚目にだけある部分) は、これまでの背中側 (顔などを消した絵 / 1 枚目と同じ) で埋める
+    if (opts.texture !== false && hasBack(slot)) {
+      const backRaster = rasterize(mirrorOps(slot.back as DrawOp[]), opts.rasterRes);
+      if (backRaster.hasInk()) {
+        const bc = cleanPart(backRaster, { texture: true, back: false, kind: slot.kind });
+        cleaned.backTexture = mergeBack(bc, cleaned.backTexture ?? cleaned.texture);
+      }
+    }
     return { slot, cleaned, usedDefault, alt, profile };
   });
 }
@@ -63,4 +72,31 @@ export function layoutOfPrepared(prepared: readonly PreparedSlot[]): CharacterLa
     return { slot: p.slot, mask: d.mask, res: d.res };
   });
   return computeLayout(inputs);
+}
+
+/** 反対側の絵のテクスチャ (bc) を、絵のある所だけ使い、無い所は fallback (これまでの背中側) で埋める。 */
+function mergeBack(bc: CleanedPart, fallback: Uint8ClampedArray): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(fallback);
+  const f = Math.max(1, Math.round(bc.res / TEX_RES));
+  for (let ty = 0; ty < TEX_RES; ty++) {
+    for (let tx = 0; tx < TEX_RES; tx++) {
+      let covered = false;
+      for (let dy = 0; dy < f && !covered; dy++) {
+        const row = (ty * f + dy) * bc.res + tx * f;
+        for (let dx = 0; dx < f; dx++) {
+          if (bc.mask[row + dx]) {
+            covered = true;
+            break;
+          }
+        }
+      }
+      if (!covered) continue;
+      const i = (ty * TEX_RES + tx) * 4;
+      out[i] = bc.texture[i];
+      out[i + 1] = bc.texture[i + 1];
+      out[i + 2] = bc.texture[i + 2];
+      out[i + 3] = 255;
+    }
+  }
+  return out;
 }

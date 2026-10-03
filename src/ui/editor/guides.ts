@@ -250,15 +250,59 @@ export function drawAltGuides(canvas: HTMLCanvasElement, slot: PartSlot, primary
   ctx.restore();
 }
 
-/** もう一つの向きの絵のページの説明 */
+/** もう一つの向きの絵のページの説明 (短く: 低い画面では紙の上に出す) */
 export function altHint(slot: PartSlot): string {
   const mode = altModeOf(slot.kind, slot.view);
   if (mode === 'col') {
     return slot.kind === 'wing'
-      ? '翼を上から見た形を描きます (上が前)。うすく映っている 1 枚目の絵と、横の位置をそろえます。後ろへそった翼は、後ろ (下) へ曲げて描きます'
-      : 'しっぽを上から見た形を描きます (右が前)。うすく映っている 1 枚目の絵と、横の位置をそろえます';
+      ? '翼を上から見た形 (上が前)。うすく映る 1 枚目と、横の位置をそろえます。後ろへそる翼は、下へ曲げて描きます'
+      : 'しっぽを上から見た形 (右が前)。うすく映る 1 枚目と、横の位置をそろえます';
   }
   return slot.view === 'front'
-    ? '横から見た形を、右向きで描きます。うすく映っている 1 枚目の絵と高さをそろえます。前かがみ・そった背中・出っぱったおなかは、ここで形にします'
-    : '正面から見た形を描きます。うすく映っている 1 枚目の絵と高さをそろえます。胸の幅・たてがみの広がりなどは、ここで形にします';
+    ? '横から見た形を右向きで。うすく映る 1 枚目と高さをそろえます。前かがみ・おなかの出っぱりはここで形にします'
+    : '正面から見た形を。うすく映る 1 枚目と高さをそろえます。胸の幅・たてがみの広がりはここで形にします';
+}
+
+/** 反対側から見た絵の名前 */
+export function backLabel(slot: PartSlot): string {
+  return slot.view === 'front' ? '後ろから見た絵' : '反対側から見た絵';
+}
+
+/**
+ * 反対側から見た絵のページの下書き: 1 枚目の絵を、左右反転してうすく映す (後ろから見ると左右が逆になる)。
+ * 同じ大きさ・同じ場所に、後ろから見たまま描く。
+ */
+export function drawBackGuides(canvas: HTMLCanvasElement, primary: DrawingRaster | null): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const S = canvas.width;
+  ctx.clearRect(0, 0, S, S);
+  if (primary) {
+    const tmp = document.createElement('canvas');
+    tmp.width = primary.res;
+    tmp.height = primary.res;
+    tmp.getContext('2d')?.putImageData(new ImageData(primary.rgba, primary.res, primary.res), 0, 0);
+    ctx.save();
+    ctx.translate(S, 0);
+    ctx.scale(-1, 1);
+    ctx.globalAlpha = 0.22;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(tmp, 0, 0, S, S);
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.lineWidth = Math.max(2, S * 0.006);
+  ctx.strokeStyle = 'rgba(120, 100, 70, 0.4)';
+  ctx.setLineDash([S * 0.02, S * 0.02]);
+  ctx.beginPath();
+  ctx.moveTo(S * 0.5, S * 0.04);
+  ctx.lineTo(S * 0.5, S * 0.96);
+  ctx.stroke();
+  ctx.restore();
+}
+
+export function backHint(slot: PartSlot): string {
+  return slot.view === 'front'
+    ? '後ろから見たまま、同じ大きさ・場所に描きます (1 枚目を左右反転してうすく映しています)。描かない所は、1 枚目の細かい描き込みを消した絵になります'
+    : '反対側 (左向き) から見たまま、同じ大きさ・場所に描きます。描かない所は、1 枚目と同じ絵になります';
 }
