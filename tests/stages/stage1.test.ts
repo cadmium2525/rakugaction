@@ -65,10 +65,43 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     }
   });
 
+  it('敵のいる 3 か所の星 (風車の丘・花畑・広場) は、その場所の敵を全員倒すまで現れない。ほかの 5 個は最初から取れる', () => {
+    const gated = stage.pickups!.filter((p) => p.appearAfter);
+    expect(gated.map((p) => p.label).sort()).toEqual(['チェイサーの広場', 'ピョンタの花畑', '風車の丘'].sort());
+    const guards = (label: string): string[] => [...(gated.find((p) => p.label === label)?.appearAfter ?? [])];
+    expect(guards('風車の丘').length).toBe(2);
+    expect(guards('ピョンタの花畑').length).toBe(3);
+    expect(guards('チェイサーの広場').length).toBe(3);
+    // 守る敵は、同じ敵が 2 つの星を守らない・踏みつけで倒せる種類 (blob / hopper / chaser)
+    const all = gated.flatMap((p) => [...p.appearAfter!]);
+    expect(new Set(all).size).toBe(all.length);
+    for (const id of all) expect(['blob', 'hopper', 'chaser']).toContain(stage.enemies!.find((e) => e.id === id)!.kind);
+    // 星の id は、敵や飾りを足しても番号がずれない名前 (保存した星ごとのスプリットが、別の星と結びつかない)
+    expect(stage.pickups!.map((p) => p.id).sort()).toEqual(['star-cliff', 'star-hub', 'star-islands', 'star-meadow', 'star-plaza', 'star-pond', 'star-ruins', 'star-spikes']);
+    // 必要数 5 のうち、戦わなくても (跳ぶ・登る) 取れる星は 5 個ちょうど: ただし 2 個は木箱を壊せる/高く跳べるビルドだけ
+    expect(stage.pickups!.length - gated.length).toBe(5);
+  });
+
+  it('封印された星は、駆け抜けても取れない: 敵と戦わずに星の真上を通る本道 (受動プレイ) では、ゴールが開かずクリアできない', async () => {
+    const R = await rapier();
+    const b = getBuild('STANDARD');
+    const sim = new GameSim(R, stage, statsToParams(b.stats, b.traits));
+    const passive = new Bot(sim, stage.routes!.main, { fight: false });
+    const input = emptyInput();
+    // 星の真上を通る (花畑・風車の丘・広場) 受動プレイで、敵を追いかけなければ 1 つも取れない
+    for (let i = 0; i < 60 * 40 && !sim.goalReached; i++) {
+      passive.next(input);
+      sim.step(input);
+    }
+    for (const id of ['star-meadow', 'star-hub', 'star-plaza']) expect(sim.collected.has(id), `${id} を、敵を倒さずに取れてしまった`).toBe(false);
+    expect(sim.goalReached).toBe(false);
+    sim.dispose();
+  }, 120_000);
+
   it('敵が 4 種類配置され、看板で案内している。情報量 (小道具) が十分ある', () => {
     const kinds = new Set(stage.enemies!.map((e) => e.kind));
     expect([...kinds].sort()).toEqual(['blob', 'chaser', 'hopper', 'spiky']);
-    expect(stage.enemies!.length).toBeGreaterThanOrEqual(12);
+    expect(stage.enemies!.length).toBe(16); // 星を守る 8 体 (丘 2・花畑 3・広場 3) を含む
     // 地形に沿う敵がほとんど (崖の丘の塔の上の 2 体だけは、ブロックの高さを直接指定している)
     expect(stage.enemies!.filter((e) => !e.onTerrain).length).toBe(2);
     expect(stage.signs!.length).toBeGreaterThanOrEqual(8);
@@ -112,11 +145,11 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     expect(Math.max(...ts) / Math.min(...ts)).toBeLessThan(2);
   }, 120_000);
 
-  it('受動プレイ (敵と戦わず、ルートをたどるだけ) でも、全ビルド + もろいビルド (HP2) が本道を死亡 1 回以内でクリアできる', async () => {
+  it('もろいビルド (HP2) も、戦う設定の本道を死亡 1 回以内でクリアできる (敵を倒して星を出す場面が、理不尽に厳しくない)', async () => {
     for (const id of [...ALL_BUILDS, FRAGILE_BUILD] as const) {
-      const r = await runStage(stage, id, 'main', { maxTime: 240, maxDeaths: 4, fight: false });
+      const r = await runStage(stage, id, 'main', { maxTime: 240, maxDeaths: 4 });
       expect(r.cleared, fmt(r)).toBe(true);
-      expect(r.deaths, `敵に何もしないと詰むほど厳しい: ${fmt(r)}`).toBeLessThanOrEqual(1);
+      expect(r.deaths, `敵と戦う場面で詰むほど厳しい: ${fmt(r)}`).toBeLessThanOrEqual(1);
       expect(r.falls, `敵に弾かれて落ちている: ${fmt(r)}`).toBe(0);
       expect(r.hits, fmt(r)).toBeLessThanOrEqual(8);
     }

@@ -127,6 +127,8 @@ export class GameSim {
   invuln = 0;
   /** 取ったアイテムの id。やられて復活しても戻らない */
   readonly collected = new Set<string>();
+  /** 出現条件のある星 (PickupDef.appearAfter) のうち、もう現れた物。一度現れたら、やられて敵が復活しても消えない */
+  readonly revealed = new Set<string>();
 
   private readonly events: SimEvent[] = [];
   private readonly moverByCollider = new Map<number, MoverRuntime>();
@@ -538,6 +540,7 @@ export class GameSim {
   private defeatEnemy(e: EnemyRuntime, how: 'stomp' | 'dash'): void {
     e.defeated = true;
     this.events.push({ type: 'enemy', id: e.def.id, how });
+    this.checkReveals();
   }
 
   /** 倒した敵の数 (やられて復活すると 0 に戻る) */
@@ -603,6 +606,34 @@ export class GameSim {
     return this.collected.size >= this.pickupsRequired;
   }
 
+  /** その星は今、取れるか (出現条件が無い / もう現れた)。 */
+  isPickupAvailable(id: string): boolean {
+    const k = this.stage.pickups?.find((x) => x.id === id);
+    return !!k && (!k.appearAfter || this.revealed.has(id));
+  }
+
+  /** 出現条件のある星が現れるまでに、あと何体倒す必要があるか (現れた/条件が無い星は 0)。 */
+  pickupLockedRemaining(id: string): number {
+    const k = this.stage.pickups?.find((x) => x.id === id);
+    if (!k || !k.appearAfter || this.revealed.has(id)) return 0;
+    let n = 0;
+    for (const eid of k.appearAfter) {
+      const e = this.enemies.find((x) => x.def.id === eid);
+      if (e && !e.defeated) n++;
+    }
+    return n;
+  }
+
+  /** 敵を倒した直後に呼ぶ: 条件の敵が全員倒れた星を、現れた状態にする (pickupAppear)。 */
+  private checkReveals(): void {
+    for (const k of this.stage.pickups ?? []) {
+      if (!k.appearAfter || this.revealed.has(k.id)) continue;
+      if (this.pickupLockedRemaining(k.id) > 0) continue;
+      this.revealed.add(k.id);
+      this.events.push({ type: 'pickupAppear', id: k.id });
+    }
+  }
+
   private checkPickups(): void {
     const pickups = this.stage.pickups;
     if (!pickups || pickups.length === 0) return;
@@ -611,6 +642,7 @@ export class GameSim {
     const hh = p.params.height / 2;
     for (const k of pickups) {
       if (this.collected.has(k.id)) continue;
+      if (k.appearAfter && !this.revealed.has(k.id)) continue; // まだ現れていない (封印された星)
       const dx = p.pos.x - k.pos[0];
       const dz = p.pos.z - k.pos[2];
       if (dx * dx + dz * dz > r * r || Math.abs(p.pos.y - k.pos[1]) > hh + PICKUP_DY) continue;

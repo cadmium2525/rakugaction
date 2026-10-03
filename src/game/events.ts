@@ -17,6 +17,8 @@ export type SimEvent =
   | { type: 'checkpoint'; id: string }
   /** アイテムを取った。count = 取った数 (この 1 個を含む) */
   | { type: 'pickup'; id: string; count: number; required: number; total: number }
+  /** 出現条件のある星が現れた (その範囲の敵を全員倒した) */
+  | { type: 'pickupAppear'; id: string }
   /** アイテムが足りないのでゴールが開かない (ゴールに触れた時。一定間隔で出る) */
   | { type: 'goalLocked'; need: number }
   | { type: 'goal' };

@@ -230,6 +230,11 @@ export class StageView {
     this.pickupView?.onPickup(id);
   }
 
+  /** 出現条件のある星が現れた: 星がぽんと現れる。 */
+  onPickupAppear(id: string): void {
+    this.pickupView?.onAppear(id);
+  }
+
   /** ゴールの見た目: 条件を満たすまでは灰色で細い光 / 開いたら金色に脈打つ。 */
   private updateGoal(sim: GameSim, dt: number): void {
     if (!this.goal || !this.goalRingMat || !this.goalBeamMat || !this.goalRing) return;

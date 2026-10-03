@@ -123,6 +123,12 @@ export interface PickupDef {
   kind?: 'star';
   /** 名前 (地図・演出用。例: '丘の上') */
   label?: string;
+  /**
+   * 出現条件: ここに挙げた敵 (EnemyDef.id) を全員倒すと、星が現れる (それまでは取れず、封印された星として薄く見える)。
+   * 敵のいる場所の星を、駆け抜けて取ることはできなくする。一度現れたら、やられて敵が復活しても消えない。
+   * 省略 = 最初から取れる。トゲマルのように踏めない敵 (攻撃力が足りないと倒せない) は、条件に入れない。
+   */
+  appearAfter?: readonly string[];
 }
 
 /**
@@ -271,6 +277,11 @@ export interface WaypointDef {
   waitWater?: { id: string; level: number };
   /** 到着判定の水平半径 (m) */
   radius?: number;
+  /**
+   * 指定した敵 (EnemyDef.id) を全員倒すまで、敵を追いかけて倒す (ACTION / 踏みつけ)。倒し終えたら次のウェイポイントへ。
+   * 出現条件のある星 (PickupDef.appearAfter) の手前に置く。
+   */
+  clear?: readonly string[];
 }
 
 export interface StageTheme {

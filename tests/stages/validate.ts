@@ -79,6 +79,18 @@ export async function validateStage(stage: StageDef): Promise<void> {
     expect(finite(k.pos), `pickup ${k.id} の座標`).toBe(true);
     expect(rayDown(k.pos[0], k.pos[1], k.pos[2], 3.5), `pickup ${k.id} [${k.pos.map((v) => v.toFixed(1)).join(', ')}] の下に床がない`).not.toBeNull();
   }
+  // 出現条件 (appearAfter): 条件の敵は実在し、踏みつけで倒せる種類 (トゲマルのように攻撃力が足りないと倒せない敵は、星を永久に封印してしまう)
+  // で、星の近く (30m 以内) にいる = その場所を守る敵。自分自身の星を出現条件にしない
+  for (const k of stage.pickups ?? []) {
+    for (const id of k.appearAfter ?? []) {
+      const e = (stage.enemies ?? []).find((x) => x.id === id);
+      expect(e, `pickup ${k.id} の出現条件の敵 ${id} が存在しない`).toBeDefined();
+      if (!e) continue;
+      expect(['blob', 'hopper', 'chaser'], `pickup ${k.id} の出現条件の敵 ${id} (${e.kind}) は踏みつけで倒せない種類`).toContain(e.kind);
+      const d = Math.min(...e.points.map((p) => Math.hypot(p[0] - k.pos[0], p[2] - k.pos[2])));
+      expect(d, `pickup ${k.id} の出現条件の敵 ${id} が星から遠すぎる (${d.toFixed(0)}m)`).toBeLessThanOrEqual(30);
+    }
+  }
   if (stage.objective) expect(stage.objective.required, '必要な数が総数より多い').toBeLessThanOrEqual(stage.pickups?.length ?? 0);
   // 危険物 (トゲ等) と動く危険物の経路: 底面の 0.4m 下〜 0.3m 上に床がある (坂の上で宙に浮かない)
   for (const hz of stage.hazards ?? []) {

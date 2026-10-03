@@ -85,8 +85,10 @@ export class FieldKit {
   }
 
   /** 集めるアイテム (ラクガキ星)。 */
-  star(label: string, x: number, z: number, dy = 1.35, y?: number): PickupDef {
-    const p: PickupDef = { id: this.id('star'), pos: y !== undefined ? [x, y, z] : this.at(x, z, dy), kind: 'star', label };
+  star(label: string, x: number, z: number, dy = 1.35, y?: number, o: { id?: string; appearAfter?: readonly string[] } = {}): PickupDef {
+    // id を渡せば、ステージの作り方 (敵や飾りを足す順) が変わっても番号がずれない (保存した星ごとのスプリットが、別の星と結びつかない)
+    const p: PickupDef = { id: o.id ?? this.id('star'), pos: y !== undefined ? [x, y, z] : this.at(x, z, dy), kind: 'star', label };
+    if (o.appearAfter && o.appearAfter.length > 0) p.appearAfter = o.appearAfter;
     this.pickups.push(p);
     return p;
   }

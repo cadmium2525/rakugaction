@@ -237,7 +237,7 @@ export class StageSession {
       noun: obj.noun,
       required: obj.required,
       count: sim.pickupCount,
-      items: pickups.map((p) => ({ label: p.label ?? p.id, taken: sim.collected.has(p.id), ms: mine.get(p.id), bestMs: best.get(p.id) })),
+      items: pickups.map((p) => ({ label: p.label ?? p.id, taken: sim.collected.has(p.id), ms: mine.get(p.id), bestMs: best.get(p.id), locked: sim.pickupLockedRemaining(p.id) })),
     };
   }
 
@@ -307,6 +307,22 @@ export class StageSession {
         case 'break':
           this.hud.toast('木箱を破壊', 700);
           break;
+        case 'enemy': {
+          // 星を守る敵を倒した: 星が現れるまで、あと何体か (最後の 1 体は pickupAppear の知らせを出す)
+          if (e.how === 'guard') break;
+          const sim = this.scene.sim;
+          for (const k of this.deps.stage.pickups ?? []) {
+            if (!k.appearAfter?.includes(e.id) || sim.revealed.has(k.id)) continue;
+            const left = sim.pickupLockedRemaining(k.id);
+            if (left > 0) this.hud.toast(`${k.label ?? '星'}: 星が現れるまで、敵があと ${left} 体`, 1600);
+          }
+          break;
+        }
+        case 'pickupAppear': {
+          const k = this.deps.stage.pickups?.find((x) => x.id === e.id);
+          this.hud.toast(`★ ${k?.label ?? '星'}に、星が現れた`, 2200);
+          break;
+        }
         case 'breakGuard': {
           // 連打しても、同じ説明を重ねて出さない (1 回の攻撃で隣り合う箱が複数当たることもある)
           const now = this.scene.sim.time;

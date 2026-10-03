@@ -35,6 +35,8 @@ const DEFAULT_JUMP_DIST = 0.45;
 const COMMIT_MARGIN = 2.0;
 /** 敵への攻撃: 「届く距離」にこの距離 (m) を足した所から ACTION を押す (ダッシュの踏み込みぶん) */
 const ENEMY_LUNGE_MARGIN = 0.9;
+/** 敵を追いかけて倒す (WaypointDef.clear) のに使える最大の時間 (秒)。これを超えたら諦める (stuck) */
+const HUNT_GIVE_UP = 60;
 
 /**
  * ステージ攻略ボット。ルート (ウェイポイント列) を実プレイヤーと同じ入力 (SimInput) でたどる。
@@ -62,6 +64,8 @@ export class Bot {
   /** ジャンプ後の着地目標 (空中でここへ向かい、通り過ぎないよう速度を絞る) */
   private landTarget: readonly [number, number, number] | null = null;
   private airborneSinceJump = false;
+  /** いまのウェイポイント (clear) で、敵を追いかけている時間 (秒) */
+  private huntTime = 0;
 
   constructor(
     private readonly sim: GameSim,
@@ -73,6 +77,7 @@ export class Bot {
 
   private onRespawn(): void {
     this.lastDeaths = this.sim.deaths;
+    this.huntTime = 0;
     this.holdJump = false;
     this.waiting = false;
     this.calmWaiting = false;
@@ -122,6 +127,8 @@ export class Bot {
     }
 
     const wp = this.route[this.idx];
+    // 敵を全員倒すまで、敵を追いかけて倒す (出現条件のある星の手前)
+    if (wp.clear && this.hunt(wp, out)) return;
     // 移動床待ち: 目標地点に床が来るまでその場で待つ
     const wm = wp.waitMover;
     if (wm) {
@@ -208,6 +215,54 @@ export class Bot {
         this.blockedTime = 0;
       }
     } else this.blockedTime = 0;
+  }
+
+  /**
+   * WaypointDef.clear: 指定した敵がまだ生きている間、いちばん近い敵へ向かって攻撃する。全員倒した (または、その敵が守る星がもう現れた) ら
+   * ウェイポイントを進める。追いかけている間は、true を返して入力を作った (この時刻の他の判断はしない)。
+   * 受動プレイ (fight: false) は攻撃しないので、敵を倒せず、HUNT_GIVE_UP で諦める。
+   */
+  private hunt(wp: WaypointDef, out: SimInput): boolean {
+    const sim = this.sim;
+    const p = sim.player;
+    const ids = wp.clear as readonly string[];
+    const alive = sim.enemies.filter((e) => ids.includes(e.def.id) && !e.defeated);
+    const revealed = (sim.stage.pickups ?? []).some((k) => k.appearAfter?.some((id) => ids.includes(id)) && sim.revealed.has(k.id));
+    if (alive.length === 0 || revealed) {
+      this.advance(wp);
+      this.huntTime = 0;
+      return false;
+    }
+    this.huntTime += 1 / 60;
+    if (this.huntTime > HUNT_GIVE_UP) {
+      this.stuck = true;
+      return true;
+    }
+    let best = alive[0];
+    let bestD = Infinity;
+    for (const e of alive) {
+      const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    if (bestD > 1e-3) {
+      out.moveX = (best.pos.x - p.pos.x) / bestD;
+      out.moveZ = (best.pos.z - p.pos.z) / bestD;
+    }
+    if (this.opts.fight !== false) this.fight(out);
+    // 追いかけている間に壁に阻まれたら、跳んで乗り越える
+    if (p.grounded && p.horizontalSpeed < p.params.maxSpeed * 0.3 && bestD > 1.8) {
+      this.blockedTime += 1 / 60;
+      if (this.blockedTime > 0.2) {
+        out.jumpPressed = true;
+        out.jumpHeld = true;
+        this.holdJump = true;
+        this.blockedTime = 0;
+      }
+    } else this.blockedTime = 0;
+    return true;
   }
 
   /**

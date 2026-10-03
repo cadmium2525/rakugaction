@@ -169,6 +169,7 @@ export class PlayScene {
       else if (e.type === 'crumble') this.view.stageView?.onCrumble(e.id, e.state);
       else if (e.type === 'enemy') this.view.stageView?.onEnemy(e.id, e.how);
       else if (e.type === 'pickup') this.view.stageView?.onPickup(e.id);
+      else if (e.type === 'pickupAppear') this.view.stageView?.onPickupAppear(e.id);
       else if (e.type === 'respawn') this.camera.snapTo(this.sim, this.sim.player.yaw);
     }
   }

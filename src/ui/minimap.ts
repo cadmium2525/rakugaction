@@ -178,9 +178,29 @@ export class Minimap {
       ctx.strokeStyle = '#3a2a14';
       ctx.stroke();
     };
+    const sealedStar = (x: number, y: number, inside: boolean): void => {
+      const r = (inside ? 6.5 : 5) * u;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const rr = i % 2 === 0 ? r : r * 0.45;
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        if (i === 0) ctx.moveTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+        else ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(150, 158, 175, 0.35)';
+      ctx.fill();
+      ctx.lineWidth = 1.3 * u;
+      ctx.setLineDash([2 * u, 1.6 * u]);
+      ctx.strokeStyle = 'rgba(70, 78, 95, 0.9)';
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
     for (const k of this.stage.pickups ?? []) {
       if (sim.collected.has(k.id)) continue;
-      mark(k.pos[0], k.pos[2], star);
+      // まだ現れていない星 (敵を全員倒すと現れる): 灰色の星の輪郭だけ
+      if (k.appearAfter && !sim.revealed.has(k.id)) mark(k.pos[0], k.pos[2], sealedStar);
+      else mark(k.pos[0], k.pos[2], star);
     }
     // ゴール: 開いていれば緑の旗 / まだなら灰色の輪
     const g = this.stage.goal;

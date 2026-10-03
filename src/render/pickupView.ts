@@ -8,6 +8,9 @@ const BURST_COUNT = 14;
 const BURST_LIFE = 0.75;
 /** この距離より遠いアイテムは星そのものは描かない (光の柱だけは遠くからも見えるまま) */
 const STAR_DRAW_DIST = 140;
+/** 封印された星 (まだ現れていない) の色と、現れる演出の長さ (秒) */
+const SEAL = 0x8e9bb0;
+const APPEAR_TIME = 0.9;
 
 /** 5 つ角の星 (中心が原点。外半径 ro / 内半径 ri)。 */
 function starShape(ro: number, ri: number): THREE.Shape {
@@ -44,6 +47,10 @@ export class PickupView {
   private readonly stars: THREE.InstancedMesh;
   private readonly outlines: THREE.InstancedMesh;
   private readonly beams: THREE.InstancedMesh;
+  /** 出現条件のある星が現れるまで、その場所に出す薄い灰色の星 (封印) */
+  private readonly seals: THREE.InstancedMesh;
+  /** 星ごとの、現れる演出の残り時間 (秒) */
+  private readonly appear: Float32Array;
   private readonly bursts: Burst[] = [];
   private readonly starGeo: THREE.BufferGeometry;
   private readonly outlineGeo: THREE.BufferGeometry;
@@ -53,6 +60,7 @@ export class PickupView {
   private readonly inkMat = new THREE.MeshBasicMaterial({ color: INK, side: THREE.BackSide });
   private readonly beamMat = new THREE.MeshBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide });
   private readonly burstMat = new THREE.MeshBasicMaterial({ color: GOLD, transparent: true });
+  private readonly sealMat = new THREE.MeshBasicMaterial({ color: SEAL, transparent: true, opacity: 0.5, depthWrite: false });
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly e = new THREE.Euler();
@@ -72,7 +80,9 @@ export class PickupView {
     this.stars = new THREE.InstancedMesh(this.starGeo, this.starMat, n);
     this.outlines = new THREE.InstancedMesh(this.outlineGeo, this.inkMat, n);
     this.beams = new THREE.InstancedMesh(this.beamGeo, this.beamMat, n);
-    for (const mesh of [this.stars, this.outlines, this.beams]) {
+    this.seals = new THREE.InstancedMesh(this.starGeo, this.sealMat, n);
+    this.appear = new Float32Array(n);
+    for (const mesh of [this.stars, this.outlines, this.beams, this.seals]) {
       mesh.frustumCulled = false; // 光の柱は遠くからも見える。個数が少ないので常に描く
       mesh.count = pickups.length;
       this.group.add(mesh);
@@ -98,24 +108,47 @@ export class PickupView {
       const dx = d.pos[0] - px;
       const dz = d.pos[2] - pz;
       const near = !sim || dx * dx + dz * dz < STAR_DRAW_DIST * STAR_DRAW_DIST;
+      // 出現条件のある星: 現れるまでは、薄い灰色の星だけ (光の柱なし)。現れた瞬間は、ぽんと大きくなる
+      const sealed = !!d.appearAfter && !!sim && !sim.revealed.has(d.id);
+      let grow = 1;
+      if (this.appear[i] > 0) {
+        this.appear[i] = Math.max(0, this.appear[i] - dt);
+        const k = 1 - this.appear[i] / APPEAR_TIME;
+        grow = Math.min(1.25, 1 + 2.2 * Math.pow(k - 1, 3) + 1.2 * Math.pow(k - 1, 2)) * Math.min(1, k * 4);
+      }
       // 星: 回って、ゆっくり上下する
       const phase = (i * 1.7) % 6.28;
       this.e.set(0, this.t * 1.9 + phase, 0);
       this.q.setFromEuler(this.e);
       this.p.set(d.pos[0], d.pos[1] + Math.sin(this.t * 2.4 + phase) * 0.14, d.pos[2]);
-      this.s.setScalar(taken || !near ? 0 : 1);
+      this.s.setScalar(taken || !near || sealed ? 0 : grow);
       this.m.compose(this.p, this.q, this.s);
       this.stars.setMatrixAt(i, this.m);
       this.outlines.setMatrixAt(i, this.m);
+      // 封印された星 (ゆっくり回るだけ。取れない)
+      this.s.setScalar(sealed && near ? 0.8 : 0);
+      this.e.set(0, this.t * 0.6 + phase, 0);
+      this.q.setFromEuler(this.e);
+      this.m.compose(this.p, this.q, this.s);
+      this.seals.setMatrixAt(i, this.m);
       // 光の柱
       this.p.set(d.pos[0], d.pos[1] + 4.2, d.pos[2]);
-      this.s.setScalar(taken ? 0 : 1);
+      this.s.setScalar(taken || sealed ? 0 : Math.min(1, grow));
       this.m.compose(this.p, this.q.identity(), this.s);
       this.beams.setMatrixAt(i, this.m);
     }
     this.stars.instanceMatrix.needsUpdate = true;
     this.outlines.instanceMatrix.needsUpdate = true;
     this.beams.instanceMatrix.needsUpdate = true;
+    this.seals.instanceMatrix.needsUpdate = true;
+  }
+
+  /** 出現条件のある星が現れた: 現れる演出を始め、星の位置で光の粒が弾ける。 */
+  onAppear(id: string): void {
+    const i = this.index.get(id);
+    if (i === undefined) return;
+    this.appear[i] = APPEAR_TIME;
+    this.onPickup(id);
   }
 
   /** アイテムを取った: 星の位置で弾ける。 */
@@ -161,6 +194,7 @@ export class PickupView {
     this.stars.dispose();
     this.outlines.dispose();
     this.beams.dispose();
+    this.seals.dispose();
     this.starGeo.dispose();
     this.outlineGeo.dispose();
     this.beamGeo.dispose();
@@ -169,5 +203,6 @@ export class PickupView {
     this.inkMat.dispose();
     this.beamMat.dispose();
     this.burstMat.dispose();
+    this.sealMat.dispose();
   }
 }
