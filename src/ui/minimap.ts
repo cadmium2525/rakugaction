@@ -103,13 +103,21 @@ export class Minimap {
     // 建物・壁・飛び石 (箱の足あと)。高い塔のあるステージ (STAGE 5) は、高い箱ほど明るく、低い箱から先に描く (階の高さが分かる)
     g.fillStyle = 'rgba(70, 74, 86, 0.9)';
     const topOf = (bx: (typeof stage.boxes)[number]): number => bx.pos[1] + bx.size[1] / 2;
-    const tall = stage.boxes.some((bx) => topOf(bx) > 15);
+    const tall = stage.minimapHeightShade === true;
     const boxes = tall ? [...stage.boxes].sort((p, q) => topOf(p) - topOf(q)) : stage.boxes;
     for (const bx of boxes) {
-      if (bx.rot && (bx.rot[0] !== 0 || bx.rot[2] !== 0)) continue;
+      const tilted = !!bx.rot && (bx.rot[0] !== 0 || bx.rot[2] !== 0);
+      if (tilted && !tall) continue;
       if (tall) {
         const f = Math.max(0, Math.min(1, topOf(bx) / 32));
         g.fillStyle = `rgba(${Math.round(76 + 130 * f)}, ${Math.round(80 + 120 * f)}, ${Math.round(96 + 110 * f)}, 0.95)`;
+        if (tilted) {
+          // 坂 (z 軸まわりに傾けた箱): 足あとは、x の長さが cos だけ縮む。道として、明るめの色で描く
+          const len = Math.abs(Math.cos(bx.rot![2])) * bx.size[0];
+          g.fillStyle = 'rgba(240, 220, 150, 0.95)';
+          g.fillRect((bx.pos[0] - len / 2 - t.x0) / MAP_RES, (bx.pos[2] - bx.size[2] / 2 - t.z0) / MAP_RES, Math.max(1, len / MAP_RES), Math.max(1, bx.size[2] / MAP_RES));
+          continue;
+        }
       }
       // y 軸まわりに回した箱 (崖の擁壁など) は、回した長方形で描く
       g.save();

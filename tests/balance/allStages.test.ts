@@ -17,8 +17,9 @@ async function measure(): Promise<Table> {
     table[entry.id] = {};
     for (const id of ALL_BUILDS) {
       let best = Infinity;
-      // 風が周期的に吹き止むステージ・水位が周期的に上下するステージは、周期との位相で時間が大きく変わる (運)。開始の位相をずらした 4 回の平均で比べる
-      const periodic = (stage.winds ?? []).some((w) => w.gust) || (stage.waters ?? []).some((w) => w.level);
+      // 風が周期的に吹き止むステージ・水位が周期的に上下するステージ・鉄球が往復するステージは、周期との位相で時間が大きく変わる (運)。開始の位相をずらした 4 回の平均で比べる
+      // (動く鉄球も、往復の周期との位相で待ち時間が変わる)
+      const periodic = (stage.winds ?? []).some((w) => w.gust) || (stage.waters ?? []).some((w) => w.level) || (stage.sweepers ?? []).length > 0;
       for (const route of Object.keys(stage.routes ?? {})) {
         if (periodic) {
           const r = await runStageAveraged(stage, id, route, { maxTime: 220, maxDeaths: 1 });

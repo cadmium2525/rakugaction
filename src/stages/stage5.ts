@@ -19,7 +19,7 @@ import type { SignDef, StageDef, SurfaceStyle, WaypointDef } from './types';
  *   長い道: リングを半周して (東まわり / 西まわり)、反対側の坂 (20m) をのぼる。坂は 1 階ごとに南と北が入れかわる。
  *   近道 (ゲート): 着いた側にある、壁の途中のしかけ。体型によって通れるものが違う。通ると、次の階の坂の足元に出る。
  *     1 階の南側 = 木箱の扉 (C。攻撃力が標準以上) / 2 階の北側 = 上昇気流 (U。軽め〜標準)
- * 星 8 個 (5 個でゴールが開く): 体型ごとの寄り道の星 (風の柱の上・氷の扉の部屋・1 階の高い台) と、廊下の星と、敵を倒すと現れる星 3 個。
+ * 星 8 個 (5 個でゴールが開く): 体型ごとの寄り道の星 (風の柱の上・木箱の部屋・1 階の高い台。どれも、だれでも行ける遅い道 (坂・うしろの入口・段) がある) と、廊下の星と、敵を倒すと現れる星 3 個。
  */
 
 // ===================================================================================================
@@ -43,21 +43,26 @@ const ARRIVE_X = 7;
 const gateX = (j: number): number => (j === 4 ? -5 : -12);
 const GATE_W = 5;
 
-/** 近道の種類: U = 上昇気流 / H = 2.4m の段 / H2 = 2.8m の段 / C = 木箱の扉 / K = 硬い木箱の扉 */
-export type GateKind = 'U' | 'H' | 'H2' | 'C' | 'K';
+/** 近道の種類: U = 上昇気流 / C = 木箱の扉 */
+export type GateKind = 'U' | 'C';
 /** ゲート j (j = 0: 広場の北側から 1 階へ / 1: 1 階の南側から 2 階へ / 2: 2 階の北側 / 3: 3 階の南側 / 4: 4 階の北側から山頂へ) の種類。null = なし */
 export const GATES: readonly (GateKind | null)[] = [null, 'C', 'U', null, null];
 /** 段・木箱の寸法 */
-const STEP_DEPTH = 2.0;
-const CRATE_T = 1.0;
+const STEP_DEPTH = 1.8;
+const CRATE_T = 0.8;
 const CRATE_H = 4.5;
 const GATE_WALL_H = 8.5;
-const TOUGH = { C: 0.95, K: 1.25 } as const;
+/** 木箱の硬さ (攻撃力 0.95 以上 = ゲーム内の POWER 94 以上が壊せる) */
+const TOUGH_C = 0.95;
+/** 木箱の扉の奥の段: 1.2m ずつ 5 つ (跳べる高さが最も低いキャラ = JUMP 45 でも、2 階側から降りて閉じ込められないように、段は 1.4m 以下) */
+const GATE_STEPS = [1.2, 2.4, 3.6, 4.8, 6.0] as const;
+/** 木箱の扉の上の横木の、前後の出っぱり */
+const LINTEL_OVER = 0.2;
 /** 階ごとの石の色合い (1 階から) */
 const RING_STYLE: readonly SurfaceStyle[] = ['dirt', 'sand', 'stone', 'metal'];
 const SUMMIT_STYLE: SurfaceStyle = 'ice';
-/** 上昇気流の強さ (m/s)。軽め〜標準 (SPEED・JUMP・STANDARD) が 6m の壁をこえる */
-const VENT_VEL = 7.5;
+/** 上昇気流の強さ (m/s)。軽め〜標準 (SPEED・JUMP・STANDARD) が 6m の壁をこえる (7.5 では、走って入るジャンプの余裕が少なかった。9 m/s 以上は POWER も届く) */
+const VENT_VEL = 8.5;
 const VENT_H = 10;
 
 type Side = 'S' | 'N';
@@ -72,10 +77,12 @@ export type Stage5Star = 'vent' | 'chamber' | 'ledge' | 'r3w' | 'r4e' | 'r4w' | 
 export const STAGE5_STARS: readonly Stage5Star[] = ['vent', 'chamber', 'ledge', 'r3w', 'r4e', 'r4w', 'yardE', 'r3e'];
 /** 風の柱 (広場の南西): 高さ 6m の石の柱に、上昇気流。柱の上に星 */
 const VENT_PILLAR = { x: -38, z: -60, w: 3, h: FLOOR_H };
+/** 風の柱の西の坂の長さ */
+const VENT_RAMP = 20;
 /** 木箱の部屋 (広場の南東): 壁 8.5m に囲まれた小部屋。南の扉は大きな木箱 (攻撃力が標準以上)。中に星 */
 const CHAMBER = { x: 30, z: -60, inner: 5, door: 3, wallT: 1.5 };
 /** 1 階の高い台 (西の廊下): 上面 2.8m の台。SPEED・JUMP だけが跳び乗れる。上に星 */
-const LEDGE = { x: -42, z: 12, w: 4, h: 2.8 };
+const LEDGE = { x: -42, z: 12, w: 4, h: 2.8, step: 1.4, stepD: 2.5, roof: 3.0 };
 /** 廊下の星 */
 const R3W = { x: -22, z: -6 };
 const R4E = { x: 14, z: 0 };
@@ -90,7 +97,7 @@ const LEG_SWEEPERS = [
   { ring: 1, leg: 'E', z: 14, phase: 1.6 },
   { ring: 3, leg: 'W', z: 12, phase: 0.9 },
   { ring: 4, leg: 'E', z: -9, phase: 0.3 },
-  { ring: 4, leg: 'W', z: -14, phase: 1.1 },
+  { ring: 4, leg: 'W', z: -8, phase: 1.1 },
 ] as const;
 /** 廊下 (E / W) の星: 階・廊下・位置 */
 const LEG_STARS: readonly { star: Stage5Star; ring: number; leg: 'E' | 'W'; x: number; z: number }[] = [
@@ -111,13 +118,18 @@ export const STAGE5_GEOMETRY = {
   gateW: GATE_W,
   gates: GATES,
   stepDepth: STEP_DEPTH,
+  gateDepth,
   ventVel: VENT_VEL,
   y: Y,
   ledgeH: LEDGE.h,
-  crateToughness: TOUGH.C,
+  crateToughness: TOUGH_C,
+  /** 頭上の高さ: 木箱の扉の横木の下 (1 段目の上)・高い台の屋根の下 */
+  gateClearance: CRATE_H - GATE_STEPS[0],
+  ledgeClearance: LEDGE.roof,
 };
 
-export function buildStage5(): StageDef {
+export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
+  const ventVel = opts.ventVel ?? VENT_VEL;
   const tb = new TerrainBuilder({ x0: -PLAZA, z0: -PLAZA, x1: PLAZA, z1: PLAZA }, 2, G);
   tb.palette(TOWER_PALETTE);
   const terrain = tb.build();
@@ -158,7 +170,7 @@ export function buildStage5(): StageDef {
 
   // ===== ゲート (近道) =====
   GATES.forEach((kind, j) => {
-    if (kind) buildGate(k, j, kind);
+    if (kind) buildGate(k, j, kind, ventVel);
   });
 
   // ===== 広場: スタート・練習の敵 =====
@@ -173,12 +185,14 @@ export function buildStage5(): StageDef {
   // 風の柱: 星は柱の上。柱の南に上昇気流
   const vp = VENT_PILLAR;
   k.box([vp.x, vp.h / 2, vp.z], [vp.w, vp.h, vp.w], 'stone');
-  k.wind('vent-pillar', vp.x, vp.z - vp.w / 2 - 1.8, 3.4, 3.6, G, VENT_H, [0, VENT_VEL, 0]);
+  k.wind('vent-pillar', vp.x, vp.z - vp.w / 2 - 1.8, 3.4, 3.6, G, VENT_H, [0, ventVel, 0]);
   k.star('風の柱の上', vp.x, vp.z, 1.35, vp.h + 1.35, { id: 'star-vent' });
-  sign(vp.x + 5, G, vp.z - 4, Math.PI + 0.4, ['風の柱'], { icon: 'jump', hint: ['柱の上に星がある。南の上昇気流に入って {jump} すると、軽め〜標準のキャラは跳び乗れる', '体が重いと、押し上げが足りない'] });
+  // だれでものぼれる長い坂 (西から。上の端が柱の上面)
+  k.boxes.push(rampX(vp.x - vp.w / 2 - VENT_RAMP, G, vp.x - vp.w / 2, vp.h, vp.z, vp.w, 2, 'stone'));
+  sign(vp.x + 5, G, vp.z - 4, Math.PI + 0.4, ['風の柱'], { icon: 'jump', hint: ['柱の上に星がある。西の長い坂 (20m) を、だれでものぼれる', '南の上昇気流には、走って入って {jump} を押し続けると、軽め〜標準のキャラは一気に跳び乗れる'] });
   k.checkpoint('cp0b', -20, -62);
 
-  // 氷の扉の部屋: 星は部屋の中。扉は硬い木箱 (攻撃力 1.25 以上)
+  // 木箱の部屋: 星は部屋の中。南の扉は大きな木箱 (攻撃力 0.95 以上)。うしろ (北) の入口は、木箱がない
   {
     const c = CHAMBER;
     const half = c.inner / 2;
@@ -189,14 +203,16 @@ export function buildStage5(): StageDef {
     const zN1 = c.z + half + c.wallT;
     blk(wx0, c.x - half, zS0, zN1, -1, GATE_WALL_H);
     blk(c.x + half, wx1, zS0, zN1, -1, GATE_WALL_H);
-    blk(c.x - half, c.x + half, c.z + half, zN1, -1, GATE_WALL_H);
+    // うしろ (北) の入口: 扉の木箱を壊せないキャラも、まわりこめば入れる
+    blk(c.x - half, c.x - c.door / 2, c.z + half, zN1, -1, GATE_WALL_H);
+    blk(c.x + c.door / 2, c.x + half, c.z + half, zN1, -1, GATE_WALL_H);
     blk(c.x - half, c.x - c.door / 2, zS0, zS1, -1, GATE_WALL_H);
     blk(c.x + c.door / 2, c.x + half, zS0, zS1, -1, GATE_WALL_H);
     const zc = (zS0 + zS1) / 2;
-    k.breakables.push({ id: 'chamber-door', pos: [c.x, CRATE_H / 2, zc], size: [c.door, CRATE_H, c.wallT], toughness: TOUGH.C, style: 'wood' });
+    k.breakables.push({ id: 'chamber-door', pos: [c.x, CRATE_H / 2, zc], size: [c.door, CRATE_H, c.wallT], toughness: TOUGH_C, style: 'wood' });
     blk(c.x - c.door / 2, c.x + c.door / 2, zS0 - 0.3, zS1 + 0.3, CRATE_H, GATE_WALL_H);
     k.star('木箱の部屋', c.x, c.z, 1.35, G + 1.35, { id: 'star-chamber' });
-    sign(c.x - 6, G, zS0 - 3, Math.PI + 0.3, ['木箱の部屋'], { icon: 'action', hint: ['部屋の中に星がある。入口の大きな木箱は、攻撃力が標準以上のキャラが {action} で壊せる', '壊せないキャラは、ほかの星へ'] });
+    sign(c.x - 6, G, zS0 - 3, Math.PI + 0.3, ['木箱の部屋'], { icon: 'action', hint: ['部屋の中に星がある。南の入口の大きな木箱は、攻撃力 (POWER) が 94 以上のキャラが {action} で壊せる', 'うしろ (北) の入口は、木箱がない。まわりこめば、だれでも入れる'] });
   }
 
   // 敵を倒すと現れる星の庭 (広場の南東)
@@ -215,17 +231,24 @@ export function buildStage5(): StageDef {
   // 西の廊下: 高い台 (2.8m)。上に星
   k.box([LEDGE.x, y1 + LEDGE.h / 2, LEDGE.z], [LEDGE.w, LEDGE.h, LEDGE.w], 'stone');
   k.star('1 階の高い台', LEDGE.x, LEDGE.z, 1.35, y1 + LEDGE.h + 1.35, { id: 'star-ledge' });
-  sign(LEDGE.x + 5.5, y1, LEDGE.z - 6, Math.PI, ['高い台'], { icon: 'jump', hint: ['台の上に星がある。台の高さは 2.8m。助走して高く跳べる (JUMP が高い) キャラだけが跳び乗れる'] });
+  // 台の屋根 (東屋): 台の上のジャンプを、天井でおさえる (屋根がないと、台の上から、4m 先の 2 階の壁 (12m) へ、跳躍力が極端に大きい体が跳び乗れた)。柱は台の四すみ
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) k.box([LEDGE.x + sx * (LEDGE.w / 2 - 0.3), y1 + LEDGE.h + LEDGE.roof / 2, LEDGE.z + sz * (LEDGE.w / 2 - 0.3)], [0.6, LEDGE.roof, 0.6], 'stone');
+  }
+  k.box([LEDGE.x, y1 + LEDGE.h + LEDGE.roof + 0.2, LEDGE.z], [LEDGE.w + 1.2, 0.4, LEDGE.w + 1.2], 'stone');
+  // だれでものぼれる段 (台の南がわ。1.4m ずつ 2 段)
+  k.box([LEDGE.x, y1 + LEDGE.step / 2, LEDGE.z - LEDGE.w / 2 - LEDGE.stepD / 2], [LEDGE.w, LEDGE.step, LEDGE.stepD], 'stone');
+  sign(LEDGE.x + 5.5, y1, LEDGE.z - 6, Math.PI, ['高い台'], { icon: 'jump', hint: ['台の上に星がある。台の高さは 2.8m。助走して、ジャンプを押し続けると、高く跳べる (JUMP が高い) キャラは、直接跳び乗れる。ほかのキャラは、南がわの段 (1.4m ずつ 2 段) から'] });
   k.enemy('blob', 42, -30, 42, -20, { speed: 1.4, y0: y1 });
   k.enemy('blob', -42, -34, -42, -24, { speed: 1.4, y0: y1 });
   // 近道 (木箱の扉)
-  sign(-4, y1, -(RO[0] - 4), Math.PI / 2, ['木箱の扉'], { icon: 'action', hint: ['西の壁の木箱の扉は、攻撃力が標準以上のキャラが {action} で壊せる。通ると、2 階の坂のすぐそば', '壊せないキャラは、リングを半周して北の坂へ'] });
+  sign(-4, y1, -(RO[0] - 4), Math.PI / 2, ['木箱の扉'], { icon: 'action', hint: ['南がわの壁の木箱の扉は、攻撃力 (POWER) が 94 以上のキャラが {action} で壊せる。奥の段 (1.5m が 4 つ) をのぼると、2 階の坂のすぐそば', '壊せないキャラは、リングを半周して北の坂へ'] });
 
   // ===== 2 階 =====
   const y2 = Y(2);
   k.checkpoint('cp2', ARRIVE_X, RO[1] + 2.5, 3, y2);
   k.checkpoint('cp2s', -12, -(RO[1] - 2.5), 3, y2);
-  sign(-4, y2, RO[1] - 4, Math.PI / 2, ['上昇気流'], { icon: 'jump', hint: ['壁の手前の柱の中の上昇気流に入って {jump} すると、軽め〜標準のキャラは 3 階に跳び乗れる', '体が重いと、押し上げが足りない。リングを半周して南の坂へ'] });
+  sign(-4, y2, RO[1] - 4, Math.PI / 2, ['上昇気流'], { icon: 'jump', hint: ['壁の手前の柱の中の上昇気流に、走って入って {jump} を押し続けると、軽め〜標準のキャラは 3 階に跳び乗れる', '体が重いと、押し上げが足りない。リングを半周して南の坂へ'] });
 
   // ===== 3 階 =====
   const y3 = Y(3);
@@ -246,11 +269,11 @@ export function buildStage5(): StageDef {
   k.star('4 階の東の廊下', R4E.x, R4E.z, 1.35, y4 + 1.35, { id: 'star-r4e' });
   const r4 = k.star('4 階の西の廊下', R4W.x, R4W.z, 1.35, y4 + 1.35, { id: 'star-r4w' });
   r4.appearAfter = [
-    k.enemy('armor', R4W.x, -9, R4W.x, -3, { speed: 1.3, phase: 0.3, y0: y4 }).id,
-    k.enemy('hopper', R4W.x, 3, R4W.x, 9, { speed: 2.0, phase: 0.7, y0: y4 }).id,
-    k.enemy('blob', R4W.x, 8, R4W.x, 12, { speed: 1.4, y0: y4 }).id,
+    k.enemy('armor', R4W.x, -5, R4W.x, -2, { speed: 1.3, phase: 0.3, y0: y4 }).id,
+    k.enemy('hopper', R4W.x, 3, R4W.x, 8, { speed: 2.0, phase: 0.7, y0: y4 }).id,
+    k.enemy('blob', R4W.x, 9, R4W.x, 13, { speed: 1.4, y0: y4 }).id,
   ];
-  sign(-14, y4, 17, 0.2, ['西の廊下'], { icon: 'warn', tone: 'warn', hint: ['廊下の敵 3 体を倒すと、星が現れる', '東の廊下には、すぐ取れる星がある'] });
+  sign(-14, y4, 17, Math.PI / 2, ['西の廊下'], { icon: 'warn', tone: 'warn', hint: ['廊下の敵 3 体を倒すと、星が現れる', '東の廊下には、すぐ取れる星がある'] });
 
   // 廊下の鉄球: 廊下の幅いっぱいを往復する (両端で 1 秒止まる)
   for (const w of LEG_SWEEPERS) {
@@ -274,7 +297,7 @@ export function buildStage5(): StageDef {
   // 広場の遺跡 (折れた柱・瓦礫。塔・星の庭・部屋・柱をよける)
   const keep = (x: number, z: number): boolean => {
     if (Math.max(Math.abs(x), Math.abs(z)) < RO[0] + 8) return false;
-    if (Math.hypot(x - YARD_E.x, z - YARD_E.z) < 20 || Math.hypot(x - CHAMBER.x, z - CHAMBER.z) < 12 || Math.hypot(x - VENT_PILLAR.x, z - VENT_PILLAR.z) < 10) return false;
+    if (Math.hypot(x - YARD_E.x, z - YARD_E.z) < 20 || Math.hypot(x - CHAMBER.x, z - CHAMBER.z) < 12 || Math.hypot(x - VENT_PILLAR.x, z - VENT_PILLAR.z) < 10 || (x < VENT_PILLAR.x && x > VENT_PILLAR.x - VENT_RAMP - 6 && Math.abs(z - VENT_PILLAR.z) < 7)) return false;
     return !(Math.abs(x) < 24 && z < -50 && z > -80);
   };
   for (let i = 0; i < 60; i++) {
@@ -303,10 +326,11 @@ export function buildStage5(): StageDef {
   const g1 = [false, true, false, false, false];
   const g2 = [false, false, true, false, false];
   const routes = {
-    main: r({ gates: none, stars: ['r3w', 'r3e', 'r4e', 'r4w', 'yardE'], dirs: ['E', 'E', 'E', 'E'] }),
-    std: r({ gates: g1, stars: ['vent', 'chamber', 'r3w', 'r4w', 'yardE'], dirs: ['E', 'E', 'W', 'W'] }),
+    // 本道: 戦わずに取れる 5 個を、近道なし・だれでも行ける遅い道 (坂・段・うしろの入口) で。受動プレイでもクリアできる
+    main: r({ gates: none, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4e'], slow: ['vent', 'chamber', 'ledge'], dirs: ['W', 'E', 'W', 'E'] }),
+    std: r({ gates: g1, stars: ['vent', 'chamber', 'r3w', 'r4e', 'yardE'], dirs: ['E', 'E', 'W', 'E'] }),
     strong: r({ gates: g1, stars: ['chamber', 'r3w', 'r4e', 'r4w', 'yardE'], dirs: ['E', 'E', 'W', 'E'] }),
-    light: r({ gates: g2, stars: ['vent', 'ledge', 'r3w', 'r4e', 'r4w'], dirs: ['W', 'E', 'W', 'E'] }),
+    light: r({ gates: g2, stars: ['vent', 'chamber', 'ledge', 'r4w', 'yardE'], slow: ['chamber'], dirs: ['W', 'E', 'E', 'W'] }),
   };
 
   return {
@@ -336,6 +360,7 @@ export function buildStage5(): StageDef {
     routes,
     parTime: 140,
     missPenaltySec: 3,
+    minimapHeightShade: true,
   };
 }
 
@@ -344,7 +369,7 @@ export function buildStage5(): StageDef {
 // ===================================================================================================
 
 /** ゲート j の種類 kind を作る。壁 (階 j + 1 の外周の面 v = RO[j]) の手前に、段・木箱・上昇気流を置く */
-function buildGate(k: FieldKit, j: number, kind: GateKind): void {
+function buildGate(k: FieldKit, j: number, kind: GateKind, ventVel: number): void {
   const s = gateSide(j);
   const sg = sgn(s);
   const vWall = RO[j];
@@ -358,32 +383,36 @@ function buildGate(k: FieldKit, j: number, kind: GateKind): void {
   };
   if (kind === 'U') {
     // 壁の手前 1.8m に、上昇気流の柱 (足元から 10m)
-    k.wind(`vent${j}`, gx, sg * (vWall + 1.8), 3.4, 3.6, y0, VENT_H, [0, VENT_VEL, 0]);
+    k.wind(`vent${j}`, gx, sg * (vWall + 1.8), 3.4, 3.6, y0, VENT_H, [0, ventVel, 0]);
     return;
   }
   // 段: 外側 (壁から遠い) が低く、壁にむかって高くなる。いちばん壁側の段の上面 = 次の階の床 (6m)
-  const heights = gateHeights(kind);
+  const heights = gateHeights();
   const n = heights.length;
   heights.forEach((h, i) => {
     const vOuter = vWall + (n - i) * STEP_DEPTH;
     const vInner = vWall + (n - 1 - i) * STEP_DEPTH;
     blk(gx - half, gx + half, vInner, vOuter, y0 - 1, y0 + h, 'sand');
   });
-  if (kind === 'C' || kind === 'K') {
-    // 木箱の扉の門: 左右の壁 (高さ 8.5m)・扉 (大きな木箱 1 つ。積むと継ぎ目から登れる)・扉の上の石の横木 (前後に 0.3m ずつ出す)
-    const vFront = vWall + n * STEP_DEPTH;
-    const vBack = vFront + CRATE_T;
-    blk(gx - half - 1.5, gx - half, vWall, vBack, y0 - 1, y0 + GATE_WALL_H);
-    blk(gx + half, gx + half + 1.5, vWall, vBack, y0 - 1, y0 + GATE_WALL_H);
-    const zc = sg * (vFront + CRATE_T / 2);
-    k.breakables.push({ id: `gate${j}`, pos: [gx, y0 + CRATE_H / 2, zc], size: [GATE_W, CRATE_H, CRATE_T], toughness: TOUGH[kind], style: kind === 'K' ? 'ice' : 'wood' });
-    blk(gx - half, gx + half, vFront - 0.3, vBack + 0.3, y0 + CRATE_H, y0 + GATE_WALL_H);
-  }
+  // 木箱の扉の門: 左右の壁 (高さ 8.5m)・扉 (大きな木箱 1 つ。積むと継ぎ目から登れる)・扉の上の石の横木 (前後に出す)
+  const vFront = vWall + n * STEP_DEPTH;
+  const vBack = vFront + CRATE_T;
+  blk(gx - half - 1.5, gx - half, vWall, vBack, y0 - 1, y0 + GATE_WALL_H);
+  blk(gx + half, gx + half + 1.5, vWall, vBack, y0 - 1, y0 + GATE_WALL_H);
+  const zc = sg * (vFront + CRATE_T / 2);
+  k.breakables.push({ id: `gate${j}`, pos: [gx, y0 + CRATE_H / 2, zc], size: [GATE_W, CRATE_H, CRATE_T], toughness: TOUGH_C, style: 'wood' });
+  blk(gx - half, gx + half, vFront - LINTEL_OVER, vBack + LINTEL_OVER, y0 + CRATE_H, y0 + GATE_WALL_H);
 }
 
 /** 段の上面の高さ (外側から) */
-function gateHeights(kind: GateKind): number[] {
-  return kind === 'H' ? [2.4, 4.8, FLOOR_H] : kind === 'H2' ? [2.8, 5.6, FLOOR_H] : [2.0, 4.0, FLOOR_H];
+function gateHeights(): number[] {
+  return [...GATE_STEPS];
+}
+
+/** ゲート kind が、壁から外へのびる奥行き (段 + 木箱の扉 + 横木の出っぱり) */
+export function gateDepth(kind: GateKind): number {
+  if (kind === 'U') return 3.6;
+  return gateHeights().length * STEP_DEPTH + CRATE_T + LINTEL_OVER;
 }
 
 // ===================================================================================================
@@ -397,13 +426,15 @@ export interface Stage5Plan {
   dirs?: readonly ('E' | 'W')[];
   /** 取る星 */
   stars: readonly Stage5Star[];
+  /** 寄り道の星を、近道 (気流・跳躍・木箱) でなく、だれでも行ける遅い道 (坂・段・うしろの入口) で取る */
+  slow?: readonly ('vent' | 'ledge' | 'chamber')[];
 }
 
-/** 広場の、塔の南がわの道 (東西に歩く。氷の部屋・風の柱の南) の z */
+/** 広場の、塔の南がわの道 (東西に歩く。木箱の部屋・風の柱の南) の z */
 const PLAZA_ROAD = -68;
 
-/** 階 j (1〜4) の外周から 1.2m 内側の線の半幅 */
-const ringLine = (j: number): number => RO[j - 1] - 1.2;
+/** 階 j (1〜4) の外周から 1.0m 内側の線の半幅 */
+const ringLine = (j: number): number => RO[j - 1] - 1.0;
 /** ゲートを通って着いた時の、リングの外周の線への戻り先の x */
 const GATE_HUB_X = -12;
 
@@ -423,6 +454,7 @@ export function stage5RouteFor(stage: Pick<StageDef, 'pickups'>, plan: Stage5Pla
   wp(0, G, SPAWN_Z);
 
   // ---- 広場の星 (東 → 西の順に、塔の南がわの道 (z = −68) を回って、南の坂の足元へ) ----
+  const slow = (st: 'vent' | 'ledge' | 'chamber'): boolean => plan.slow?.includes(st) ?? false;
   if (has('yardE')) {
     wp(YARD_E.x - 6, G, PLAZA_ROAD, { radius: 3 });
     wp(YARD_E.x - 3, G, YARD_E.z - 10, { radius: 3 });
@@ -436,19 +468,40 @@ export function stage5RouteFor(stage: Pick<StageDef, 'pickups'>, plan: Stage5Pla
   if (has('chamber')) {
     const c = CHAMBER;
     const zDoor = c.z - c.inner / 2 - c.wallT;
-    wp(c.x, G, zDoor - 3, { radius: 1.5 });
-    wp(c.x, G, zDoor - 0.65, { radius: 0.5, action: true });
-    wp(c.x, G, c.z, { radius: 1.0 });
-    wp(c.x, G, zDoor - 3, { radius: 1.5 });
+    if (slow('chamber')) {
+      // うしろ (北) の入口: 部屋の東をまわって、北から入る
+      wp(c.x + 7, G, PLAZA_ROAD + 2, { radius: 2 });
+      wp(c.x + 7, G, c.z + c.inner / 2 + c.wallT + 3, { radius: 2 });
+      wp(c.x, G, c.z + c.inner / 2 + c.wallT + 2, { radius: 1.2 });
+      wp(c.x, G, c.z, { radius: 1.0 });
+      wp(c.x, G, c.z + c.inner / 2 + c.wallT + 2, { radius: 1.2 });
+      wp(c.x + 7, G, c.z + c.inner / 2 + c.wallT + 3, { radius: 2 });
+      wp(c.x + 7, G, PLAZA_ROAD + 2, { radius: 2 });
+    } else {
+      wp(c.x, G, zDoor - 3, { radius: 1.5 });
+      wp(c.x, G, zDoor - 0.65, { radius: 0.5, action: true });
+      wp(c.x, G, c.z, { radius: 1.0 });
+      wp(c.x, G, zDoor - 3, { radius: 1.5 });
+    }
   }
   if (has('vent')) {
     const v = VENT_PILLAR;
-    wp(v.x + 6, G, v.z - v.w / 2 - 4, { radius: 2.5 });
-    wp(v.x, G, v.z - v.w / 2 - 4, { radius: 1.5 });
-    wp(v.x, G, v.z - v.w / 2 - 1.8, { jump: true, jumpDist: 0.5, land: [v.x, v.h, v.z], radius: 0.8 });
-    wp(v.x, v.h, v.z, { radius: 1.0 });
-    // 柱の上から、南へ降りる (降りた先は広場)
-    wp(v.x - 4, G, v.z - v.w / 2 - 4, { radius: 2.5 });
+    if (slow('vent')) {
+      // 西の長い坂 (20m) から、柱の上へ
+      wp(v.x - v.w / 2 - VENT_RAMP - 4, G, PLAZA_ROAD + 2, { radius: 3 });
+      wp(v.x - v.w / 2 - VENT_RAMP + 1, G, v.z, { radius: 1.2 });
+      wp(v.x - v.w / 2 - 1.5, v.h - 0.3, v.z, { radius: 1.2 });
+      wp(v.x, v.h, v.z, { radius: 1.0 });
+      // 柱の上から、南へ降りる (降りた先は広場)
+      wp(v.x + 6, G, v.z - v.w / 2 - 5, { radius: 2.5 });
+    } else {
+      wp(v.x + 6, G, v.z - v.w / 2 - 4, { radius: 2.5 });
+      wp(v.x, G, v.z - v.w / 2 - 4, { radius: 1.5 });
+      wp(v.x, G, v.z - v.w / 2 - 1.8, { jump: true, hold: true, jumpDist: 0.5, land: [v.x, v.h, v.z], radius: 0.8 });
+      wp(v.x, v.h, v.z, { radius: 1.0 });
+      // 柱の上から、南へ降りる (降りた先は広場)
+      wp(v.x - 4, G, v.z - v.w / 2 - 4, { radius: 2.5 });
+    }
   }
 
   // ---- 塔 ----
@@ -507,7 +560,7 @@ function legSegment(wp: Wp, j: number, leg: 'E' | 'W', zFrom: number, zTo: numbe
     for (const st of LEG_STARS) {
       if (st.ring !== j || st.leg !== leg || !plan.stars.includes(st.star)) continue;
       if ((st.z - zFrom) * dz < 0 || (zTo - st.z) * dz < 0) continue;
-      evs.push({ z: st.z, run: () => starOnLeg(wp, st.star, j, x, st.x, st.z, clearOf) });
+      evs.push({ z: st.z, run: () => starOnLeg(wp, st.star, j, x, st.x, st.z, clearOf, plan) });
     }
   }
   evs.sort((a, b) => (a.z - b.z) * dz);
@@ -516,8 +569,19 @@ function legSegment(wp: Wp, j: number, leg: 'E' | 'W', zFrom: number, zTo: numbe
 }
 
 /** 廊下の星を拾う */
-function starOnLeg(wp: Wp, star: Stage5Star, j: number, lineX: number, sx: number, sz: number, clearOf: ClearOf): void {
+function starOnLeg(wp: Wp, star: Stage5Star, j: number, lineX: number, sx: number, sz: number, clearOf: ClearOf, plan: Stage5Plan): void {
   const y = Y(j);
+  if (star === 'ledge' && plan.slow?.includes('ledge')) {
+    // 台の南がわの段 (1.4m ずつ 2 段) をのぼる
+    const zs = sz - LEDGE.w / 2 - LEDGE.stepD / 2;
+    wp(lineX + 2, y, zs - 1.6, { radius: 1.0 });
+    wp(sx, y, zs - 1.2, { jump: true, jumpDist: 0.5, land: [sx, y + LEDGE.step, zs], radius: 0.8 });
+    wp(sx, y + LEDGE.step, zs, { radius: 0.8 });
+    wp(sx, y + LEDGE.step, sz - LEDGE.w / 2 - 0.6, { jump: true, jumpDist: 0.5, land: [sx, y + LEDGE.h, sz - 0.5], radius: 0.8 });
+    wp(sx, y + LEDGE.h, sz, { radius: 1.0 });
+    wp(lineX + 0, y, sz + LEDGE.w / 2 + 3, { radius: 1.5 });
+    return;
+  }
   if (star === 'ledge') {
     // 高い台 (2.8m): 外周の線から、台へ跳び乗って、星を取って、降りる
     const side = Math.sign(sx - lineX);
@@ -580,8 +644,8 @@ function gateRoute(wp: Wp, j: number): void {
   const gx = gateX(j);
   const y0 = Y(j);
   const y1 = Y(j + 1);
-  const n = 3;
-  const vMouth = vWall + n * STEP_DEPTH + (kind === 'C' || kind === 'K' ? CRATE_T : 0);
+  const n = gateHeights().length;
+  const vMouth = vWall + n * STEP_DEPTH + CRATE_T;
   // ゲートの手前 (外側) まで
   if (j >= 1) {
     // 着いた台 (ARRIVE_X, 着いた側) から、リングの外周ぞいを西へ、ゲートの手前へ
@@ -593,14 +657,12 @@ function gateRoute(wp: Wp, j: number): void {
   }
   if (kind === 'U') {
     // 気流の中で跳ぶ → 壁の上へ (壁から 3m 奥に降りる)
-    wp(gx, y0, sg * (vWall + 1.8), { jump: true, jumpDist: 0.5, land: [gx, y1, sg * (vWall - 3)], radius: 0.8 });
+    wp(gx, y0, sg * (vWall + 1.8), { jump: true, hold: true, jumpDist: 0.5, land: [gx, y1, sg * (vWall - 3)], radius: 0.8 });
     wp(gx, y1, sg * (vWall - 3), { radius: 1.2 });
   } else {
-    if (kind === 'C' || kind === 'K') {
-      // 扉を壊す
-      wp(gx, y0, sg * (vMouth + 0.35), { radius: 0.5, action: true });
-    }
-    const heights = gateHeights(kind);
+    // 扉を壊す
+    wp(gx, y0, sg * (vMouth + 0.35), { radius: 0.5, action: true });
+    const heights = gateHeights();
     // 段をのぼる: 各段の手前 (外側の縁) で跳んで、次の段の中心へ
     let vEdge = vWall + n * STEP_DEPTH;
     let yBase = y0;

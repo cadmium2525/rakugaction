@@ -261,6 +261,8 @@ export interface WaypointDef {
   jump?: boolean;
   /** 到着前にジャンプを始める距離 (m)。省略時はボット既定値。 */
   jumpDist?: number;
+  /** jump と合わせて使う: ジャンプを押し続けて、跳び上がるまでその場で待つ (上昇気流の中は、浮いたり弾んだりして、接地の瞬間に押さないと跳べないため) */
+  hold?: boolean;
   /** ジャンプの着地目標 (向こう側の床の中心)。空中ではここへ向けて入力を絞り、通り過ぎないようにする。 */
   land?: V3t;
   /** 到着したら ACTION を押す */
@@ -351,4 +353,6 @@ export interface StageDef {
    * 省略 = 加算なし (直線コースのステージ)
    */
   missPenaltySec?: number;
+  /** ミニマップ: 箱の足あとを高さで陰影 (高いほど明るい。高い塔のステージ)。坂 (回転した箱) も描く */
+  minimapHeightShade?: boolean;
 }

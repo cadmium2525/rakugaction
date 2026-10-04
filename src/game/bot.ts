@@ -169,7 +169,21 @@ export class Bot {
     this.swimControl(out, wp);
 
     // 到着判定
-    if (wp.jump) {
+    if (wp.jump && wp.hold) {
+      // 上昇気流の中: 目標の近くで、ジャンプを押し続ける (接地の瞬間に跳ぶ)。跳び上がったら次へ
+      if (dist <= (wp.jumpDist ?? DEFAULT_JUMP_DIST) + 0.5) {
+        out.jumpPressed = true;
+        out.jumpHeld = true;
+        if (p.vel.y > 3 && !p.grounded) {
+          this.holdJump = true;
+          this.landTarget = wp.land ?? null;
+          this.airborneSinceJump = false;
+          this.advance(wp);
+          this.steer(out);
+        }
+        return;
+      }
+    } else if (wp.jump) {
       const jd = wp.jumpDist ?? DEFAULT_JUMP_DIST;
       // 水中では、体が水面近くまで上がってから跳ぶ (深い所の JUMP は浮上の泳ぎになり、水から跳び出せない)。浮かんだ体は、頭が水面に出る高さ (浸かり 0.9) で止まるので、基準はプレイヤー側の跳べる浸かり (WATER_JUMP_DEPTH) と同じにする
       const canJump = p.grounded || (p.swimming && p.submerge < WATER_JUMP_DEPTH);

@@ -3,7 +3,7 @@ import { statsToParams } from '../../src/game/params';
 import { buildStage5, STAGE5_GEOMETRY, STAGE5_STARS, stage5RouteFor } from '../../src/stages/stage5';
 import type { Stage5Plan, Stage5Star } from '../../src/stages/stage5';
 import { makeSim, paramsFor, run } from '../helpers/headless';
-import { spawnProblems } from './fieldChecks';
+import { enemyRouteProblems, spawnProblems } from './fieldChecks';
 import { ALL_BUILDS, fmt, runStage } from './harness';
 import { validateStage } from './validate';
 
@@ -21,6 +21,10 @@ describe('STAGE 5 巨人の塔', () => {
   it('ステージ定義が健全で、復活地点の検査を通る', async () => {
     await validateStage(stage);
     expect(spawnProblems(stage)).toEqual([]);
+    expect(enemyRouteProblems(stage)).toEqual([]);
+    // 頭上の高さ: 大きな体 (身長 2.56m) が通れる (3m 近く)。木箱の扉の横木の下 (1 段目の上)・高い台の屋根の下
+    expect(G.gateClearance).toBeGreaterThanOrEqual(3);
+    expect(G.ledgeClearance).toBeGreaterThanOrEqual(2.9);
   });
 
   it('星は 8 個・必要 5・戦わずに取れる星が 5 個 / 敵を倒すと現れる星が 3 個 (踏める敵だけが守る)', () => {
@@ -37,7 +41,7 @@ describe('STAGE 5 巨人の塔', () => {
     }
   });
 
-  it('塔の寸法: 階の高さ 6m・外周の幅 12 / 10 / 8 / 8m・坂は 20m で 6m (約 17°)・ゲートは外周の幅の中に収まる・上昇気流の柱は 2 本以上', () => {
+  it('塔の寸法: 階の高さ 6m・外周の幅 12 / 10 / 8 / 8m・坂は 20m で 6m (約 17°)・ゲートは外周の幅の中に収まる (木箱の扉の段は 1.2m ずつ 5 つ)・上昇気流の柱は 2 本以上', () => {
     expect(G.floorH).toBe(6);
     const widths = [0, 1, 2, 3].map((i) => G.ro[i] - G.ro[i + 1]);
     expect(widths).toEqual([12, 10, 8, 8]);
@@ -47,8 +51,7 @@ describe('STAGE 5 巨人の塔', () => {
     // どのゲートも、そのリングの幅の中に収まる (外周を歩く線 (外周から 1.2m) をふさがない)
     G.gates.forEach((kind, j) => {
       if (!kind || kind === 'U') return;
-      const depth = 3 * G.stepDepth + (kind === 'C' || kind === 'K' ? 1.3 : 0);
-      expect(depth, `ゲート ${j}`).toBeLessThan(G.ro[j - 1] - G.ro[j] - 1.6);
+      expect(G.gateDepth(kind), `ゲート ${j}`).toBeLessThan(G.ro[j - 1] - G.ro[j] - 1.6);
     });
     expect(stage.winds!.filter((w) => w.vel[1] === G.ventVel).length).toBeGreaterThanOrEqual(2);
   });
@@ -81,6 +84,49 @@ describe('STAGE 5 巨人の塔', () => {
       }
     }
   }, 600_000);
+
+  it('1 階の高い台の屋根: 台の上から、東 (4m 先の 2 階の壁) へ助走して跳んでも、2 階に着けない (全ビルド + 跳躍力が極端に大きい体・小さい体・足の速い体)', async () => {
+    const mk = (jump: number, size: number, speed = 100): ReturnType<typeof paramsFor> => statsToParams({ hp: 100, power: 100, defense: 100, speed, jump, weight: 100 }, { size, reach: 1, stability: 1 });
+    const everyone: [string, ReturnType<typeof paramsFor>][] = [
+      ...ALL_BUILDS.map((id): [string, ReturnType<typeof paramsFor>] => [id, paramsFor(id)]),
+      ['J222', mk(222, 1)], ['J222_L', mk(222, 1.6)], ['J222_S', mk(222, 0.6)], ['J150', mk(150, 1)], ['FAST222', mk(150, 1, 222)],
+    ];
+    const ledgeTop = G.y(1) + 2.8;
+    for (const [id, params] of everyone) {
+      for (const hold of [8, 16, 24]) {
+        const sim = await makeSim(stage, params);
+        sim.player.placeFeet(-43.4, ledgeTop + 0.05, 12);
+        let on = false;
+        run(sim, 60 * 5, (i, s) => {
+          const p = s.player;
+          if (p.grounded && p.feetY > G.y(2) - 0.3 && p.pos.x > -36) on = true;
+          return { moveX: 1, jumpPressed: i === hold, jumpHeld: i >= hold && i < hold + 30 };
+        });
+        expect(on, `${id}: 台の上から 2 階の床に着いた (ジャンプを ${hold} フレーム後に押した)`).toBe(false);
+      }
+    }
+  }, 300_000);
+
+  it('木箱の扉の奥の段 (1.2m ずつ 5 つ) は、2 階側から降りても、閉じ込められない: 跳べる高さが最も低いキャラ (jump 45・攻撃力が低い) でも、のぼって 2 階に戻れる', async () => {
+    const weak = statsToParams({ hp: 100, power: 60, defense: 100, speed: 100, jump: 45, weight: 100 }, { size: 1, reach: 1, stability: 1 });
+    const weakBig = statsToParams({ hp: 100, power: 60, defense: 100, speed: 100, jump: 45, weight: 100 }, { size: 1.5, reach: 1, stability: 1 });
+    for (const [id, params] of [['weak', weak], ['weakBig', weakBig]] as const) {
+      const sim = await makeSim(stage, params);
+      // 2 階の床の、扉の真上 (x = ゲートの x・南の壁ぎわ) から、南へ降りる → 扉の前で、もどる
+      sim.player.placeFeet(G.gateX(1), G.y(2) + 0.05, -(G.ro[1] - 1));
+      let minY = Infinity;
+      let backOnTop = false;
+      run(sim, 60 * 22, (i, s) => {
+        const p = s.player;
+        minY = Math.min(minY, p.feetY);
+        if (i > 60 * 10 && p.grounded && p.feetY > G.y(2) - 0.3) backOnTop = true;
+        // 最初の 8 秒は南へ (降りる)・そのあとは北へ (のぼる)。ジャンプは連打
+        return { moveZ: i < 60 * 8 ? -1 : 1, jumpPressed: i % 6 === 0, jumpHeld: true };
+      });
+      expect(minY, `${id}: 段を降りていない`).toBeLessThan(G.y(1) + 1.4);
+      expect(backOnTop, `${id}: 段をのぼって、2 階に戻れなかった (閉じ込められた)`).toBe(true);
+    }
+  }, 120_000);
 
   const reports = new Map<string, Awaited<ReturnType<typeof runStage>>>();
   const runPlan = async (build: string, plan: Stage5Plan): Promise<Awaited<ReturnType<typeof runStage>>> => {
@@ -119,11 +165,11 @@ describe('STAGE 5 巨人の塔', () => {
     for (const id of ['POWER', 'HEAVY', 'EXTREME']) expect((await runPlan(id, { gates: g2, stars: common })).cleared, id).toBe(false);
   }, 900_000);
 
-  it('体型の星: 風の柱 (STANDARD・SPEED・JUMP のみ)・1 階の高い台 (SPEED・JUMP のみ)・木箱の部屋 (STANDARD・POWER・HEAVY・EXTREME)', async () => {
+  it('体型の星の、近道 (気流・跳躍・木箱): 風の柱 (STANDARD・SPEED・JUMP のみ)・1 階の高い台 (SPEED・JUMP のみ)・木箱の部屋の正面の扉 (STANDARD・POWER・HEAVY・EXTREME)。使えない体は、止まる', async () => {
     const withStar = (build: string, s: Stage5Star): Promise<Awaited<ReturnType<typeof runStage>>> => {
       const plan: Stage5Plan = ['STANDARD', 'POWER', 'HEAVY', 'EXTREME'].includes(build)
-        ? { gates: g1, stars: [s, 'r3w', 'r4e', 'r4w', 'yardE'], dirs: ['E', 'E', 'W', 'E'] }
-        : { gates: g2, stars: [s, 'r3w', 'r4e', 'r4w', 'yardE'], dirs: [s === 'ledge' ? 'W' : 'E', 'E', 'W', 'E'] };
+        ? { gates: g1, stars: [s, 'r3w', 'r4e', 'r4w', 'yardE'], dirs: ['E', 'E', 'W', 'E'], slow: [] }
+        : { gates: g2, stars: [s, 'r3w', 'r4e', 'r4w', 'yardE'], dirs: [s === 'ledge' ? 'W' : 'E', 'E', 'W', 'E'], slow: [] };
       return runPlan(build, plan);
     };
     const expectSet = async (s: Stage5Star, ok: readonly string[]): Promise<void> => {
@@ -142,9 +188,80 @@ describe('STAGE 5 巨人の塔', () => {
     await expectSet('chamber', C_BUILDS);
   }, 1_200_000);
 
-  it('本道 (近道なし・全員が取れる星): 全ビルドが死なずにクリアでき、遅すぎない', async () => {
+  it('体型の星の、だれでも行ける遅い道 (風の柱の西の坂・高い台の南の段・木箱の部屋のうしろの入口): どのビルドも、戦わずに取れて、死なない', async () => {
     for (const id of ALL_BUILDS) {
-      const r = await runStage(stage, id, 'main', { maxTime: 300, maxDeaths: 2 });
+      for (const s of ['vent', 'ledge', 'chamber'] as const) {
+        const r = await runPlan(id, { gates: none, stars: [s, 'r3w', 'r4e', 'r4w', 'yardE'], dirs: [s === 'ledge' ? 'W' : 'E', 'E', 'W', 'E'], slow: [s] });
+        expect(r.cleared, `${s} (遅い道): ${fmt(r)}`).toBe(true);
+        expect(r.deaths, `${s} (遅い道): ${fmt(r)}`).toBe(0);
+      }
+    }
+  }, 1_800_000);
+
+  it('上昇気流: 走って気流に入って、ジャンプを押し続ければ、STANDARD・JUMP は柱 (6m) の上に着く。POWER・HEAVY・EXTREME は、どの操作でも (走る・立って連打) 届かない', async () => {
+    const vp = { x: -38, z: -60 };
+    const tryIt = async (id: string, d: number, mode: 'hold' | 'tap' | 'always'): Promise<boolean> => {
+      const sim = await makeSim(stage, paramsFor(id));
+      sim.player.placeFeet(vp.x, 0.05, vp.z - 1.5 - 1.8 - d);
+      let on = false;
+      run(sim, 60 * 6, (i, s) => {
+        const p = s.player;
+        if (p.grounded && p.feetY > 5.7 && Math.abs(p.pos.x - vp.x) < 2 && Math.abs(p.pos.z - vp.z) < 2) on = true;
+        const inZone = p.pos.z > vp.z - 5.1 && p.pos.z < vp.z - 1.5;
+        const jump = mode === 'hold' ? inZone : mode === 'always' ? true : i % 8 === 0;
+        return { moveZ: 1, jumpPressed: jump && i % 4 === 0, jumpHeld: jump };
+      });
+      return on;
+    };
+    for (const id of ['STANDARD', 'JUMP']) for (const d of [2.5, 4, 6]) expect(await tryIt(id, d, 'hold'), `${id}: 走って入って押し続けて、柱の上に着かなかった (助走 ${d}m)`).toBe(true);
+    for (const id of ['POWER', 'HEAVY', 'EXTREME']) {
+      for (const d of [2.5, 4, 6]) for (const mode of ['hold', 'tap', 'always'] as const) expect(await tryIt(id, d, mode), `${id}: 柱の上に着いてしまった (助走 ${d}m・${mode})`).toBe(false);
+      const sim = await makeSim(stage, paramsFor(id));
+      sim.player.placeFeet(vp.x, 0.05, vp.z - 3.3);
+      let on = false;
+      let launched = false;
+      run(sim, 60 * 8, (i, s) => {
+        const p = s.player;
+        if (p.grounded && p.feetY > 5.7 && Math.abs(p.pos.x - vp.x) < 2 && Math.abs(p.pos.z - vp.z) < 2) on = true;
+        if (p.feetY > 2.5) launched = true;
+        return { moveZ: launched ? 1 : 0, jumpPressed: i % 4 === 0, jumpHeld: true };
+      });
+      expect(on, `${id}: 気流の中に立って連打して、柱の上に着いてしまった`).toBe(false);
+    }
+  }, 600_000);
+
+  it('鉄球の通り道は、箱 (坂・壁・柱・段) に刺さらない (往復の 20 点で、球の体積の中に箱が入らない)', () => {
+    for (const sw of stage.sweepers!) {
+      for (let i = 0; i <= 20; i++) {
+        const f = i / 20;
+        const c = [0, 1, 2].map((a) => sw.points[0][a] + (sw.points[1][a] - sw.points[0][a]) * f);
+        // 球の体積の中の点 (3 × 3 × 3)
+        for (const dx of [-0.9, 0, 0.9]) {
+          for (const dy of [-0.9, 0, 0.9]) {
+            for (const dz of [-0.9, 0, 0.9]) {
+              const px = c[0] + dx * (sw.size[0] / 2);
+              const py = c[1] + dy * (sw.size[1] / 2);
+              const pz = c[2] + dz * (sw.size[2] / 2);
+              for (const bx of stage.boxes) {
+                // 箱の局所座標 (z 軸まわりの回転だけ (坂))。箱の中の点は、刺さっている
+                const rz = bx.rot?.[2] ?? 0;
+                const ox = px - bx.pos[0];
+                const oy = py - bx.pos[1];
+                const lx = ox * Math.cos(rz) + oy * Math.sin(rz);
+                const ly = -ox * Math.sin(rz) + oy * Math.cos(rz);
+                const inside = Math.abs(lx) < bx.size[0] / 2 - 0.02 && Math.abs(ly) < bx.size[1] / 2 - 0.02 && Math.abs(pz - bx.pos[2]) < bx.size[2] / 2 - 0.02;
+                expect(inside, `鉄球 ${sw.id} が、箱 (${bx.pos.map((v) => v.toFixed(1)).join(', ')}) に刺さっている`).toBe(false);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it('本道 (近道なし・戦わずに取れる星 5 個をだれでも行ける遅い道で): 全ビルドが、戦わず (受動プレイ) に、死なずにクリアでき、遅すぎない', async () => {
+    for (const id of ALL_BUILDS) {
+      const r = await runStage(stage, id, 'main', { maxTime: 300, maxDeaths: 2, fight: false });
       expect(r.cleared, fmt(r)).toBe(true);
       expect(r.deaths, fmt(r)).toBe(0);
       expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 140) * 1.8);
