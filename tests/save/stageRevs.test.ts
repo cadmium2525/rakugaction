@@ -56,7 +56,7 @@ describe('コースの版 (作り替えたステージの、古いベストを�
     expect(fresh.dropStaleBests(stageRevs(), stageRevKey()).timeAttack).toBe(false);
     expect(fresh.allStagesBest?.totalMs).toBe(200_000);
     // ALL STAGES のベストを出した時の版の組み合わせから、さらに作り替わったら捨てる
-    expect(fresh.dropStaleBests({ ...stageRevs(), stage3: 2 }, stageRevKey().replace(/,1,1,1$/, ',2,1,1')).timeAttack).toBe(true);
+    expect(fresh.dropStaleBests({ ...stageRevs(), stage4: 2 }, stageRevKey().replace(/,1,1$/, ',2,1')).timeAttack).toBe(true);
   });
 
   it('保存と読み込み: 版 (rev) と ALL STAGES の版の組み合わせ (revKey) が残る。壊れた値は捨てる', () => {

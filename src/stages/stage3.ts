@@ -5,7 +5,7 @@ import { FieldKit } from './fieldKit';
 import { PAINT, terrainHeightAt } from './terrain';
 import { TerrainBuilder } from './terrainBuilder';
 import { brazier, column, coral, doorFrame, mossColumn, seaweed, TEMPLE_PALETTE } from './templeKit';
-import type { StageDef, WaypointDef } from './types';
+import type { StageDef, SurfaceStyle, WaypointDef } from './types';
 
 /** 足元の高さ (m): 陸 = 0.9、水面 = 0、大広間の床 = −6、ポンプ室の床 = −3、高い足場 = 2.4。 */
 const G = 0.9;
@@ -113,10 +113,10 @@ export function buildStage3(): StageDef {
   const rng = new Rng(3303);
 
   /** 地面に立つ壁 (幅 w・奥行き d。足元の地形に合わせる)。水のくぼみの壁は、下の tallWall で底を指定する */
-  const wallZ = (cx: number, z0: number, z1: number, w = 2, h = 6): void => void k.wall(cx, (z0 + z1) / 2, w, z1 - z0, h, 'brick');
-  const wallX = (cz: number, x0: number, x1: number, d = 2, h = 6): void => void k.wall((x0 + x1) / 2, cz, x1 - x0, d, h, 'brick');
+  const wallZ = (cx: number, z0: number, z1: number, w = 2, h = 6): void => void k.wall(cx, (z0 + z1) / 2, w, z1 - z0, h, 'stone');
+  const wallX = (cz: number, x0: number, x1: number, d = 2, h = 6): void => void k.wall((x0 + x1) / 2, cz, x1 - x0, d, h, 'stone');
   /** 底 (bottom) と上面 (top) を指定する壁 (水のくぼみの縁。崖をふさぐ) */
-  const tallWall = (cx: number, cz: number, w: number, d: number, bottom: number, top: number, style: 'brick' | 'stone' = 'brick'): void =>
+  const tallWall = (cx: number, cz: number, w: number, d: number, bottom: number, top: number, style: SurfaceStyle = 'stone'): void =>
     void k.box([cx, (bottom + top) / 2, cz], [w, top - bottom, d], style);
 
   /** 水の中の石の台: 浅い棚 (SHELF_TOP) の上に、小さな台 (STAND_TOP)。底は、大広間の床より下まで */
@@ -179,7 +179,7 @@ export function buildStage3(): StageDef {
       { x: p.big, w: 3, h: BIG_DOOR },
     ].sort((a, b) => a.x - b.x);
     let cursor = -HALL.x;
-    const piece = (a: number, b: number, y0: number, y1: number): void => void k.box([(a + b) / 2, (y0 + y1) / 2, p.z], [b - a, y1 - y0, 1.4], 'brick');
+    const piece = (a: number, b: number, y0: number, y1: number): void => void k.box([(a + b) / 2, (y0 + y1) / 2, p.z], [b - a, y1 - y0, 1.4], 'stone');
     for (const d of sorted) {
       const x0 = d.x - d.w / 2;
       const x1 = d.x + d.w / 2;
@@ -285,9 +285,11 @@ export function buildStage3(): StageDef {
   gx(GATE.seal, GATE.side - GATE.sideW / 2);
   gx(GATE.side + GATE.sideW / 2, OUTER);
   // 石の封印: 大きな 1 つの石 (箱を積んだ壁にすると、継ぎ目を足がかりに跳び上がって、乗り越えられてしまう)。上は石でふさぐ。攻撃力が足りないと壊せない
-  k.breakables.push({ id: 'seal-gate', pos: [0, G + 1.5, GATE.z], size: [GATE.seal * 2, 3, 2], toughness: GATE.toughness, style: 'stone' });
+  k.breakables.push({ id: 'seal-gate', pos: [0, G + 1.5, GATE.z], size: [GATE.seal * 2, 3, 2], toughness: GATE.toughness, style: 'ice' });
   // (壁は高く: 石の縁に引っかかって跳び直すと、5m 以上の高さまで上がれてしまう。壁の上に乗れない高さにする)
-  k.box([0, G + 5.5, GATE.z], [GATE.seal * 2, 5, 2], 'brick');
+  k.box([0, G + 5.5, GATE.z], [GATE.seal * 2, 5, 2], 'stone');
+  for (const sx of [-1, 1]) k.push({ shape: 'box', pos: [sx * (GATE.seal + 0.35), G + 1.8, GATE.z - 1.1], size: [0.7, 3.6, 0.5], color: 0xe9c76a, style: 'stone' });
+  k.push({ shape: 'box', pos: [0, G + 3.55, GATE.z - 1.1], size: [GATE.seal * 2 + 1.4, 0.5, 0.5], color: 0xe9c76a, style: 'stone' });
   k.sign(7, GATE.z - 4, 0.2, ['石の封印'], {
     icon: 'action',
     hint: ['関門のまんなかの石の封印は、とても硬い。力持ちのキャラだけが、{action} で壊して近道できる', '左右の通用口からは、だれでも通れる (少し遠回り)'],
@@ -362,7 +364,7 @@ export function buildStage3(): StageDef {
     waters: k.waters,
     ambient: { motes: { count: 70, color: 0xcff6ee, size: 0.1 }, butterflies: 0 },
     routes,
-    parTime: 140,
+    parTime: 150,
     missPenaltySec: 3,
   };
 }

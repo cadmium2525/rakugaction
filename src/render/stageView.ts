@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { lerp } from '../core/math';
 import type { CrumbleState, GameSim } from '../game/sim';
-import type { StageDef } from '../stages/types';
+import type { StageDef, SurfaceStyle } from '../stages/types';
 import { EnemyView } from './enemyView';
 import { PickupView } from './pickupView';
 import { SignView } from './signView';
@@ -39,10 +39,9 @@ export class StageView {
   private readonly mat: SurfaceMaterial = createSurfaceMaterial();
   /** 動く床用 (模様をその床の座標で描く) */
   private readonly moverMat: SurfaceMaterial = createSurfaceMaterial(1, { local: true });
-  /** 壊せる箱 (全部 1 つの InstancedMesh = 1 draw call) */
-  private breakableInst: THREE.InstancedMesh | null = null;
-  private readonly breakableIndex = new Map<string, number>();
-  private readonly breakableDefs: { pos: readonly [number, number, number]; size: readonly [number, number, number] }[] = [];
+  /** 壊せる箱 (見た目の種類 = style ごとに 1 つの InstancedMesh。ふつうは木箱だけ = 1 draw call) */
+  private readonly breakableInsts: THREE.InstancedMesh[] = [];
+  private readonly breakableIndex = new Map<string, { inst: THREE.InstancedMesh; i: number; pos: readonly [number, number, number]; size: readonly [number, number, number] }>();
   /** 破片 (InstancedMesh でまとめて 1 draw call) */
   private readonly debrisInst: THREE.InstancedMesh;
   private readonly debris: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; rx: number }[] = [];
@@ -97,22 +96,27 @@ export class StageView {
       this.sweeperMeshes.push(mesh);
       this.group.add(mesh);
     }
-    // 壊せる箱 (壊すと消えて破片が飛ぶ): 全部を InstancedMesh に
-    const unit = boxGeometry({ pos: [0, 0, 0], size: [1, 1, 1], style: 'wood' }, 'crate');
-    if (sim.breakables.length > 0) {
-      this.breakableInst = new THREE.InstancedMesh(unit, this.mat, sim.breakables.length);
-      sim.breakables.forEach((b, i) => {
-        this.breakableIndex.set(b.def.id, i);
-        this.breakableDefs.push({ pos: b.def.pos, size: b.def.size });
+    // 壊せる箱 (壊すと消えて破片が飛ぶ): 見た目の種類ごとに InstancedMesh にまとめる (木箱・石の封印)
+    const byStyle = new Map<SurfaceStyle, typeof sim.breakables>();
+    for (const b of sim.breakables) {
+      const style = b.def.style ?? 'wood';
+      byStyle.set(style, [...(byStyle.get(style) ?? []), b]);
+    }
+    for (const [style, list] of byStyle) {
+      const unit = boxGeometry({ pos: [0, 0, 0], size: [1, 1, 1], style }, 'crate');
+      const inst = new THREE.InstancedMesh(unit, this.mat, list.length);
+      list.forEach((b, i) => {
+        this.breakableIndex.set(b.def.id, { inst, i, pos: b.def.pos, size: b.def.size });
         // 隣り合う箱の継ぎ目が見えるように少し小さく
         this.tmpP.set(b.def.pos[0], b.def.pos[1], b.def.pos[2]);
         this.tmpS.set(b.def.size[0] * 0.95, b.def.size[1] * 0.95, b.def.size[2] * 0.95);
         this.tmpM.compose(this.tmpP, this.tmpQ.identity(), this.tmpS);
-        this.breakableInst?.setMatrixAt(i, this.tmpM);
+        inst.setMatrixAt(i, this.tmpM);
       });
-      this.breakableInst.instanceMatrix.needsUpdate = true;
-      this.breakableInst.frustumCulled = false;
-      this.group.add(this.breakableInst);
+      inst.instanceMatrix.needsUpdate = true;
+      inst.frustumCulled = false;
+      this.group.add(inst);
+      this.breakableInsts.push(inst);
     }
     // 崩れる床: 揺れる → 色づく (赤み) → 落ちる → 戻る、を毎フレーム sim の状態から作る
     if (sim.crumbles.length > 0) {
@@ -221,15 +225,13 @@ export class StageView {
 
   /** 箱が壊れた: 箱を消して破片を飛ばす。 */
   onBreak(id: string): void {
-    const i = this.breakableIndex.get(id);
-    const inst = this.breakableInst;
-    if (i === undefined || !inst) return;
+    const entry = this.breakableIndex.get(id);
+    if (!entry) return;
     // 見えなくする (スケール 0)
     this.tmpM.makeScale(0, 0, 0);
-    inst.setMatrixAt(i, this.tmpM);
-    inst.instanceMatrix.needsUpdate = true;
-    const d = this.breakableDefs[i];
-    this.burst(d.pos, d.size, 6);
+    entry.inst.setMatrixAt(entry.i, this.tmpM);
+    entry.inst.instanceMatrix.needsUpdate = true;
+    this.burst(entry.pos, entry.size, 6);
   }
 
   /** アイテムを取った: 星が弾ける。 */
@@ -394,8 +396,10 @@ export class StageView {
     this.signView?.dispose();
     this.debrisInst.geometry.dispose();
     this.debrisInst.dispose();
-    this.breakableInst?.geometry.dispose();
-    this.breakableInst?.dispose();
+    for (const inst of this.breakableInsts) {
+      inst.geometry.dispose();
+      inst.dispose();
+    }
     this.crumbleInst?.geometry.dispose();
     this.crumbleInst?.dispose();
     for (const m of this.moverMeshes) m.geometry.dispose();
