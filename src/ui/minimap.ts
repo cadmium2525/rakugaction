@@ -72,7 +72,9 @@ export class Minimap {
         const i = terrainIdx(t, ix, iz);
         const hh = t.heights[i];
         const o = (py * w + px) * 4;
-        if (hh < -3) {
+        // 水域の中 (水面より下の地面): 深い水 (大広間・池の床 −6m など) も、水の色で描く
+        const wet = waters.some((wa) => x >= wa.min[0] && x <= wa.max[0] && z >= wa.min[2] && z <= wa.max[2] && hh < wa.max[1]);
+        if (hh < -3 && !wet) {
           img.data[o + 3] = 0; // 島の外 (崖の下)
           continue;
         }
@@ -85,12 +87,7 @@ export class Minimap {
         if (kind === 1) [r, gr, b] = ground.dirt;
         else if (kind === 2) [r, gr, b] = ground.sand;
         else if (kind === 3) [r, gr, b] = ground.rock;
-        for (const wa of waters) {
-          if (x >= wa.min[0] && x <= wa.max[0] && z >= wa.min[2] && z <= wa.max[2] && hh < wa.max[1]) {
-            [r, gr, b] = [86, 170, 214];
-            break;
-          }
-        }
+        if (wet) [r, gr, b] = [86, 170, 214];
         img.data[o] = Math.min(255, r * shade);
         img.data[o + 1] = Math.min(255, gr * shade);
         img.data[o + 2] = Math.min(255, b * shade);

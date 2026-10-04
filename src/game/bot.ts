@@ -184,7 +184,7 @@ export class Bot {
         this.steer(out);
         return;
       }
-    } else if (dist <= (wp.radius ?? DEFAULT_RADIUS) && Math.abs(dy) < 2.6) {
+    } else if (dist <= (wp.radius ?? DEFAULT_RADIUS) && Math.abs(dy) < (wp.dive ? 1.0 : 2.6)) {
       if (wp.action) out.actionPressed = true;
       this.advance(wp);
       if (this.waiting) return;

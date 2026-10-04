@@ -25,7 +25,7 @@ export interface StageEntry {
 export const STAGE_LIST: readonly StageEntry[] = [
   { order: 1, id: 'stage1', rev: 1, title: 'STAGE 1', subtitle: '草原', emoji: '🌿', build: buildStage1 },
   { order: 2, id: 'stage2', rev: 4, title: 'STAGE 2', subtitle: '強風の谷', emoji: '🌪️', build: buildStage2 },
-  { order: 3, id: 'stage3', rev: 2, title: 'STAGE 3', subtitle: '水没神殿', emoji: '🌊', build: buildStage3 },
+  { order: 3, id: 'stage3', rev: 3, title: 'STAGE 3', subtitle: '水没神殿', emoji: '🌊', build: buildStage3 },
   { order: 4, id: 'stage4', rev: 1, title: 'STAGE 4', subtitle: '崩れる遺跡', emoji: '🏛️', build: buildStage4 },
   { order: 5, id: 'stage5', rev: 1, title: 'STAGE 5', subtitle: '巨人の塔', emoji: '🗼', build: buildStage5 },
 ];

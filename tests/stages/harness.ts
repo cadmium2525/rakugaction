@@ -42,11 +42,22 @@ export async function runStage(
 /** 風の周期との位相をずらした走り (開始の待ち時間 0 / 1.5 / 3 / 4.5 秒) の平均タイム。位相しだいで大きく変わる風のステージの、運に左右されない目安 */
 export const PHASE_DELAYS: readonly number[] = [0, 1.5, 3, 4.5];
 
+/**
+ * 周期的な仕掛け (風・水位) の位相をずらす待ち時間。周期が長い (水位 10 秒) ステージは、周期を 4 等分した位相 (周期全体を測る)。
+ * 風だけのステージ (周期 6 秒前後) は、PHASE_DELAYS (0 / 1.5 / 3 / 4.5 秒)。
+ */
+export function phaseDelays(stage: StageDef): readonly number[] {
+  const levelPeriods = (stage.waters ?? []).flatMap((w) => (w.level ? [w.level.period] : []));
+  if (levelPeriods.length === 0) return PHASE_DELAYS;
+  const period = Math.max(...levelPeriods);
+  return [0, 1, 2, 3].map((i) => (i * period) / 4);
+}
+
 export async function runStageAveraged(stage: StageDef, buildId: string | typeof FRAGILE_BUILD, routeName = 'main', opts: { maxTime?: number; maxDeaths?: number; fight?: boolean } = {}): Promise<{ mean: number; times: number[]; clearedAll: boolean; deaths: number }> {
   const times: number[] = [];
   let clearedAll = true;
   let deaths = 0;
-  for (const d of PHASE_DELAYS) {
+  for (const d of phaseDelays(stage)) {
     const r = await runStage(stage, buildId, routeName, { ...opts, startDelay: d });
     if (!r.cleared) clearedAll = false;
     deaths += r.deaths;
