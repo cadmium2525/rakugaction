@@ -56,8 +56,8 @@ describe('STAGE 3 水没神殿', () => {
     const high = levels.filter((l) => l >= G.pump.jumpLevel).length / levels.length;
     expect(high).toBeGreaterThan(1 / 6);
     expect(high).toBeLessThan(1 / 3);
-    // 高台 (上面 = 地面) へ水面から跳び乗るには、水位が高台の上面より 0.4m 以内まで上がる必要がある (実測: 標準・重い体 0.4、軽い体 0.65)
-    expect(G.pump.ledgeTop - G.pump.jumpLevel).toBeLessThanOrEqual(0.45);
+    // 高台 (上面 = 地面) へ水面から跳び乗るには、水位が高台の上面より 0.6m 以内まで上がる必要がある (批評 B の実測: JUMP 連打で 0.15〜0.35m の水位)。ボットは余裕を見て jumpLevel で待つ
+    expect(G.pump.ledgeTop - G.pump.jumpLevel).toBeLessThanOrEqual(0.6);
   });
 
   it('翼の部屋 (敵が守る星) には、歩いて行ける (傾き 50° 以下で、スタートから)', () => {
@@ -119,7 +119,7 @@ describe('STAGE 3 水没神殿', () => {
   }, 300_000);
 
   it('名前つきルートは、通れるビルドが死なずにクリアする。ドア・封印の条件がある道は、条件を満たさないビルドが止まる (どのビルドも通れる道が、他にある)', async () => {
-    // 条件つきのルート: small / east = 小さいドア (身長 2.0m 以下)・west / west_dive (と、その _b) = ポンプ室に水面から跳び乗る (身長 1.8m 以下)・*_b = 石の封印を壊す (攻撃力 1.25 以上)
+    // 条件つきのルート: small / east = 小さいドア (身長 2.0m 以下)・west / west_dive (と、その _b) = ポンプ室に水面から跳び乗る (ボットは、背の高い体では跳び乗れない)・*_b = 石の封印を壊す (攻撃力 1.25 以上)
     const conditional = (name: string): boolean => name === 'small' || name === 'east' || name === 'west' || name === 'west_dive' || name.endsWith('_b');
     for (const name of Object.keys(stage.routes ?? {})) {
       for (const id of ALL_BUILDS) {
@@ -162,6 +162,11 @@ describe('STAGE 3 水没神殿', () => {
   it('関門の石の封印は、攻撃力 1.25 以上 (POWER・EXTREME) だけが壊せる近道。ほかのビルドは、左右の通用口から通る', async () => {
     for (const id of ['POWER', 'EXTREME']) expect(paramsFor(id).attackPower, id).toBeGreaterThanOrEqual(G.gate.toughness);
     for (const id of ['STANDARD', 'SPEED', 'JUMP', 'HEAVY']) expect(paramsFor(id).attackPower, id).toBeLessThan(G.gate.toughness);
+    // 看板の「攻撃力 (POWER) が 133 以上」と、ゲーム内の能力値が合っている (攻撃力 = (POWER / 100)^0.8)
+    const traits = { size: 1, reach: 1, stability: 1 };
+    const atk = (power: number): number => statsToParams({ hp: 100, power, defense: 100, speed: 100, jump: 100, weight: 100 }, traits).attackPower;
+    expect(atk(133)).toBeGreaterThanOrEqual(G.gate.toughness);
+    expect(atk(130)).toBeLessThan(G.gate.toughness);
     const sealed = stage.breakables!.find((b) => b.id === 'seal-gate')!;
     expect(sealed.toughness).toBe(G.gate.toughness);
     const plan: Stage3Plan = { stars: ['tower', 'cistern', 'guard', 'pool', 'pump'], trunk: 'west', pump: 'walk' };
@@ -181,7 +186,7 @@ describe('STAGE 3 水没神殿', () => {
     }
   }, 300_000);
 
-  it('ポンプ室の高台: 東の壁ぞいの石の通路を歩けば、どのビルドでも行ける (待たない)。水面から跳び乗る近道は、背の低い体 (身長 1.8m 以下) だけ (浮かんだ体は、頭が水面に出る深さで止まる)', async () => {
+  it('ポンプ室の高台: 東の壁ぞいの石の通路を歩けば、どのビルドでも行ける (待たない)。水面から跳び乗る近道は、背の低い体 (ボットは JUMP を 1 回だけ押すので、身長 1.8m 以下) で測る', async () => {
     const plan: Stage3Plan = { stars: free, trunk: 'east', doors: 'big' };
     for (const id of ALL_BUILDS) {
       const walk = await runPlan(id, { ...plan, pump: 'walk' });
@@ -193,7 +198,5 @@ describe('STAGE 3 水没神殿', () => {
       expect(swim.cleared, fmt(swim)).toBe(true);
       expect(swim.deaths, fmt(swim)).toBe(0);
     }
-    // 背の高い体は、水面から跳び乗れない (ボットは、水位が上がるのを待ち続けて止まる)
-    for (const id of ['HEAVY', 'EXTREME']) expect((await runPlan(id, { ...plan, pump: 'swim' })).cleared, id).toBe(false);
   }, 300_000);
 });

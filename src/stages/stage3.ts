@@ -51,7 +51,7 @@ const ISLET = { x: 17, z: 4, s: 7 };
 const POOL = { x0: 32, x1: 42, z0: 12, z1: 38, f0: 21, f1: 29, px: 37, pz: 25, ps: 4 };
 /**
  * ポンプ室 (水位が周期的に上下する水槽。北の端に、水面から跳び乗る高台)。水位は 前庭の地面 (0.9m) を超えない (水面の板が、壁なしで空中に見えない)。
- * 高台 (上面 = 地面と同じ 0.9m) へは、水位が jumpLevel 以上の時に水面から JUMP して跳び乗る。東の壁ぞいの石の通路 (CATWALK) を歩いても行ける (少し遠回り)。
+ * 高台 (上面 = 地面と同じ 0.9m) へは、水位が高い時に水面から JUMP して跳び乗る (実測: 0.3m 以上で、JUMP を連打すれば全ビルドが乗れる。jumpLevel = ボットが余裕を見て待つ水位)。東の壁ぞいの石の通路 (CATWALK) を歩いても行ける (少し遠回り)。
  */
 const PUMP = { x0: 22, x1: 48, z0: 50, z1: 68, f0: 57, cx: 35, level: { amplitude: 1.9, period: 10, phase: 0 }, base: -1.0, ledgeZ0: 65.5, ledgeZ1: 68, jumpLevel: 0.5 };
 const CATWALK = { x0: 45, x1: 48, z0: 46.5, z1: 64, top: 2.4, stepZ0: 43.5, stepTop: 1.65 };
@@ -175,7 +175,7 @@ export function buildStage3(): StageDef {
   k.checkpoint('cp0', 0, SPAWN_Z);
   k.sign(5, SPAWN_Z, Math.PI + 0.2, ['出発'], {
     icon: 'star',
-    hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) で、北のゴールが開く', '水に入ると泳ぎ: {jump} で浮き、{action} で潜る。体が小さいほど速く泳げる'],
+    hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) でゴールが開く', '水の中: {jump} で浮き、{action} で潜る。体が小さいほど速く泳げる'],
   });
   for (const sx of [-1, 1]) {
     bannerPole(k.push, sx * 8, k.g(sx * 8, -70), -70, sx < 0 ? 0xd9573f : 0xffd23f);
@@ -188,7 +188,7 @@ export function buildStage3(): StageDef {
   k.checkpoint('cp1', 0, -38);
   k.sign(4, -38, Math.PI + 0.2, ['大広間'], {
     icon: 'warn',
-    hint: ['神殿の大広間は水の底。浜から水に入って、泳いで渡る', '左右の通路は、水に入らずに通れる (道は長い)'],
+    hint: ['大広間は水の底。浜から水に入って、泳いで渡る', '左右の通路は、水に入らずに通れる (道は長い)'],
   });
   k.water('hall', -HALL.x, HALL.z0, HALL.x, HALL.z1, 0, 16);
   // 側壁 (東西): 浜の崖をふさいで、広間の外へ出られないようにする
@@ -213,12 +213,12 @@ export function buildStage3(): StageDef {
   }
   k.sign(-4, -38, Math.PI + 0.2, ['小さいドア'], {
     icon: 'arrow',
-    hint: ['仕切りのまんなかは「小さいドア」: {action} で底まで潜れば、ほとんどのキャラが通れる近道', 'とても大きいキャラ (HEAVY・EXTREME) は、横の大きいドアへ'],
+    hint: ['まんなかの小さいドアは、{action} で底まで潜れば通れる近道', 'とても大きいキャラは、横の大きいドアへ'],
   });
   // 穴 (深い所の星) と浮島 (石の台の星)
   const pitY = (terrainHeightAt(terrain, PIT.x, PIT.z) ?? HF) + 1.0;
   k.star('底の穴', PIT.x, PIT.z, 1.0, pitY, { id: 'star-pit' });
-  k.sign(-12, -37, Math.PI + 0.4, ['深い穴'], { icon: 'action', hint: ['広間の床の西寄りに、深い穴がある。底に星がある', '{action} を押し続けて潜ろう (浮く体は、押し続けないと浮いてくる)'] });
+  k.sign(-12, -37, Math.PI + 0.4, ['深い穴'], { icon: 'action', hint: ['広間の床の西寄りに深い穴があって、底に星がある', '{action} を押し続けて潜ろう (軽い体は、すぐ浮いてくる)'] });
   stand(ISLET.x, ISLET.z, ISLET.s);
   k.star('浮島', ISLET.x, ISLET.z, 1.35, STAND_TOP + 1.35, { id: 'star-islet' });
   k.sign(12, -37, Math.PI, ['浮島'], { icon: 'jump', hint: ['広間の東寄りに、水面から出た石の台がある。上に星がある', '水面近くで {jump} (連打) して、台に乗ろう'] });
@@ -268,7 +268,7 @@ export function buildStage3(): StageDef {
   k.sign(40, HUB_N - 4, Math.PI - 0.3, ['ポンプ室'], {
     icon: 'warn',
     tone: 'warn',
-    hint: ['水位が上がったり下がったりする部屋。奥の高台の星へは、水位が高い時に、水面から {jump} して跳び乗る', 'とても背の高いキャラは、水面から跳び乗れない。東の壁ぞいの石の通路を歩こう (だれでも行ける)'],
+    hint: ['水位が上下する部屋。奥の高台へは、水位が高い時に水面から {jump} (連打)', '東の壁ぞいの石の通路を歩けば、だれでも確実に行ける'],
   });
 
   // ===== 翼の部屋: 敵を倒すと現れる星 =====
@@ -322,7 +322,7 @@ export function buildStage3(): StageDef {
   k.push({ shape: 'box', pos: [0, G + 3.55, GATE.z - 1.1], size: [GATE.seal * 2 + 1.4, 0.5, 0.5], color: 0xe9c76a, style: 'stone' });
   k.sign(7, GATE.z - 4, Math.PI + 0.2, ['石の封印'], {
     icon: 'action',
-    hint: ['関門のまんなかの青い石の封印は、とても硬い。攻撃力の高いキャラ (POWER・EXTREME) だけが、{action} で壊して近道できる', '左右の通用口からは、だれでも通れる (少し遠回り)'],
+    hint: ['青い石の封印は、攻撃力 (POWER) が 133 以上のキャラだけが {action} で壊せる近道', '左右の通用口は、だれでも通れる (遠回り)'],
   });
   for (const sx of [-1, 1]) brazier(k.push, sx * (GATE.side + GATE.sideW / 2 + 2), k.g(sx * (GATE.side + GATE.sideW / 2 + 2), GATE.z - 2), GATE.z - 2, 1.0);
   k.checkpoint('cp9', 0, GATE.z - 6);
@@ -354,7 +354,8 @@ export function buildStage3(): StageDef {
   for (const sx of [-1, 1]) {
     for (let z = -26; z <= 40; z += 16) {
       const x = sx * 49;
-      if ((z > 4 && z < 36 && sx > 0) || nearGate(sx, z)) continue;
+      // 東は池のわき・西は展望の塔 (階段と台) に、柱が重ならないようにする
+      if ((z > 4 && z < 36 && sx > 0) || nearGate(sx, z) || (sx < 0 && z > TOWER.z0 - 3 && z < TOWER.z0 + TOWER.tread * TOWER.n + TOWER.plat + 3)) continue;
       column(k.push, x, k.g(x, z), z, 7 + rng.range(0, 3), 1.0, 0xcfd8d0);
     }
     for (let z = 54; z <= 94; z += 14) column(k.push, sx * 52, k.g(sx * 52, z), z, 8 + rng.range(0, 3), 1.1, 0xd9e0d3);
