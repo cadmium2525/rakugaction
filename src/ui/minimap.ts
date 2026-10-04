@@ -95,9 +95,11 @@ export class Minimap {
       }
     }
     g.putImageData(img, 0, 0);
-    // 崩れる床 (明るい砂色)
-    g.fillStyle = 'rgba(232, 205, 150, 0.95)';
-    for (const cr of stage.crumbles ?? []) g.fillRect((cr.pos[0] - cr.size[0] / 2 - t.x0) / MAP_RES, (cr.pos[2] - cr.size[2] / 2 - t.z0) / MAP_RES, Math.max(1, cr.size[0] / MAP_RES), Math.max(1, cr.size[2] / MAP_RES));
+    // 崩れる床 (世界の見た目と同じ色: レンガ色か、明るい砂色)
+    for (const cr of stage.crumbles ?? []) {
+      g.fillStyle = cr.style === 'brick' ? 'rgba(214, 118, 88, 0.95)' : 'rgba(232, 205, 150, 0.95)';
+      g.fillRect((cr.pos[0] - cr.size[0] / 2 - t.x0) / MAP_RES, (cr.pos[2] - cr.size[2] / 2 - t.z0) / MAP_RES, Math.max(1, cr.size[0] / MAP_RES), Math.max(1, cr.size[2] / MAP_RES));
+    }
     // 建物・壁・飛び石 (箱の足あと)
     g.fillStyle = 'rgba(70, 74, 86, 0.9)';
     for (const bx of stage.boxes) {

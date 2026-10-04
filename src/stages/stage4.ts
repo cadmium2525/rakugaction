@@ -105,13 +105,15 @@ export function buildStage4(): StageDef {
   const k = new FieldKit(terrain);
   const rng = new Rng(4404);
   const slab = (x0: number, x1: number, z0: number, z1: number, top: number, thick = 2): void => void k.box([(x0 + x1) / 2, top - thick / 2, (z0 + z1) / 2], [x1 - x0, thick, z1 - z0], 'stone');
+  /** 崩れる床は、地面 (砂色の石畳) と見分けがつくよう、赤茶色のレンガ色 */
+  const crumble = (cx: number, cz: number, w: number, d: number, top: number, delay: number, o: { respawn?: number } = {}): void => void k.crumble(cx, cz, w, d, top, delay, { ...o, style: 'brick' });
   const wall = (x0: number, x1: number, z0: number, z1: number, h: number): void => void k.box([(x0 + x1) / 2, G + h / 2, (z0 + z1) / 2], [x1 - x0, h, z1 - z0], 'stone');
 
   // ===== 南の前庭 (スタート) =====
   k.checkpoint('cp0', 0, SPAWN_Z);
   k.sign(5, SPAWN_Z, Math.PI + 0.2, ['出発'], {
     icon: 'star',
-    hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) でゴールが開く', '黄色い床は、乗ると崩れる。止まらずに渡ろう'],
+    hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) でゴールが開く', '赤茶色の床は、乗ると崩れる。止まらずに渡ろう'],
   });
   for (const sx of [-1, 1]) {
     bannerPole(k.push, sx * 8, G, -72, sx < 0 ? 0xd9573f : 0xffd23f);
@@ -125,7 +127,7 @@ export function buildStage4(): StageDef {
   const nxT = (p.x1 - p.x0) / HALL_TILE;
   const nzT = (p.z1 - p.z0) / HALL_TILE;
   for (let i = 0; i < nxT; i++) {
-    for (let j = 0; j < nzT; j++) k.crumble(p.x0 + HALL_TILE * (i + 0.5), p.z0 + HALL_TILE * (j + 0.5), HALL_TILE, HALL_TILE, G, DELAY.hall, { respawn: 5 });
+    for (let j = 0; j < nzT; j++) crumble(p.x0 + HALL_TILE * (i + 0.5), p.z0 + HALL_TILE * (j + 0.5), HALL_TILE, HALL_TILE, G, DELAY.hall, { respawn: 5 });
   }
   k.star('崩れる大広間', HALL_STAR[0], HALL_STAR[1], 1.35, G + 1.35, { id: 'star-hall' });
   k.sign(6, -51, Math.PI + 0.3, ['崩れる大広間'], {
@@ -172,7 +174,7 @@ export function buildStage4(): StageDef {
   });
   k.checkpoint('cp5', 28, -10);
   // うしろの橋 (北から南へ)
-  for (const tl of VAULT_TILES()) k.crumble(V.bridgeX, (tl.lo + tl.hi) / 2, 4.2, V.bridgeLen, G, DELAY.vaultBridge, { respawn: 2 });
+  for (const tl of VAULT_TILES()) crumble(V.bridgeX, (tl.lo + tl.hi) / 2, 4.2, V.bridgeLen, G, DELAY.vaultBridge, { respawn: 2 });
   k.sign(36, 38, Math.PI + 0.3, ['宝物庫のうしろ'], { icon: 'arrow', hint: ['崩れる橋をわたると、宝物庫のうしろの扉に着く', '橋は渡るとすぐ崩れる。止まらずに、まっすぐ'] });
 
   // ===== 西: 展望の高台 =====
@@ -180,7 +182,7 @@ export function buildStage4(): StageDef {
   slab(T.x0, T.x1, T.z0, T.z1, T.top, 2.6);
   slab(T.padEdge, T.padX1, T.padZ0, T.padZ1, G, 2);
   k.star('展望の高台', (T.x0 + T.x1) / 2, (T.z0 + T.z1) / 2, 1.35, T.top + 1.35, { id: 'star-tower' });
-  for (let i = 0; i < STAIRS.n; i++) k.crumble(STAIRS.x, STAIRS.z0 - STAIRS.d * i, 4, STAIRS.d, STAIRS.rise * (i + 1), DELAY.stairs, { respawn: 5 });
+  for (let i = 0; i < STAIRS.n; i++) crumble(STAIRS.x, STAIRS.z0 - STAIRS.d * i, 4, STAIRS.d, STAIRS.rise * (i + 1), DELAY.stairs, { respawn: 5 });
   k.sign(-26, 16, Math.PI - 0.8, ['展望の高台'], {
     icon: 'jump',
     hint: ['穴の向こうの高い台に、星がある。高く跳べるキャラは、助走して、この台から跳び乗れる', 'ほかのキャラは、北の崩れる階段 (8 段) からのぼれる'],
@@ -193,7 +195,7 @@ export function buildStage4(): StageDef {
   const I = ISLAND;
   slab(I.x0, I.x1, I.z0, I.z1, G, 2);
   k.star('向こう岸の島', -46, 84, 1.35, G + 1.35, { id: 'star-island' });
-  for (const tl of ISLAND_TILES()) k.crumble(I.bridgeX, (tl.lo + tl.hi) / 2, 4.2, I.bridgeLen, G, DELAY.bridge, { respawn: 2 });
+  for (const tl of ISLAND_TILES()) crumble(I.bridgeX, (tl.lo + tl.hi) / 2, 4.2, I.bridgeLen, G, DELAY.bridge, { respawn: 2 });
   k.sign(-30, 70, Math.PI - 0.6, ['向こう岸の島'], {
     icon: 'jump',
     hint: ['穴の向こうの島に、星がある。助走して 5m 跳び越えられるキャラは、まっすぐ行ける', 'ほかのキャラは、南の崩れる橋 (5 枚) をわたる'],
@@ -227,7 +229,7 @@ export function buildStage4(): StageDef {
   k.enemy('hopper', -18, 60, -8, 64, { speed: 2.0, phase: 0.6 });
 
   // ===== 崩れる橋と、奥の院 =====
-  for (const tl of BRIDGE_TILES()) k.crumble(BRIDGE.x, (tl.lo + tl.hi) / 2, BRIDGE.w, BRIDGE.len, G, DELAY.bridge);
+  for (const tl of BRIDGE_TILES()) crumble(BRIDGE.x, (tl.lo + tl.hi) / 2, BRIDGE.w, BRIDGE.len, G, DELAY.bridge);
   k.sign(6, 96, Math.PI + 0.2, ['崩れる橋'], { icon: 'warn', tone: 'warn', hint: ['奥の院へ渡る唯一の橋。乗ると崩れるので、止まらずに一気に渡る', 'ラクガキ星を 5 個集めると、ゴールが開く'] });
   k.checkpoint('cp11', 0, 124);
   for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, G + 2.2, GOAL_Z], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'stone' });
@@ -287,7 +289,7 @@ export function buildStage4(): StageDef {
     signs: k.signs,
     ambient: { motes: { count: 50, color: 0xffe2b0, size: 0.1 }, butterflies: 0 },
     routes,
-    parTime: 100,
+    parTime: 105,
     missPenaltySec: 3,
   };
 }
