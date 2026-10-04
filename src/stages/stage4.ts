@@ -31,7 +31,7 @@ const PIT = {
   hall: { x0: -16, x1: 16, z0: -48, z1: -16 },
   tower: { x0: -46, x1: -24, z0: 2, z1: 30 },
   vault: { x0: 32, x1: 52, z0: 12, z1: 34 },
-  island: { x0: -37, x1: -16, z0: 54, z1: 98 },
+  island: { x0: -38, x1: -16, z0: 54, z1: 98 },
   bridge: { x0: -60, x1: 60, z0: 98, z1: 120 },
 } as const;
 /** 崩れる床の delay (秒。標準の体重で)。重い体 (EXTREME: 体重 1.63) は 1/√体重 = 0.78 倍の時間で崩れる */
@@ -41,9 +41,9 @@ const HALL_TILE = 4;
 const HALL_STAR = [14, -34] as const;
 /** 展望の高台: 台の上面 2.0m・南北 12m。助走する台 (発射台) の縁から 4.4m 先 (高く跳べる体だけ届く) */
 const TOWER = { x0: -40, x1: -30, z0: 10, z1: 22, top: 2.0, padEdge: -25.6, padX1: -20, padZ0: 12, padZ1: 20 };
-/** 崩れる階段: 北から南へ、10 枚 (1 枚が 0.2m ずつ高く。段差 0.25m だと、歩きだけでは登れない体があった)。台の北の端 (z = TOWER.z1) へつながる */
-const STAIRS = { x: -35, n: 10, rise: 0.2, d: 2.6, z0: 47.6 };
-/** 向こう岸の島: 東の端から穴の縁 (x = −16) まで 5.0m (西の縁からは 6.0m)。南から崩れる橋 5 枚 */
+/** 崩れる階段: 北から南へ、10 枚 (1 枚が 0.2m ずつ高く。段差 0.25m だと、歩きだけでは登れない体があった)。最上段の南の端が、台の北の端 (z = TOWER.z1 = 22) に着く (すき間が体の幅 0.8m より広いと、スティックを全開にしない体が、すき間で止まって、段が崩れた) */
+const STAIRS = { x: -35, n: 10, rise: 0.2, d: 2.6, z0: 46.7 };
+/** 向こう岸の島: 東の端から穴の縁 (x = −16) まで 5.0m (西の縁からは 7.0m)。南から崩れる橋 5 枚 */
 const ISLAND = { x0: -31, x1: -21, z0: 76, z1: 92, bridgeX: -26, bridgeGap: 1.5, bridgeLen: 2.6, bridgeN: 5 };
 /** 宝物庫の木箱の扉の硬さ (攻撃力 0.95 以上 = 標準以上が壊せる) */
 const GATE_TOUGHNESS = 0.95;
@@ -176,9 +176,9 @@ export function buildStage4(): StageDef {
   wall(V.x1, V.x1 + V.wallT, V.z0 - V.wallT, V.zN, V.wallH, 12);
   // 裏口の床 (扉の幅の台。穴の上に出ている): 崩れる橋の最後の床から 2.0m
   slab(V.doorX0, V.doorX1, V.z1, V.zN, G, 2);
-  // 2 つの扉の上は、石の横木でふさぐ (扉の高さ gateH。壁の上までふさぐ: 扉の上の空きから登れない)
+  // 2 つの扉の上は、石の横木でふさぐ (扉の高さ gateH。壁の上までふさぐ: 扉の上の空きから登れない)。横木は前後に 0.3m ずつ出す: 扉の面と同じ面にすると、継ぎ目 (高さ gateH) を足がかりに、跳躍力が極端に大きい体が壁を越えた
   for (const [z0, z1] of [[V.z0 - V.wallT, V.z0], [V.z1, V.zN]] as const) {
-    k.box([(V.doorX0 + V.doorX1) / 2, G + (V.gateH + V.wallH) / 2, (z0 + z1) / 2], [V.doorX1 - V.doorX0, V.wallH - V.gateH, z1 - z0], 'stone');
+    k.box([(V.doorX0 + V.doorX1) / 2, G + (V.gateH + V.wallH) / 2, (z0 + z1) / 2], [V.doorX1 - V.doorX0, V.wallH - V.gateH, z1 - z0 + 0.6], 'stone');
   }
   // 正面の扉: 大きな 1 つの木箱 (箱を積むと、継ぎ目から乗り越えられる)。攻撃力 0.95 以上 (標準以上) が壊せる
   k.breakables.push({ id: 'vault-gate', pos: [(V.doorX0 + V.doorX1) / 2, G + V.gateH / 2, V.z0 - V.wallT / 2], size: [V.doorX1 - V.doorX0, V.gateH, V.wallT], toughness: GATE_TOUGHNESS, style: 'wood' });

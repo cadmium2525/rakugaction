@@ -84,15 +84,15 @@ describe('STAGE 4 崩れる遺跡', () => {
   const jmax = (size: number): ReturnType<typeof paramsFor> => statsToParams({ hp: 100, power: 100, defense: 100, speed: 100, jump: 222, weight: 100 }, { size, reach: 1, stability: 1 });
   const everyone: [string, ReturnType<typeof paramsFor>][] = [...ALL_BUILDS.map((id): [string, ReturnType<typeof paramsFor>] => [id, paramsFor(id)]), ['JUMP222', jmax(1)], ['JUMP222_L', jmax(1.6)]];
 
-  it('宝物庫の壁 (南面・東面) は、ジャンプを押し続けても登れない (全ビルド + 跳躍力が極端に大きい体)', async () => {
+  it('宝物庫の壁 (南面・東面・扉の面) は、ジャンプを押し続けても登れない (全ビルド + 跳躍力が極端に大きい体)', async () => {
     for (const [id, params] of everyone) {
-      for (const [x, z, mx, mz] of [[46, -10, 0, 1], [56, 3, -1, 0]] as const) {
+      for (const [x, z, mx, mz] of [[46, -10, 0, 1], [56, 3, -1, 0], [42, -8.3, 0, 1], [42, -5.2, 0, -1]] as const) {
         const sim = await makeSim(stage, params);
         sim.player.placeFeet(x, 0.2, z);
         let maxY = -Infinity;
         run(sim, 60 * 6, (i, s) => {
           maxY = Math.max(maxY, s.player.feetY);
-          return { moveX: mx, moveZ: mz, jumpPressed: i % 12 === 0, jumpHeld: true };
+          return { moveX: mx, moveZ: mz, jumpPressed: i % 3 === 0, jumpHeld: true };
         });
         expect(maxY, `${id}: 宝物庫の壁 (${G.vaultWallH}m) に乗った (y = ${maxY.toFixed(1)})`).toBeLessThan(G.vaultWallH - 0.5);
       }
@@ -103,7 +103,7 @@ describe('STAGE 4 崩れる遺跡', () => {
     const door = [(40 + 44) / 2, 12.5] as const;
     const starts: [number, number][] = [[30, 14.2], [30, 15], [30, 17], [33, 14.4], [54, 14.4], [54, 17], [50.5, 14.2]];
     for (const [id, params] of everyone) {
-      for (const [sx, sz] of starts) {
+      for (const [sx, sz, mash] of starts.flatMap(([x, z]) => [[x, z, [25, 15]], [x, z, [3, 2]]] as const)) {
         const sim = await makeSim(stage, params);
         sim.player.placeFeet(sx, 0.2, sz);
         let inside = false;
@@ -113,7 +113,7 @@ describe('STAGE 4 崩れる遺跡', () => {
           const dx = door[0] - p.pos.x;
           const dz = door[1] - p.pos.z;
           const d = Math.hypot(dx, dz) || 1;
-          return { moveX: dx / d, moveZ: dz / d, jumpPressed: i % 25 === 0, jumpHeld: i % 25 < 15 };
+          return { moveX: dx / d, moveZ: dz / d, jumpPressed: i % mash[0] === 0, jumpHeld: i % mash[0] < mash[1] };
         });
         expect(inside, `${id}: (${sx}, ${sz}) から、橋を使わずに宝物庫の庭に入れた`).toBe(false);
       }
@@ -122,14 +122,14 @@ describe('STAGE 4 崩れる遺跡', () => {
 
   it('橋の穴 (z 98〜120) は、床に乗らずには渡れない: 台地の端 (x = ±60 のまわり) から北へ歩いて跳んでも、穴の上に立てない (全ビルド)', async () => {
     for (const [id, params] of everyone) {
-      for (const sx of [-60.4, -60, -59.7, -59, 59, 59.7, 60, 60.4]) {
+      for (const [sx, mash] of [-60.4, -60, -59.7, -59, 59, 59.7, 60, 60.4].flatMap((x) => [[x, [25, 15]], [x, [3, 2]]] as const)) {
         const sim = await makeSim(stage, params);
         sim.player.placeFeet(sx, 0.2, 92);
         let stood = false;
         run(sim, 60 * 8, (i, s) => {
           const p = s.player;
           if (p.grounded && p.feetY > -1 && Math.abs(p.pos.x) > 3 && p.pos.z > 99.5 && p.pos.z < 118.5) stood = true;
-          return { moveZ: 1, jumpPressed: i % 25 === 0, jumpHeld: i % 25 < 15 };
+          return { moveZ: 1, jumpPressed: i % mash[0] === 0, jumpHeld: i % mash[0] < mash[1] };
         });
         expect(stood, `${id}: x = ${sx} で、橋の穴の上に床なしで立てた`).toBe(false);
       }
@@ -157,23 +157,23 @@ describe('STAGE 4 崩れる遺跡', () => {
     }
   }, 600_000);
 
-  it('崩れる階段は、前へ歩くだけ (ジャンプなし) でも、どの体でも登れて、展望の高台に着く', async () => {
+  it('崩れる階段は、前へ歩くだけ (ジャンプなし。スティックを 6 割〜全開) でも、どの体でも登れて、展望の高台の上に立てる。最上段と台のすき間は、体の幅 (0.8m) より狭い', async () => {
     for (const id of ALL_BUILDS) {
-      for (const dx of [-1.5, -0.7, 0, 0.7, 1.5]) {
-        const sim = await makeSim(stage, paramsFor(id));
-        sim.player.placeFeet(-35 + dx, 0.2, 52);
-        let top = -Infinity;
-        let minZ = Infinity;
-        run(sim, 60 * 14, (_i, s) => {
-          if (s.player.feetY > -1) top = Math.max(top, s.player.feetY);
-          if (s.player.feetY > 1.5) minZ = Math.min(minZ, s.player.pos.z);
-          return { moveZ: -1 };
-        });
-        expect(top, `${id}: x = ${(-35 + dx).toFixed(1)} の階段をのぼれず、高さ ${top.toFixed(2)} で止まった`).toBeGreaterThan(G.towerTop - 0.3);
-        expect(minZ, `${id}: 台の上に着かなかった`).toBeLessThan(22.5);
+      for (const stick of [1, 0.75, 0.6]) {
+        for (const dx of [-1.5, 0, 1.5]) {
+          const sim = await makeSim(stage, paramsFor(id));
+          sim.player.placeFeet(-35 + dx, 0.2, 52);
+          let onTop = false;
+          run(sim, 60 * 18, (_i, s) => {
+            const p = s.player;
+            if (p.grounded && p.feetY > G.towerTop - 0.1 && p.pos.z < 21 && p.pos.x > -40 && p.pos.x < -30) onTop = true;
+            return { moveZ: -stick };
+          });
+          expect(onTop, `${id}: スティック ${stick}・x = ${(-35 + dx).toFixed(1)} の階段をのぼって、台の上に立てなかった`).toBe(true);
+        }
       }
     }
-  }, 600_000);
+  }, 900_000);
 
   const reports = new Map<string, Awaited<ReturnType<typeof runStage>>>();
   const runPlan = async (build: string, plan: Stage4Plan): Promise<Awaited<ReturnType<typeof runStage>>> => {
@@ -195,7 +195,7 @@ describe('STAGE 4 崩れる遺跡', () => {
     }
   }, 300_000);
 
-  it('展望の高台へ跳び乗る近道: SPEED・JUMP だけが使え、ほかは届かず落ちる。使うと崩れる階段より速い', async () => {
+  it('展望の高台へ跳び乗る近道 (ボットの踏み切り = 縁で 1 回): SPEED・JUMP だけが使え、ほかは届かず落ちる。使うと崩れる階段より 4 秒以上速い', async () => {
     const plan: Stage4Plan = { stars: ['hall', 'tower', 'sw', 'se', 'north'], up: true };
     for (const id of ['SPEED', 'JUMP']) {
       const jump = await runPlan(id, plan);
@@ -207,14 +207,14 @@ describe('STAGE 4 崩れる遺跡', () => {
     for (const id of ['STANDARD', 'HEAVY', 'POWER', 'EXTREME']) expect((await runPlan(id, plan)).cleared, id).toBe(false);
   }, 300_000);
 
-  it('向こう岸の島を跳び越える近道: STANDARD・SPEED・JUMP だけが使え、HEAVY・POWER・EXTREME は届かず落ちる。使うと崩れる橋より速い', async () => {
+  it('向こう岸の島を跳び越える近道 (ボットの踏み切り = 縁で 1 回): STANDARD・SPEED・JUMP だけが使え、HEAVY・POWER・EXTREME は届かず落ちる。使うと崩れる橋より 5 秒以上速い', async () => {
     const plan: Stage4Plan = { stars: ['hall', 'island', 'sw', 'se', 'north'], leap: true };
     for (const id of ['STANDARD', 'SPEED', 'JUMP']) {
       const leap = await runPlan(id, plan);
       const bridge = await runPlan(id, { ...plan, leap: false });
       expect(leap.cleared, fmt(leap)).toBe(true);
       expect(leap.deaths, fmt(leap)).toBe(0);
-      expect(leap.time, `${id}: 跳び越える ${leap.time} < 橋 ${bridge.time}`).toBeLessThan(bridge.time - 2);
+      expect(leap.time, `${id}: 跳び越える ${leap.time} < 橋 ${bridge.time}`).toBeLessThan(bridge.time - 5);
     }
     for (const id of ['HEAVY', 'POWER', 'EXTREME']) expect((await runPlan(id, plan)).cleared, id).toBe(false);
   }, 300_000);
@@ -246,18 +246,20 @@ describe('STAGE 4 崩れる遺跡', () => {
     }
   }, 900_000);
 
-  it('体型の差: 近道が多い SPEED が最速。重い体 (HEAVY・EXTREME) は、崩れる床が早く崩れて遅い。最速と最遅の差は 2.4 倍未満', async () => {
-    const best = async (id: string): Promise<number> => {
-      const times: number[] = [];
+  it('体型の差: 近道が多い SPEED が最速。重い体 (HEAVY・EXTREME) は、崩れる床が早く崩れて遅い。最速と最遅の差は 2.4 倍未満。体型ごとに最速の名前つきルートが分かれる (跳ぶ組 = SPEED・JUMP / 箱の組 = HEAVY・POWER・EXTREME / 島 + 木箱 = STANDARD)', async () => {
+    const best = async (id: string): Promise<[number, string]> => {
+      const times: [number, string][] = [];
       for (const name of Object.keys(stage.routes ?? {})) {
         const r = await runStage(stage, id, name, { maxTime: 220, maxDeaths: 2 });
-        if (r.cleared && r.deaths === 0) times.push(r.time);
+        if (r.cleared && r.deaths === 0) times.push([r.time, name]);
       }
-      return Math.min(...times);
+      return times.sort((p, q) => p[0] - q[0])[0];
     };
     const t: Record<string, number> = {};
-    for (const id of ALL_BUILDS) t[id] = await best(id);
+    const route: Record<string, string> = {};
+    for (const id of ALL_BUILDS) [t[id], route[id]] = await best(id);
     for (const id of ['STANDARD', 'JUMP', 'HEAVY', 'POWER', 'EXTREME']) expect(t.SPEED, `SPEED vs ${id}`).toBeLessThan(t[id]);
     expect(Math.max(...Object.values(t)) / Math.min(...Object.values(t))).toBeLessThan(2.4);
+    expect(route, JSON.stringify(route)).toEqual({ STANDARD: 'mixed', SPEED: 'jumper', JUMP: 'jumper', HEAVY: 'strong', POWER: 'strong', EXTREME: 'strong' });
   }, 900_000);
 });
