@@ -6,7 +6,7 @@ import { rampX } from './helpers';
 import { TerrainBuilder } from './terrainBuilder';
 import { brazier } from './templeKit';
 import { farSpire, giantColumn, torchPost, towerBanner, TOWER_PALETTE } from './towerKit';
-import type { SignDef, StageDef, WaypointDef } from './types';
+import type { SignDef, StageDef, SurfaceStyle, WaypointDef } from './types';
 
 /**
  * STAGE 5: 巨人の塔 (フィールド型)。塔は 4 つの階 (石の段) と山頂の台。塔のまわりは広い広場。
@@ -52,6 +52,9 @@ const CRATE_T = 1.0;
 const CRATE_H = 4.5;
 const GATE_WALL_H = 8.5;
 const TOUGH = { C: 0.95, K: 1.25 } as const;
+/** 階ごとの石の色合い (1 階から) */
+const RING_STYLE: readonly SurfaceStyle[] = ['brick', 'sand', 'stone', 'metal'];
+const SUMMIT_STYLE: SurfaceStyle = 'ice';
 /** 上昇気流の強さ (m/s)。軽め〜標準 (SPEED・JUMP・STANDARD) が 6m の壁をこえる */
 const VENT_VEL = 7.5;
 const VENT_H = 10;
@@ -122,12 +125,12 @@ export function buildStage5(): StageDef {
   const rng = new Rng(5505);
 
   /** 軸に平行な石の塊 (x0..x1, z0..z1, y0..y1)。足元は地面の下 1m まで埋める */
-  const blk = (x0: number, x1: number, z0: number, z1: number, y0: number, y1: number): void => void k.box([(x0 + x1) / 2, (Math.max(y0, -1) + y1) / 2, (z0 + z1) / 2], [x1 - x0, y1 - Math.max(y0, -1), z1 - z0], 'stone');
+  const blk = (x0: number, x1: number, z0: number, z1: number, y0: number, y1: number, style: SurfaceStyle = 'stone'): void => void k.box([(x0 + x1) / 2, (Math.max(y0, -1) + y1) / 2, (z0 + z1) / 2], [x1 - x0, y1 - Math.max(y0, -1), z1 - z0], style);
   /** 側 s で、x 範囲・前後 (塔の軸からの距離 va〜vb) の塊 */
-  const sideBlk = (s: Side, xa: number, xb: number, va: number, vb: number, y0: number, y1: number): void => {
+  const sideBlk = (s: Side, xa: number, xb: number, va: number, vb: number, y0: number, y1: number, style: SurfaceStyle = 'stone'): void => {
     const z0 = Math.min(sgn(s) * va, sgn(s) * vb);
     const z1 = Math.max(sgn(s) * va, sgn(s) * vb);
-    blk(Math.min(xa, xb), Math.max(xa, xb), z0, z1, y0, y1);
+    blk(Math.min(xa, xb), Math.max(xa, xb), z0, z1, y0, y1, style);
   };
   /** 看板 (足元の高さ y を指定する。階の上に立てる) */
   const sign = (x: number, y: number, z: number, yaw: number, lines: readonly string[], o: Pick<SignDef, 'hint' | 'tone' | 'icon'> = {}): void => void k.signs.push({ pos: [x, y, z], yaw, lines, ...o });
@@ -137,19 +140,20 @@ export function buildStage5(): StageDef {
     const ro = RO[j - 1];
     const ri = RO[j];
     const top = Y(j);
-    blk(-ro, ro, -ro, -ri, -1, top);
-    blk(-ro, ro, ri, ro, -1, top);
-    blk(-ro, -ri, -ri, ri, -1, top);
-    blk(ri, ro, -ri, ri, -1, top);
+    const st = RING_STYLE[j - 1];
+    blk(-ro, ro, -ro, -ri, -1, top, st);
+    blk(-ro, ro, ri, ro, -1, top, st);
+    blk(-ro, -ri, -ri, ri, -1, top, st);
+    blk(ri, ro, -ri, ri, -1, top, st);
   }
-  blk(-RO[4], RO[4], -RO[4], RO[4], -1, Y(5));
+  blk(-RO[4], RO[4], -RO[4], RO[4], -1, Y(5), SUMMIT_STYLE);
 
   // ===== 坂 (長い道): 階 j の壁ぞいを、20m でのぼる。上の端のとなりの台が、次の階の入口 =====
   for (let j = 0; j <= 4; j++) {
     const s = rampSide(j);
     const vIn = RO[j];
-    k.boxes.push(rampX(RAMP.x0, Y(j), RAMP.x1, Y(j + 1), sgn(s) * (vIn + RAMP.w / 2), RAMP.w, RAMP.thick, 'stone'));
-    sideBlk(s, RAMP.x1, RAMP.padX1, vIn, vIn + RAMP.w, Y(j) - 1, Y(j + 1));
+    k.boxes.push(rampX(RAMP.x0, Y(j), RAMP.x1, Y(j + 1), sgn(s) * (vIn + RAMP.w / 2), RAMP.w, RAMP.thick, j < 4 ? RING_STYLE[j] : SUMMIT_STYLE));
+    sideBlk(s, RAMP.x1, RAMP.padX1, vIn, vIn + RAMP.w, Y(j) - 1, Y(j + 1), j < 4 ? RING_STYLE[j] : SUMMIT_STYLE);
   }
 
   // ===== ゲート (近道) =====
@@ -317,7 +321,7 @@ export function buildStage5(): StageDef {
     winds: k.winds,
     ambient: { motes: { count: 50, color: 0xe6dcff, size: 0.1 }, butterflies: 0 },
     routes,
-    parTime: 120,
+    parTime: 140,
     missPenaltySec: 3,
   };
 }
@@ -334,10 +338,10 @@ function buildGate(k: FieldKit, j: number, kind: GateKind): void {
   const gx = gateX(j);
   const y0 = Y(j);
   const half = GATE_W / 2;
-  const blk = (xa: number, xb: number, va: number, vb: number, ya: number, yb: number): void => {
+  const blk = (xa: number, xb: number, va: number, vb: number, ya: number, yb: number, style: SurfaceStyle = 'stone'): void => {
     const z0 = Math.min(sg * va, sg * vb);
     const z1 = Math.max(sg * va, sg * vb);
-    k.box([(xa + xb) / 2, (Math.max(ya, -1) + yb) / 2, (z0 + z1) / 2], [Math.abs(xb - xa), yb - Math.max(ya, -1), z1 - z0], 'stone');
+    k.box([(xa + xb) / 2, (Math.max(ya, -1) + yb) / 2, (z0 + z1) / 2], [Math.abs(xb - xa), yb - Math.max(ya, -1), z1 - z0], style);
   };
   if (kind === 'U') {
     // 壁の手前 1.8m に、上昇気流の柱 (足元から 10m)
@@ -350,7 +354,7 @@ function buildGate(k: FieldKit, j: number, kind: GateKind): void {
   heights.forEach((h, i) => {
     const vOuter = vWall + (n - i) * STEP_DEPTH;
     const vInner = vWall + (n - 1 - i) * STEP_DEPTH;
-    blk(gx - half, gx + half, vInner, vOuter, y0 - 1, y0 + h);
+    blk(gx - half, gx + half, vInner, vOuter, y0 - 1, y0 + h, 'sand');
   });
   if (kind === 'C' || kind === 'K') {
     // 木箱の扉の門: 左右の壁 (高さ 8.5m)・扉 (大きな木箱 1 つ。積むと継ぎ目から登れる)・扉の上の石の横木 (前後に 0.3m ずつ出す)
@@ -471,9 +475,10 @@ export function stage5RouteFor(stage: Pick<StageDef, 'pickups'>, plan: Stage5Pla
 
 /** 鉄球の通り道を、渡る (待って、すきに渡る) ウェイポイント。x = 渡る線、z = 鉄球の位置、dz = 進む向き */
 function sweeperCross(wp: Wp, y: number, x: number, z: number, dz: number): void {
-  const zone = { min: [x - 0.6, y - 0.5, z - 0.25] as V3t, max: [x + 0.6, y + 3, z + 0.25] as V3t, seconds: 0.9 };
-  wp(x, y, z - dz * 1.8, { radius: 0.8 });
-  wp(x, y, z + dz * 1.8, { radius: 0.9, waitClear: zone });
+  const zone = { min: [x - 1.8, y - 0.5, z - 0.25] as V3t, max: [x + 1.8, y + 3, z + 0.25] as V3t, seconds: 0.9 };
+  // 手前の点は、領域から 2m (止まらずに渡り切る距離) より離す
+  wp(x, y, z - dz * 2.8, { radius: 0.8 });
+  wp(x, y, z + dz * 2.4, { radius: 0.9, waitClear: zone });
 }
 
 /** 階 j の廊下 (leg) を、z = zFrom から zTo まで (外周の線を) 進む。途中の鉄球を渡り、星 (廊下の星) を拾う */

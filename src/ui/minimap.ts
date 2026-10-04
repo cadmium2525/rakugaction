@@ -100,10 +100,17 @@ export class Minimap {
       g.fillStyle = cr.style === 'brick' ? 'rgba(214, 118, 88, 0.95)' : 'rgba(232, 205, 150, 0.95)';
       g.fillRect((cr.pos[0] - cr.size[0] / 2 - t.x0) / MAP_RES, (cr.pos[2] - cr.size[2] / 2 - t.z0) / MAP_RES, Math.max(1, cr.size[0] / MAP_RES), Math.max(1, cr.size[2] / MAP_RES));
     }
-    // 建物・壁・飛び石 (箱の足あと)
+    // 建物・壁・飛び石 (箱の足あと)。高い塔のあるステージ (STAGE 5) は、高い箱ほど明るく、低い箱から先に描く (階の高さが分かる)
     g.fillStyle = 'rgba(70, 74, 86, 0.9)';
-    for (const bx of stage.boxes) {
+    const topOf = (bx: (typeof stage.boxes)[number]): number => bx.pos[1] + bx.size[1] / 2;
+    const tall = stage.boxes.some((bx) => topOf(bx) > 15);
+    const boxes = tall ? [...stage.boxes].sort((p, q) => topOf(p) - topOf(q)) : stage.boxes;
+    for (const bx of boxes) {
       if (bx.rot && (bx.rot[0] !== 0 || bx.rot[2] !== 0)) continue;
+      if (tall) {
+        const f = Math.max(0, Math.min(1, topOf(bx) / 32));
+        g.fillStyle = `rgba(${Math.round(76 + 130 * f)}, ${Math.round(80 + 120 * f)}, ${Math.round(96 + 110 * f)}, 0.95)`;
+      }
       // y 軸まわりに回した箱 (崖の擁壁など) は、回した長方形で描く
       g.save();
       g.translate((bx.pos[0] - t.x0) / MAP_RES, (bx.pos[2] - t.z0) / MAP_RES);
