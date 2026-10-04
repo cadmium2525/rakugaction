@@ -15,6 +15,7 @@ import type {
   PickupDef,
   SignDef,
   SurfaceStyle,
+  SweeperDef,
   WaterDef,
   WaypointDef,
   WindDef,
@@ -38,6 +39,7 @@ export class FieldKit {
   readonly waters: WaterDef[] = [];
   readonly winds: WindDef[] = [];
   readonly crumbles: CrumbleDef[] = [];
+  readonly sweepers: SweeperDef[] = [];
   private n = 0;
 
   constructor(readonly terrain: TerrainDef) {}
@@ -175,6 +177,26 @@ export class FieldKit {
     if (o.respawn !== undefined) c.respawn = o.respawn;
     this.crumbles.push(c);
     return c;
+  }
+
+  /**
+   * 動く危険物 (鉄球): from → to を往復する (足元の高さ y0 の床の上に置く)。両端で pause 秒止まる。
+   * 触れるとダメージ + ノックバック (ジャンプで飛び越えられる)。
+   */
+  sweeper(from: readonly [number, number], to: readonly [number, number], y0: number, o: { size?: V3t; speed?: number; pause?: number; phase?: number; damage?: number } = {}): SweeperDef {
+    const size = o.size ?? [1.4, 1.2, 1.4];
+    const y = y0 + size[1] / 2;
+    const def: SweeperDef = {
+      id: this.id('sw'),
+      size,
+      points: [[from[0], y, from[1]], [to[0], y, to[1]]],
+      speed: o.speed ?? 3.2,
+      pause: o.pause ?? 1.0,
+      phase: o.phase,
+      damage: o.damage,
+    };
+    this.sweepers.push(def);
+    return def;
   }
 
   /** 水域: 水面の高さ surface、(x0..x1, z0..z1) の長方形、底は depth だけ下。 */

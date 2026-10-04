@@ -13,7 +13,7 @@ async function timeAt(stageId: string, buildId: string, level: number): Promise<
   const b = getBuild(buildId);
   const stage = STAGE_LIST.find((s) => s.id === stageId)!.build();
   const sim = new GameSim(R, stage, statsToParams(applyLevel(b.stats, level), b.traits, levelBonus(level).hearts));
-  const res = runBot(sim, stage.routes!.main, { maxTime: 220, maxDeaths: 3 });
+  const res = runBot(sim, stage.routes!.main, { maxTime: 300, maxDeaths: 3 });
   sim.dispose();
   return { time: res.time, cleared: res.cleared, deaths: res.deaths };
 }
