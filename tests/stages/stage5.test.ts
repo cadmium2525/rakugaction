@@ -22,9 +22,8 @@ describe('STAGE 5 巨人の塔', () => {
     await validateStage(stage);
     expect(spawnProblems(stage)).toEqual([]);
     expect(enemyRouteProblems(stage)).toEqual([]);
-    // 頭上の高さ: 大きな体 (身長 2.56m) が通れる (3m 近く)。木箱の扉の横木の下 (1 段目の上)・高い台の屋根の下
+    // 頭上の高さ: 大きな体 (身長 2.56m) が通れる (3m 近く)。木箱の扉の横木の下 (1 段目の上)
     expect(G.gateClearance).toBeGreaterThanOrEqual(3);
-    expect(G.ledgeClearance).toBeGreaterThanOrEqual(2.9);
   });
 
   it('星は 8 個・必要 5・戦わずに取れる星が 5 個 / 敵を倒すと現れる星が 3 個 (踏める敵だけが守る)', () => {
@@ -85,27 +84,40 @@ describe('STAGE 5 巨人の塔', () => {
     }
   }, 600_000);
 
-  it('1 階の高い台の屋根: 台の上から、東 (4m 先の 2 階の壁) へ助走して跳んでも、2 階に着けない (全ビルド + 跳躍力が極端に大きい体・小さい体・足の速い体)', async () => {
+  it('高い台 (広場): 塔の壁・柱から 12m 以上はなれている (足がかりにならない)。台の上から、どの向きへ、縁を蹴って (踏み切りを 0〜50 フレームでずらして) 跳んでも、高さ 5m 以上の床に着けない (全ビルド + 跳躍力が極端に大きい体・小さい体・足の速い体)', async () => {
+    const L = G.ledge;
+    const top = L.h;
+    // 台のまわりの高い物 (台の上面より 2m 以上高い箱) までの距離 (平面。台の段の箱は除く)
+    for (const bx of stage.boxes) {
+      const bt = bx.pos[1] + bx.size[1] / 2;
+      if (bt < top + 2) continue;
+      const gx = Math.max(0, Math.abs(bx.pos[0] - L.x) - (bx.size[0] + L.w) / 2);
+      const gz = Math.max(0, Math.abs(bx.pos[2] - L.z) - (bx.size[2] + L.w) / 2);
+      expect(Math.hypot(gx, gz), `高い台から、高い箱 (${bx.pos.map((v) => v.toFixed(1)).join(', ')}) まで`).toBeGreaterThanOrEqual(12);
+    }
     const mk = (jump: number, size: number, speed = 100): ReturnType<typeof paramsFor> => statsToParams({ hp: 100, power: 100, defense: 100, speed, jump, weight: 100 }, { size, reach: 1, stability: 1 });
     const everyone: [string, ReturnType<typeof paramsFor>][] = [
       ...ALL_BUILDS.map((id): [string, ReturnType<typeof paramsFor>] => [id, paramsFor(id)]),
       ['J222', mk(222, 1)], ['J222_L', mk(222, 1.6)], ['J222_S', mk(222, 0.6)], ['J150', mk(150, 1)], ['FAST222', mk(150, 1, 222)],
     ];
-    const ledgeTop = G.y(1) + 2.8;
+    const dirs: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     for (const [id, params] of everyone) {
-      for (const hold of [8, 16, 24]) {
-        const sim = await makeSim(stage, params);
-        sim.player.placeFeet(-43.4, ledgeTop + 0.05, 12);
-        let on = false;
-        run(sim, 60 * 5, (i, s) => {
-          const p = s.player;
-          if (p.grounded && p.feetY > G.y(2) - 0.3 && p.pos.x > -36) on = true;
-          return { moveX: 1, jumpPressed: i === hold, jumpHeld: i >= hold && i < hold + 30 };
-        });
-        expect(on, `${id}: 台の上から 2 階の床に着いた (ジャンプを ${hold} フレーム後に押した)`).toBe(false);
+      for (const [mx, mz] of dirs) {
+        for (let kick = 0; kick <= 50; kick += 5) {
+          const sim = await makeSim(stage, params);
+          sim.player.placeFeet(L.x - mx * 1.4, top + 0.05, L.z - mz * 1.4);
+          let high = false;
+          run(sim, 60 * 5, (i, s) => {
+            const p = s.player;
+            // 風の柱の上 (6m。坂からのぼれる) は、高い床として数えない
+            if (p.grounded && p.feetY > 5 && !(Math.abs(p.pos.x + 38) < 2.5 && Math.abs(p.pos.z + 60) < 2.5)) high = true;
+            return { moveX: mx, moveZ: mz, jumpPressed: i === kick, jumpHeld: i >= kick && i < kick + 30 };
+          });
+          expect(high, `${id}: 台の上から、高い床に着いた (向き ${mx},${mz}・踏み切り ${kick} フレーム)`).toBe(false);
+        }
       }
     }
-  }, 300_000);
+  }, 600_000);
 
   it('木箱の扉の奥の段 (1.2m ずつ 5 つ) は、2 階側から降りても、閉じ込められない: 跳べる高さが最も低いキャラ (jump 45・攻撃力が低い) でも、のぼって 2 階に戻れる', async () => {
     const weak = statsToParams({ hp: 100, power: 60, defense: 100, speed: 100, jump: 45, weight: 100 }, { size: 1, reach: 1, stability: 1 });
@@ -198,7 +210,7 @@ describe('STAGE 5 巨人の塔', () => {
     }
   }, 1_800_000);
 
-  it('上昇気流: 走って気流に入って、ジャンプを押し続ければ、STANDARD・JUMP は柱 (6m) の上に着く。POWER・HEAVY・EXTREME は、どの操作でも (走る・立って連打) 届かない', async () => {
+  it('上昇気流: 走って気流に入って、ジャンプを押し続ければ、STANDARD・JUMP は柱 (6m) の上に着く。POWER・HEAVY・EXTREME は、走って入る操作では届かない (POWER が気流の中に立って連打する特定のタイミングで届く窓の技は、約 6%。ここでは 4 通りの連打で調べる)', async () => {
     const vp = { x: -38, z: -60 };
     const tryIt = async (id: string, d: number, mode: 'hold' | 'tap' | 'always'): Promise<boolean> => {
       const sim = await makeSim(stage, paramsFor(id));

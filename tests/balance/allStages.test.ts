@@ -59,6 +59,8 @@ describe('全ステージ通しのバランス', () => {
     for (const id of ALL_BUILDS) expect(STAGE_LIST.every((e) => leaders(table, e.id).includes(id)), `${id} が全ステージのリーダー (${detail})`).toBe(false);
     const distinct = new Set(STAGE_LIST.flatMap((e) => leaders(table, e.id)));
     expect(distinct.size, detail).toBeGreaterThanOrEqual(3);
+    // 足の速い SPEED が 5 中 4 ステージ以上で勝つ (単一最適ビルド) 状態にならない
+    expect(STAGE_LIST.filter((e) => leaders(table, e.id).includes('SPEED')).length, detail).toBeLessThanOrEqual(3);
     expect(leaders(table, 'stage2').some((b) => b === 'HEAVY' || b === 'EXTREME'), detail).toBe(true);
     // 風のステージでは、軽くて速いビルドは重量型にはっきり負ける
     expect(table.stage2.SPEED, 'S2: SPEED vs HEAVY').toBeGreaterThan(table.stage2.HEAVY * 1.1);
@@ -77,7 +79,8 @@ describe('全ステージ通しのバランス', () => {
     expect(table.stage1.SPEED).toBeLessThan(table.stage1.STANDARD);
     expect(table.stage4.POWER).toBeLessThan(table.stage4.HEAVY + 6); // 力持ちは重量型と互角以上 (S4 の木箱)
     expect(table.stage5.HEAVY).toBeLessThan(table.stage5.EXTREME); // 重い 2 体は同じ近道 (1 階の木箱の扉) を使う。体が小さく足の速い HEAVY が先
-    expect(table.stage5.STANDARD, 'S5: STANDARD vs SPEED').toBeLessThan(table.stage5.SPEED * 1.1); // 近道が使える万能型は、足の速い SPEED と接戦
+    // S5 は広場の寄り道の星 (風の柱・木箱の部屋・高い台) と木箱の扉・上昇気流の両方を使える万能型 STANDARD が先頭。SPEED はそれに 1.3 倍までで食い下がる (足は速いが、木箱の部屋は遠回り)
+    expect(table.stage5.SPEED / table.stage5.STANDARD, 'S5: SPEED vs STANDARD').toBeLessThan(1.3);
   });
 
   it('合計タイムの最速と最遅の差は 1.65 倍未満 (S1 が広いフィールドで足の速さが効くぶん、以前の 1.55 より少し緩い)。標準ビルドは最速の 1.25 倍以内', () => {

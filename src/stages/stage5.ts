@@ -82,7 +82,8 @@ const VENT_RAMP = 20;
 /** 木箱の部屋 (広場の南東): 壁 8.5m に囲まれた小部屋。南の扉は大きな木箱 (攻撃力が標準以上)。中に星 */
 const CHAMBER = { x: 30, z: -60, inner: 5, door: 3, wallT: 1.5 };
 /** 1 階の高い台 (西の廊下): 上面 2.8m の台。SPEED・JUMP だけが跳び乗れる。上に星 */
-const LEDGE = { x: -42, z: 12, w: 4, h: 2.8, step: 1.4, stepD: 2.5, roof: 3.0 };
+/** 高い台 (広場の南。塔の壁・柱から 12m 以上はなれた、何もない所): 上面 2.8m。段は 3 つ (0.9 / 1.9 / 2.8m) で、1 段が 1.0m 以下 */
+const LEDGE = { x: -24, z: -78, w: 4, h: 2.8, steps: [0.9, 1.9] as const, stepD: 1.8 };
 /** 廊下の星 */
 const R3W = { x: -22, z: -6 };
 const R4E = { x: 14, z: 0 };
@@ -101,7 +102,6 @@ const LEG_SWEEPERS = [
 ] as const;
 /** 廊下 (E / W) の星: 階・廊下・位置 */
 const LEG_STARS: readonly { star: Stage5Star; ring: number; leg: 'E' | 'W'; x: number; z: number }[] = [
-  { star: 'ledge', ring: 1, leg: 'W', x: LEDGE.x, z: LEDGE.z },
   { star: 'r3w', ring: 3, leg: 'W', x: R3W.x, z: R3W.z },
   { star: 'r3e', ring: 3, leg: 'E', x: R3E.x, z: R3E.z },
   { star: 'r4e', ring: 4, leg: 'E', x: R4E.x, z: R4E.z },
@@ -122,12 +122,13 @@ export const STAGE5_GEOMETRY = {
   ventVel: VENT_VEL,
   y: Y,
   ledgeH: LEDGE.h,
+  ledge: LEDGE,
   crateToughness: TOUGH_C,
-  /** 頭上の高さ: 木箱の扉の横木の下 (1 段目の上)・高い台の屋根の下 */
+  /** 頭上の高さ: 木箱の扉の横木の下 (1 段目の上) */
   gateClearance: CRATE_H - GATE_STEPS[0],
-  ledgeClearance: LEDGE.roof,
 };
 
+/** `ventVel`: 上昇気流の押し上げ (m/s)。調整・実測用 (scratch/s5/ventcost.ts)。既定値 (8.5) はテストが守る */
 export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   const ventVel = opts.ventVel ?? VENT_VEL;
   const tb = new TerrainBuilder({ x0: -PLAZA, z0: -PLAZA, x1: PLAZA, z1: PLAZA }, 2, G);
@@ -192,6 +193,18 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   sign(vp.x + 5, G, vp.z - 4, Math.PI + 0.4, ['風の柱'], { icon: 'jump', hint: ['柱の上に星がある。西の長い坂 (20m) を、だれでものぼれる', '南の上昇気流には、走って入って {jump} を押し続けると、軽め〜標準のキャラは一気に跳び乗れる'] });
   k.checkpoint('cp0b', -20, -62);
 
+  // 高い台 (広場の南): 上に星。だれでものぼれる段 (北がわ。3 段)
+  {
+    const zN = LEDGE.z + LEDGE.w / 2;
+    k.box([LEDGE.x, LEDGE.h / 2, LEDGE.z], [LEDGE.w, LEDGE.h, LEDGE.w], 'stone');
+    LEDGE.steps.forEach((h, i) => {
+      const zc = zN + LEDGE.stepD * (LEDGE.steps.length - 1 - i) + LEDGE.stepD / 2;
+      k.box([LEDGE.x, h / 2, zc], [LEDGE.w, h, LEDGE.stepD], 'stone');
+    });
+    k.star('高い台', LEDGE.x, LEDGE.z, 1.35, LEDGE.h + 1.35, { id: 'star-ledge' });
+    sign(LEDGE.x + 6, G, zN + 5, Math.PI + 0.3, ['高い台'], { icon: 'jump', hint: ['台の上に星がある。台の高さは 2.8m。助走して、ジャンプを押し続けると、高く跳べる (JUMP が高い) キャラは、直接跳び乗れる', 'ほかのキャラは、北がわの段 (1m ずつ 3 段) から'] });
+  }
+
   // 木箱の部屋: 星は部屋の中。南の扉は大きな木箱 (攻撃力 0.95 以上)。うしろ (北) の入口は、木箱がない
   {
     const c = CHAMBER;
@@ -228,21 +241,10 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   // ===== 1 階 =====
   const y1 = Y(1);
   k.checkpoint('cp1', ARRIVE_X, -(RO[0] + 2.5), 3, y1);
-  // 西の廊下: 高い台 (2.8m)。上に星
-  k.box([LEDGE.x, y1 + LEDGE.h / 2, LEDGE.z], [LEDGE.w, LEDGE.h, LEDGE.w], 'stone');
-  k.star('1 階の高い台', LEDGE.x, LEDGE.z, 1.35, y1 + LEDGE.h + 1.35, { id: 'star-ledge' });
-  // 台の屋根 (東屋): 台の上のジャンプを、天井でおさえる (屋根がないと、台の上から、4m 先の 2 階の壁 (12m) へ、跳躍力が極端に大きい体が跳び乗れた)。柱は台の四すみ
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) k.box([LEDGE.x + sx * (LEDGE.w / 2 - 0.3), y1 + LEDGE.h + LEDGE.roof / 2, LEDGE.z + sz * (LEDGE.w / 2 - 0.3)], [0.6, LEDGE.roof, 0.6], 'stone');
-  }
-  k.box([LEDGE.x, y1 + LEDGE.h + LEDGE.roof + 0.2, LEDGE.z], [LEDGE.w + 1.2, 0.4, LEDGE.w + 1.2], 'stone');
-  // だれでものぼれる段 (台の南がわ。1.4m ずつ 2 段)
-  k.box([LEDGE.x, y1 + LEDGE.step / 2, LEDGE.z - LEDGE.w / 2 - LEDGE.stepD / 2], [LEDGE.w, LEDGE.step, LEDGE.stepD], 'stone');
-  sign(LEDGE.x + 5.5, y1, LEDGE.z - 6, Math.PI, ['高い台'], { icon: 'jump', hint: ['台の上に星がある。台の高さは 2.8m。助走して、ジャンプを押し続けると、高く跳べる (JUMP が高い) キャラは、直接跳び乗れる。ほかのキャラは、南がわの段 (1.4m ずつ 2 段) から'] });
   k.enemy('blob', 42, -30, 42, -20, { speed: 1.4, y0: y1 });
   k.enemy('blob', -42, -34, -42, -24, { speed: 1.4, y0: y1 });
   // 近道 (木箱の扉)
-  sign(-4, y1, -(RO[0] - 4), Math.PI / 2, ['木箱の扉'], { icon: 'action', hint: ['南がわの壁の木箱の扉は、攻撃力 (POWER) が 94 以上のキャラが {action} で壊せる。奥の段 (1.5m が 4 つ) をのぼると、2 階の坂のすぐそば', '壊せないキャラは、リングを半周して北の坂へ'] });
+  sign(-4, y1, -(RO[0] - 4), Math.PI / 2, ['木箱の扉'], { icon: 'action', hint: ['南がわの壁の木箱の扉は、攻撃力 (POWER) が 94 以上のキャラが {action} で壊せる。奥の段 (1.2m が 5 つ) をのぼると、2 階の坂のすぐそば', '壊せないキャラは、リングを半周して北の坂へ'] });
 
   // ===== 2 階 =====
   const y2 = Y(2);
@@ -297,7 +299,7 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   // 広場の遺跡 (折れた柱・瓦礫。塔・星の庭・部屋・柱をよける)
   const keep = (x: number, z: number): boolean => {
     if (Math.max(Math.abs(x), Math.abs(z)) < RO[0] + 8) return false;
-    if (Math.hypot(x - YARD_E.x, z - YARD_E.z) < 20 || Math.hypot(x - CHAMBER.x, z - CHAMBER.z) < 12 || Math.hypot(x - VENT_PILLAR.x, z - VENT_PILLAR.z) < 10 || (x < VENT_PILLAR.x && x > VENT_PILLAR.x - VENT_RAMP - 6 && Math.abs(z - VENT_PILLAR.z) < 7)) return false;
+    if (Math.hypot(x - YARD_E.x, z - YARD_E.z) < 20 || Math.hypot(x - CHAMBER.x, z - CHAMBER.z) < 12 || Math.hypot(x - VENT_PILLAR.x, z - VENT_PILLAR.z) < 10 || Math.hypot(x - LEDGE.x, z - LEDGE.z) < 12 || (x < VENT_PILLAR.x && x > VENT_PILLAR.x - VENT_RAMP - 6 && Math.abs(z - VENT_PILLAR.z) < 7)) return false;
     return !(Math.abs(x) < 24 && z < -50 && z > -80);
   };
   for (let i = 0; i < 60; i++) {
@@ -327,10 +329,10 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   const g2 = [false, false, true, false, false];
   const routes = {
     // 本道: 戦わずに取れる 5 個を、近道なし・だれでも行ける遅い道 (坂・段・うしろの入口) で。受動プレイでもクリアできる
-    main: r({ gates: none, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4e'], slow: ['vent', 'chamber', 'ledge'], dirs: ['W', 'E', 'W', 'E'] }),
-    std: r({ gates: g1, stars: ['vent', 'chamber', 'r3w', 'r4e', 'yardE'], dirs: ['E', 'E', 'W', 'E'] }),
-    strong: r({ gates: g1, stars: ['chamber', 'r3w', 'r4e', 'r4w', 'yardE'], dirs: ['E', 'E', 'W', 'E'] }),
-    light: r({ gates: g2, stars: ['vent', 'chamber', 'ledge', 'r4w', 'yardE'], slow: ['chamber'], dirs: ['W', 'E', 'E', 'W'] }),
+    main: r({ gates: none, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4e'], slow: ['vent', 'chamber', 'ledge'], dirs: ['E', 'E', 'W', 'E'] }),
+    std: r({ gates: g1, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4w'], slow: ['ledge'], dirs: ['E', 'E', 'W', 'W'] }),
+    strong: r({ gates: g1, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4w'], slow: ['vent', 'ledge'], dirs: ['E', 'E', 'W', 'W'] }),
+    light: r({ gates: g2, stars: ['vent', 'chamber', 'ledge', 'r4e', 'r4w'], slow: ['chamber'], dirs: ['E', 'E', 'E', 'E'] }),
   };
 
   return {
@@ -484,6 +486,33 @@ export function stage5RouteFor(stage: Pick<StageDef, 'pickups'>, plan: Stage5Pla
       wp(c.x, G, zDoor - 3, { radius: 1.5 });
     }
   }
+  if (has('ledge')) {
+    const zN = LEDGE.z + LEDGE.w / 2;
+    const n = LEDGE.steps.length;
+    if (slow('ledge')) {
+      wp(LEDGE.x + 6, G, PLAZA_ROAD, { radius: 3 });
+      wp(LEDGE.x, G, zN + LEDGE.stepD * n + 2.5, { radius: 1.5 });
+      // 北がわの段 (外側が低い) を、1 段ずつ
+      for (let i = 0; i < n; i++) {
+        const zEdge = zN + LEDGE.stepD * (n - i);
+        const top = LEDGE.steps[i];
+        const zLand = zEdge - LEDGE.stepD / 2;
+        wp(LEDGE.x, i === 0 ? G : LEDGE.steps[i - 1], zEdge + 0.2, { jump: true, jumpDist: 0.5, land: [LEDGE.x, top, zLand], radius: 0.8 });
+        wp(LEDGE.x, top, zLand, { radius: 0.8 });
+      }
+      wp(LEDGE.x, LEDGE.steps[n - 1], zN + 0.2, { jump: true, jumpDist: 0.5, land: [LEDGE.x, LEDGE.h, LEDGE.z + 0.5], radius: 0.8 });
+      wp(LEDGE.x, LEDGE.h, LEDGE.z, { radius: 1.0 });
+      // 台から、北へ降りて、道へ
+      wp(LEDGE.x, G, zN + LEDGE.stepD * n + 3, { radius: 2.5 });
+    } else {
+      // 西がわ (段のない面) から、助走して跳び乗る
+      wp(LEDGE.x - 8, G, PLAZA_ROAD, { radius: 3 });
+      wp(LEDGE.x - 7, G, LEDGE.z, { radius: 1.5 });
+      wp(LEDGE.x - LEDGE.w / 2 - 0.2, G, LEDGE.z, { jump: true, jumpDist: 0.5, land: [LEDGE.x, LEDGE.h, LEDGE.z], radius: 0.7 });
+      wp(LEDGE.x, LEDGE.h, LEDGE.z, { radius: 1.0 });
+      wp(LEDGE.x - 8, G, PLAZA_ROAD, { radius: 3 });
+    }
+  }
   if (has('vent')) {
     const v = VENT_PILLAR;
     if (slow('vent')) {
@@ -560,7 +589,7 @@ function legSegment(wp: Wp, j: number, leg: 'E' | 'W', zFrom: number, zTo: numbe
     for (const st of LEG_STARS) {
       if (st.ring !== j || st.leg !== leg || !plan.stars.includes(st.star)) continue;
       if ((st.z - zFrom) * dz < 0 || (zTo - st.z) * dz < 0) continue;
-      evs.push({ z: st.z, run: () => starOnLeg(wp, st.star, j, x, st.x, st.z, clearOf, plan) });
+      evs.push({ z: st.z, run: () => starOnLeg(wp, st.star, j, x, st.x, st.z, clearOf) });
     }
   }
   evs.sort((a, b) => (a.z - b.z) * dz);
@@ -569,29 +598,8 @@ function legSegment(wp: Wp, j: number, leg: 'E' | 'W', zFrom: number, zTo: numbe
 }
 
 /** 廊下の星を拾う */
-function starOnLeg(wp: Wp, star: Stage5Star, j: number, lineX: number, sx: number, sz: number, clearOf: ClearOf, plan: Stage5Plan): void {
+function starOnLeg(wp: Wp, star: Stage5Star, j: number, lineX: number, sx: number, sz: number, clearOf: ClearOf): void {
   const y = Y(j);
-  if (star === 'ledge' && plan.slow?.includes('ledge')) {
-    // 台の南がわの段 (1.4m ずつ 2 段) をのぼる
-    const zs = sz - LEDGE.w / 2 - LEDGE.stepD / 2;
-    wp(lineX + 2, y, zs - 1.6, { radius: 1.0 });
-    wp(sx, y, zs - 1.2, { jump: true, jumpDist: 0.5, land: [sx, y + LEDGE.step, zs], radius: 0.8 });
-    wp(sx, y + LEDGE.step, zs, { radius: 0.8 });
-    wp(sx, y + LEDGE.step, sz - LEDGE.w / 2 - 0.6, { jump: true, jumpDist: 0.5, land: [sx, y + LEDGE.h, sz - 0.5], radius: 0.8 });
-    wp(sx, y + LEDGE.h, sz, { radius: 1.0 });
-    wp(lineX + 0, y, sz + LEDGE.w / 2 + 3, { radius: 1.5 });
-    return;
-  }
-  if (star === 'ledge') {
-    // 高い台 (2.8m): 外周の線から、台へ跳び乗って、星を取って、降りる
-    const side = Math.sign(sx - lineX);
-    const edge = sx - side * (LEDGE.w / 2 + 0.2);
-    wp(edge - side * 1.2, y, sz, { radius: 0.8 });
-    wp(edge, y, sz, { jump: true, jumpDist: 0.5, land: [sx, y + LEDGE.h, sz], radius: 0.7 });
-    wp(sx, y + LEDGE.h, sz, { radius: 1.0 });
-    wp(lineX, y, sz, { radius: 1.5 });
-    return;
-  }
   const sealed = clearOf(`star-${star}`);
   wp(sx, y, sz, sealed.length > 0 ? { radius: 3.5, clear: sealed } : { radius: 1.2 });
   if (sealed.length > 0) wp(sx, y, sz, { radius: 1.0 });
