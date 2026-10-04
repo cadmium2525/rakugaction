@@ -114,6 +114,14 @@ export async function validateStage(stage: StageDef): Promise<void> {
   }
   for (const d of stage.decor ?? []) expect(finite(d.pos) && finite(d.size) && (!d.rot || finite(d.rot)), `decor ${JSON.stringify(d)}`).toBe(true);
 
+  // ボットの「風の止み間を待つ」(calm) が指す風域は、実在する (id の書き間違いがあると、ボットは黙って風を無視して渡る)
+  const windIds = new Set((stage.winds ?? []).map((w) => w.id));
+  for (const [name, route] of Object.entries(stage.routes ?? {})) {
+    for (const wp of route) for (const id of wp.calm?.zones ?? []) expect(windIds.has(id), `ルート ${name} の calm が指す風域 ${id} が存在しない`).toBe(true);
+  }
+  // 合図灯のある風域は、風が吹く周期を持つ (止まない風・吹きっぱなしの風の灯は意味がない)
+  for (const w of stage.winds ?? []) if (w.beacons && w.beacons.length > 0) expect(w.gust || w.pulse, `風域 ${w.id} の合図灯は、周期のある風だけに付ける`).toBeTruthy();
+
   // 開始直後に即死/即ダメージしない
   sim.player.placeFeet(stage.spawn[0], stage.spawn[1], stage.spawn[2]);
   for (let i = 0; i < 60; i++) sim.step({ moveX: 0, moveZ: 0, jumpPressed: false, jumpHeld: false, actionPressed: false });

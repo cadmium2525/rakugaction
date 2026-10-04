@@ -12,6 +12,7 @@ import { boxGeometry, buildStaticStageChunks } from './stageMesh';
 import type { StaticChunk } from './stageMesh';
 import { buildTerrainChunks } from './terrainMesh';
 import { WaterView } from './waterView';
+import { WindBeacons } from './windBeacons';
 import { WindStreaks } from './windStreaks';
 
 /** ステージの描画オブジェクト。静的部分は統合メッシュ、動く物だけ個別メッシュ。 */
@@ -60,6 +61,7 @@ export class StageView {
   private readonly crumblePop: number[] = [];
   private readonly tmpC = new THREE.Color();
   private readonly windStreaks: WindStreaks | null = null;
+  private readonly windBeacons: WindBeacons | null = null;
   private readonly waterView: WaterView | null = null;
   private readonly enemyView: EnemyView | null = null;
   private readonly signView: SignView | null = null;
@@ -131,6 +133,11 @@ export class StageView {
     if (stage.winds && stage.winds.length > 0) {
       this.windStreaks = new WindStreaks(stage.winds);
       if (this.windStreaks.active) this.group.add(this.windStreaks.mesh);
+      const beacons = new WindBeacons(stage.winds);
+      if (beacons.active) {
+        this.windBeacons = beacons;
+        this.group.add(beacons.mesh);
+      } else beacons.dispose();
     }
     // 水域 (半透明の水面 + 水中を染める体積)
     if (stage.waters && stage.waters.length > 0) {
@@ -343,6 +350,7 @@ export class StageView {
     }
     this.pickupView?.update(sim, dt);
     this.windStreaks?.update(sim.time);
+    this.windBeacons?.update(sim.time);
     this.waterView?.update(sim.time);
     this.enemyView?.update(sim, alpha, dt);
     this.signView?.update(sim.player.pos.x, sim.player.pos.z);
@@ -380,6 +388,7 @@ export class StageView {
     this.mat.dispose();
     this.moverMat.dispose();
     this.windStreaks?.dispose();
+    this.windBeacons?.dispose();
     this.waterView?.dispose();
     this.enemyView?.dispose();
     this.signView?.dispose();

@@ -109,6 +109,8 @@ export interface TimeAttackBest {
   totalMs: number;
   /** ベスト時の各ステージのタイム (ms)。次の走りの「差分」表示に使う */
   splitsMs: number[];
+  /** ベストを出した時の、各ステージのコースの版 (`stageRevKey`)。コースが作り替わったら、古いベストは使わない。省略 = 全部が版 1 の時 */
+  revKey?: string;
 }
 
 /**

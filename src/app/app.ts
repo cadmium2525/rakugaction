@@ -38,7 +38,7 @@ import { starSplitLine } from '../timeattack/splits';
 import { STAT_KEYS } from '../character/stats';
 import type { CharacterStats, StatKey } from '../character/stats';
 import { applyLevel, levelBonus, summarizeLevelUp } from '../progression/level';
-import { STAGE_LIST, getStageEntry } from '../stages/registry';
+import { STAGE_LIST, getStageEntry, stageRevKey, stageRevs } from '../stages/registry';
 import { TEST_ARENA } from '../stages/testArena';
 import { BirthScreen } from '../ui/birthScreen';
 import { DebugPanel } from '../ui/debugPanel';
@@ -117,6 +117,8 @@ export class App {
   /** 起動時の読み込み結果 (QA 用) */
   loadOutcome: LoadOutcome | null = null;
   private notice: string | null = null;
+  /** 読み込み時に保存データを直したので、すぐ書き直す */
+  private requestSaveSoon = false;
   /** 縦持ち検知 (プレイ中に縦になったら自動ポーズ) */
   orientation: OrientationGuard | null = null;
 
@@ -201,10 +203,17 @@ export class App {
       this.recomputeStats(out.recompute);
     }
     this.notice = this.noticeFor(out, store.kind);
+    // 作り替えられたコースの、古いベストタイムは捨てる (新しいコースとは比べものにならない)。クリア済みの印は残す
+    const dropped = this.profile.dropStaleBests(stageRevs(), stageRevKey());
+    if (dropped.stages.length > 0 || dropped.timeAttack) {
+      const names = dropped.stages.map((id) => getStageEntry(id)?.subtitle ?? id);
+      this.notice ??= (names.length > 0 ? `${names.join('・')}のコースを作り替えたので、その古いベストタイムを新しくしました` : 'コースの作り替えで、ALL STAGES の古いベストを新しくしました');
+      this.requestSaveSoon = true;
+    }
     // 以降の変更は自動で保存する (読み込み時の変更通知は出さない)
     this.profile.onChange(() => this.requestSave());
     // 復旧した/古い形式から変換した/能力を再計算した時は、すぐ書き直す (壊れた main や古い形式を残さない)
-    if (out.status === 'recovered' || out.status === 'migrated' || out.recompute.length > 0) this.requestSave();
+    if (out.status === 'recovered' || out.status === 'migrated' || out.recompute.length > 0 || this.requestSaveSoon) this.requestSave();
     // ページを閉じる/隠れる時は待たずに保存する (非同期の書き込みなので最善努力。通常はデバウンス 0.4 秒で保存済み)
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) void this.save?.flush();
@@ -561,7 +570,7 @@ export class App {
     const prevBest = this.profile.stage(stageId).bestMs;
     // 星の取得時刻は、記録を更新する前の (これまでの) ベストと比べる
     const prevSplits = this.profile.stage(stageId).bestSplits;
-    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs, r.splits);
+    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs, r.splits, entry.rev);
     const extraPickups = Math.max(0, (r.pickups ?? 0) - (r.pickupsRequired ?? 0));
     const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest, enemiesDefeated: r.enemiesDefeated, extraPickups });
     const before = this.profile.progress;
@@ -675,7 +684,7 @@ export class App {
     const split: Split = { stageId: r.stageId, timeMs: r.timeMs, simMs: r.simMs, deaths: r.deaths, falls: r.falls, hits: r.hits };
     if (!run.finishStage(split)) return;
     // 通常のステージ記録 (ベスト) も更新する。EXP は走り全体の完走時にまとめて与える
-    this.profile.recordClear(r.stageId, r.timeMs, r.splits);
+    this.profile.recordClear(r.stageId, r.timeMs, r.splits, getStageEntry(r.stageId)?.rev);
     session.hud.el.style.display = 'none';
     session.setControlsVisible(false);
     if (run.complete) {
@@ -708,7 +717,7 @@ export class App {
     const gain = allStagesExp(this.profile.allStagesRuns === 0, cmp.newBest);
     const before = this.profile.progress;
     const lv = clean ? this.profile.addExp(gain.total) : { before: before.level, after: before.level, gained: 0 };
-    if (clean) this.profile.recordTimeAttack(cmp.newBest ? { totalMs: result.totalMs, splitsMs: result.splits.map((s) => s.timeMs) } : null);
+    if (clean) this.profile.recordTimeAttack(cmp.newBest ? { totalMs: result.totalMs, splitsMs: result.splits.map((s) => s.timeMs), revKey: stageRevKey() } : null);
     const after = this.profile.progress;
     const levelUp = lv.after > lv.before ? summarizeLevelUp(lv.before, lv.after) : undefined;
     this.lastTaResult = result;

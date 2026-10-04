@@ -119,6 +119,8 @@ export class StageSession {
   private splits: StarSplit[] = [];
   /** 木箱の「壊せません」を最後に出したシミュレーション時間 (秒) */
   private lastGuardToast = -Infinity;
+  /** カタマルのヒントを最後に出した時刻 (木箱の「壊せません」と別に数える) */
+  private lastArmorHint = -Infinity;
   /** 封印された星の近くで案内を出した最後のシミュレーション時間 (星の id → 秒) */
   private readonly sealHinted = new Map<string, number>();
   private windHintShown = false;
@@ -183,6 +185,7 @@ export class StageSession {
     this.splits = [];
     this.sealHinted.clear();
     this.timer.reset();
+    this.scene.holdSim = true; // READY → GO のあいだは世界の時計を止める (GO の瞬間が、いつも時刻 0)
     this.scene.inputOverride = (si) => {
       Object.assign(si, this.zero);
     };
@@ -191,6 +194,7 @@ export class StageSession {
 
   private enterPlaying(): void {
     this.phase = 'playing';
+    this.scene.holdSim = false;
     this.scene.inputOverride = this.botInput;
     this.input.reset();
     this.simAtPlay = this.scene.sim.time;
@@ -315,8 +319,8 @@ export class StageSession {
           if (e.how === 'guard') {
             // ACTION が効かない敵 (カタマル) にはね返された時、倒し方を教える (続けてはね返されても、同じ説明を重ねて出さない)
             const hit = sim.enemies.find((x) => x.def.id === e.id);
-            if (hit?.def.kind === 'armor' && sim.time - this.lastGuardToast > 4) {
-              this.lastGuardToast = sim.time;
+            if (hit?.def.kind === 'armor' && sim.time - this.lastArmorHint > 4) {
+              this.lastArmorHint = sim.time;
               this.hud.toast('硬い甲羅は、体当たりがはね返される　上から踏みつけよう', 2400);
             }
             break;

@@ -18,6 +18,8 @@ export interface StageRecord {
   clears: number;
   /** ベストを出した走りの、星の取得時刻 (集めるアイテムのあるステージだけ)。次の走りで星ごとに比べる */
   bestSplits?: StarSplit[];
+  /** ベストを出した時の、コースの版 (`StageEntry.rev`)。省略 = 1。コースが作り替わると、ベストは比べものにならないので使わない */
+  rev?: number;
 }
 
 /**
@@ -55,7 +57,7 @@ export class Profile {
     this.selectedId = p.selectedId;
     for (const k of Object.keys(this.stages)) delete this.stages[k];
     for (const [id, rec] of Object.entries(p.stages)) this.stages[id] = { ...rec };
-    this.allStagesBest = p.allStagesBest ? { totalMs: p.allStagesBest.totalMs, splitsMs: p.allStagesBest.splitsMs.slice() } : null;
+    this.allStagesBest = p.allStagesBest ? { ...p.allStagesBest, splitsMs: p.allStagesBest.splitsMs.slice() } : null;
     this.allStagesRuns = p.allStagesRuns;
     this.exp = p.exp;
   }
@@ -142,9 +144,33 @@ export class Profile {
     return prev !== undefined && this.stage(prev).cleared;
   }
 
-  /** クリアを記録する。ベスト更新なら newBest = true。 */
-  recordClear(stageId: string, timeMs: number, splits?: readonly StarSplit[]): { newBest: boolean; firstClear: boolean } {
+  /**
+   * コースが作り替わったステージの、古いベスト (タイム・星ごとの時刻) と、それを含む ALL STAGES のベストを捨てる。
+   * クリア済みの印・クリア回数は残す (次のステージの解放は変えない)。revs = ステージ id → いまのコースの版、revKey = 全ステージの版をつないだ文字列。
+   * 版が書かれていない記録は、版 1 (作り替える前) とみなす。捨てたステージの id と、ALL STAGES のベストを捨てたかを返す。
+   */
+  dropStaleBests(revs: Readonly<Record<string, number>>, revKey: string): { stages: string[]; timeAttack: boolean } {
+    const out = { stages: [] as string[], timeAttack: false };
+    for (const [id, rec] of Object.entries(this.stages)) {
+      const cur = revs[id] ?? 1;
+      if ((rec.rev ?? 1) === cur) continue;
+      if (rec.bestMs !== null) out.stages.push(id);
+      rec.bestMs = null;
+      delete rec.bestSplits;
+      rec.rev = cur;
+    }
+    const legacyKey = Object.keys(revs).map(() => '1').join(',');
+    if (this.allStagesBest && (this.allStagesBest.revKey ?? legacyKey) !== revKey) {
+      this.allStagesBest = null;
+      out.timeAttack = true;
+    }
+    return out;
+  }
+
+  /** クリアを記録する。ベスト更新なら newBest = true。rev = いまのコースの版 (省略 = 1)。 */
+  recordClear(stageId: string, timeMs: number, splits?: readonly StarSplit[], rev = 1): { newBest: boolean; firstClear: boolean } {
     const r = this.stage(stageId);
+    r.rev = rev;
     const firstClear = !r.cleared;
     r.cleared = true;
     r.clears++;

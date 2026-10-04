@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calmFor, inWindZone, windAt, windStrength } from '../../src/game/wind';
+import { calmFor, calmRemaining, inWindZone, windAt, windStrength } from '../../src/game/wind';
 import type { WindDef } from '../../src/stages/types';
 
 const zone = (extra: Partial<WindDef> = {}): WindDef => ({ id: 'w', min: [-5, 0, 0], max: [5, 10, 20], vel: [10, 0, 0], ...extra });
@@ -58,5 +58,22 @@ describe('風域', () => {
     expect(calmFor(zones, ['w'], 5, 2)).toBe(false);
     // 存在しない ID は常に calm
     expect(calmFor(zones, ['none'], 1, 5)).toBe(true);
+  });
+});
+
+describe('calmRemaining (風の合図灯の色)', () => {
+  const w = zone({ gust: { period: 6, on: 4, ramp: 0.35 } });
+  it('吹いている間は 0。止んだら、次に吹き始めるまでの秒数 (止み間の長さ付近)', () => {
+    expect(calmRemaining(w, 2)).toBe(0);
+    // 止み間は 4..6 秒 (吹き始めのなめらかな増減を除くと、約 1.8 秒)
+    const atStart = calmRemaining(w, 4.2);
+    expect(atStart).toBeGreaterThan(1.4);
+    expect(atStart).toBeLessThan(2.1);
+    // 時間がたつほど、残りは短くなる
+    expect(calmRemaining(w, 5.4)).toBeLessThan(atStart - 1);
+  });
+  it('吹きっぱなしは 0、止みっぱなし (吹く時間 0) は maxLook まで数える', () => {
+    expect(calmRemaining(zone(), 3)).toBe(0);
+    expect(calmRemaining(zone({ gust: { period: 6, on: 0 } }), 0, 0.5)).toBeCloseTo(0.5, 5);
   });
 });

@@ -184,6 +184,11 @@ export interface WindDef {
   pulse?: { period: number; min: number; phase?: number };
   /** 描画用: 風の筋の色/密度 */
   streaks?: number;
+  /**
+   * 風の合図灯 (足場の柱の上のランプ。複数置ける): 風が吹いている間は赤、止んでいる間は緑、止み間が need 秒より短くなったら黄色 (そろそろ吹く)。
+   * need = 渡るのにかかる時間の目安 (秒、既定 1.5)。pos = ランプの中心。ランプの柱は、ステージの飾りとして別に立てる。
+   */
+  beacons?: readonly { pos: V3t; need?: number }[];
 }
 
 /**

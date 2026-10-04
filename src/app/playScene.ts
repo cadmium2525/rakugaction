@@ -43,6 +43,11 @@ export class PlayScene {
   private running = false;
   /** 外部 (ボット/テスト/デバッグ) から入力を差し替えるフック。null なら実入力。 */
   inputOverride: ((out: SimInput) => void) | null = null;
+  /**
+   * true の間は、シミュレーションの時計を進めない (READY → GO の待ち。描画とカメラは動く)。
+   * 風・巡回する敵・移動床は時計の関数なので、GO の瞬間は、いつも時刻 0 の状態になる (フレームレートや読み込み時間に左右されない = 同じ操作なら同じ結果。ボットの測定とも一致する)。
+   */
+  holdSim = false;
   lastRealDt = 0;
   fps = 60;
 
@@ -139,7 +144,7 @@ export class PlayScene {
       }
       const st = this.stepper.advance(dtReal);
       alpha = st.alpha;
-      for (let i = 0; i < st.steps; i++) {
+      for (let i = 0; i < (this.holdSim ? 0 : st.steps); i++) {
         if (!this.inputOverride) {
           si.jumpPressed = this.pendingJump;
           si.actionPressed = this.pendingAction;
@@ -148,7 +153,7 @@ export class PlayScene {
         }
         this.sim.step(si);
       }
-      if (st.steps > 0) {
+      if (st.steps > 0 && !this.holdSim) {
         const ev = this.sim.drainEvents(this.eventBuf);
         if (ev.length > 0) {
           this.handleEvents(ev);

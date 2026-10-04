@@ -3,6 +3,7 @@ import { runBot } from '../../src/game/bot';
 import type { BotResult } from '../../src/game/bot';
 import { statsToParams } from '../../src/game/params';
 import { GameSim } from '../../src/game/sim';
+import { emptyInput } from '../../src/input/types';
 import type { StageDef } from '../../src/stages/types';
 import { rapier } from '../helpers/headless';
 
@@ -18,15 +19,40 @@ export interface RunReport extends BotResult {
 export const FRAGILE_BUILD = { id: 'FRAGILE', label: 'もろい型', stats: { hp: 45, power: 80, defense: 45, speed: 105, jump: 105, weight: 95 }, traits: { size: 1, reach: 1, stability: 1 } };
 
 /** ステージをビルドごとにボットで走らせる (バランス計測の基本単位)。 */
-export async function runStage(stage: StageDef, buildId: string | typeof FRAGILE_BUILD, routeName = 'main', opts: { maxTime?: number; maxDeaths?: number; fight?: boolean } = {}): Promise<RunReport> {
+export async function runStage(
+  stage: StageDef,
+  buildId: string | typeof FRAGILE_BUILD,
+  routeName = 'main',
+  opts: { maxTime?: number; maxDeaths?: number; fight?: boolean; startDelay?: number } = {},
+): Promise<RunReport> {
   const R = await rapier();
   const b = typeof buildId === 'string' ? getBuild(buildId) : buildId;
   const sim = new GameSim(R, stage, statsToParams(b.stats, b.traits));
   const route = stage.routes?.[routeName];
   if (!route) throw new Error(`route not found: ${routeName}`);
-  const res = runBot(sim, route, opts);
+  // startDelay: スタート地点でそのぶん待ってから走り出す (風の周期との位相をずらす)。報告するタイムからは、待った時間を引く
+  const delay = opts.startDelay ?? 0;
+  const idle = emptyInput();
+  for (let i = 0; i < Math.round(delay * 60); i++) sim.step(idle);
+  const res = runBot(sim, route, { ...opts, maxTime: (opts.maxTime ?? 300) + delay });
   sim.dispose();
-  return { ...res, build: typeof buildId === 'string' ? buildId : buildId.id, route: routeName };
+  return { ...res, time: res.time - delay, build: typeof buildId === 'string' ? buildId : buildId.id, route: routeName };
+}
+
+/** 風の周期との位相をずらした走り (開始の待ち時間 0 / 1.5 / 3 / 4.5 秒) の平均タイム。位相しだいで大きく変わる風のステージの、運に左右されない目安 */
+export const PHASE_DELAYS: readonly number[] = [0, 1.5, 3, 4.5];
+
+export async function runStageAveraged(stage: StageDef, buildId: string | typeof FRAGILE_BUILD, routeName = 'main', opts: { maxTime?: number; maxDeaths?: number; fight?: boolean } = {}): Promise<{ mean: number; times: number[]; clearedAll: boolean; deaths: number }> {
+  const times: number[] = [];
+  let clearedAll = true;
+  let deaths = 0;
+  for (const d of PHASE_DELAYS) {
+    const r = await runStage(stage, buildId, routeName, { ...opts, startDelay: d });
+    if (!r.cleared) clearedAll = false;
+    deaths += r.deaths;
+    times.push(r.time);
+  }
+  return { mean: times.reduce((a, c) => a + c, 0) / times.length, times, clearedAll, deaths };
 }
 
 export const ALL_BUILDS = ['STANDARD', 'SPEED', 'JUMP', 'HEAVY', 'POWER', 'EXTREME'] as const;

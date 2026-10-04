@@ -1,4 +1,4 @@
-import { WATER_JUMP_DEPTH } from './player';
+import { GROUND_WIND_FACTOR, WATER_JUMP_DEPTH } from './player';
 import { emptyInput } from '../input/types';
 import type { SimInput } from '../input/types';
 import type { WaypointDef } from '../stages/types';
@@ -57,6 +57,8 @@ export class Bot {
   private calmSpec: { zones: readonly string[]; length: number } | null = null;
   private lastDeaths = 0;
   private blockedTime = 0;
+  /** 折り返し (ほぼ逆向きのウェイポイント) の直後の猶予 (秒)。向きを変えるための減速を、「壁に阻まれた」と取り違えて跳ばない */
+  private reverseGrace = 0;
   private bestDist = Infinity;
   private noProgressTime = 0;
   private stuckTime = 0;
@@ -103,6 +105,7 @@ export class Bot {
     out.actionPressed = false;
     out.actionHeld = false;
     const dt = 1 / 60;
+    this.reverseGrace = Math.max(0, this.reverseGrace - dt);
 
     if (sim.deaths !== this.lastDeaths) this.onRespawn();
     if (sim.goalReached || this.idx >= this.route.length) return;
@@ -210,7 +213,7 @@ export class Bot {
 
     // 壁/段差に阻まれていたら自動ジャンプ (立ち止まっている + 目標が遠い)
     const speed = p.horizontalSpeed;
-    if (p.grounded && speed < p.params.maxSpeed * 0.35 && d > 1.8 && (out.moveX !== 0 || out.moveZ !== 0)) {
+    if (p.grounded && speed < p.params.maxSpeed * 0.35 && d > 1.8 && this.reverseGrace <= 0 && (out.moveX !== 0 || out.moveZ !== 0)) {
       this.blockedTime += dt;
       if (this.blockedTime > 0.12) {
         out.jumpPressed = true;
@@ -342,8 +345,8 @@ export class Bot {
     let forward = Infinity;
     for (const w of sim.stage.winds ?? []) {
       if (!c.zones.includes(w.id)) continue;
-      const dx = w.vel[0] * params.windResistance * 0.55;
-      const dz = w.vel[2] * params.windResistance * 0.55;
+      const dx = w.vel[0] * params.windResistance * GROUND_WIND_FACTOR;
+      const dz = w.vel[2] * params.windResistance * GROUND_WIND_FACTOR;
       const along = dx * ux + dz * uz;
       const side = Math.hypot(dx - along * ux, dz - along * uz);
       if (side > S * 0.93) return false; // 横に抗えない → 待つ
@@ -427,6 +430,18 @@ export class Bot {
         this.calmWaiting = false;
         this.waitLeft = wp.wait;
       }
+    }
+    // 折り返しか: 来た向き (前のウェイポイント → この点) と、次の向き (この点 → 次の点) が、ほぼ逆
+    const prev = this.route[this.idx - 1]?.pos;
+    const next = this.route[this.idx + 1]?.pos;
+    if (prev && next) {
+      const ax = wp.pos[0] - prev[0];
+      const az = wp.pos[2] - prev[2];
+      const bx = next[0] - wp.pos[0];
+      const bz = next[2] - wp.pos[2];
+      const al = Math.hypot(ax, az);
+      const bl = Math.hypot(bx, bz);
+      if (al > 0.5 && bl > 0.5 && (ax * bx + az * bz) / (al * bl) < -0.5) this.reverseGrace = 0.9;
     }
     this.idx++;
     this.bestDist = Infinity;

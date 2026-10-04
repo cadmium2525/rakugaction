@@ -45,6 +45,13 @@ export function windAt(zones: readonly WindDef[], x: number, y: number, z: numbe
   }
 }
 
+/** 風域 def が、今から何秒のあいだ弱い (calm) ままか。いま吹いていれば 0。maxLook 秒までしか数えない (止みっぱなしの風域は maxLook)。合図灯の色に使う。 */
+export function calmRemaining(def: WindDef, time: number, maxLook = 8, threshold = 0.12): number {
+  if (windStrength(def, time) > threshold) return 0;
+  for (let t = 0.1; t < maxLook; t += 0.1) if (windStrength(def, time + t) > threshold) return t - 0.1;
+  return maxLook;
+}
+
 /** 指定ゾーンが今から seconds 秒の間ずっと弱い (calm) か。ボットが「風が止む間に渡る」判断に使う。 */
 export function calmFor(zones: readonly WindDef[], ids: readonly string[], time: number, seconds: number, threshold = 0.12): boolean {
   const targets = zones.filter((z) => ids.includes(z.id));

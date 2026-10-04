@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { STAGE_LIST } from '../../src/stages/registry';
-import { ALL_BUILDS, runStage } from '../stages/harness';
+import { ALL_BUILDS, runStage, runStageAveraged } from '../stages/harness';
 
 /**
  * 全ステージ通しのバランス (ボットの「死なずにクリアできた最速ルート」)。
@@ -17,9 +17,16 @@ async function measure(): Promise<Table> {
     table[entry.id] = {};
     for (const id of ALL_BUILDS) {
       let best = Infinity;
+      // 風が周期的に吹き止むステージは、止み間との位相で時間が大きく変わる (運)。開始の位相をずらした 4 回の平均で比べる
+      const periodic = (stage.winds ?? []).some((w) => w.gust);
       for (const route of Object.keys(stage.routes ?? {})) {
-        const r = await runStage(stage, id, route, { maxTime: 220, maxDeaths: 1 });
-        if (r.cleared && r.deaths === 0 && r.time < best) best = r.time;
+        if (periodic) {
+          const r = await runStageAveraged(stage, id, route, { maxTime: 220, maxDeaths: 1 });
+          if (r.clearedAll && r.deaths === 0 && r.mean < best) best = r.mean;
+        } else {
+          const r = await runStage(stage, id, route, { maxTime: 220, maxDeaths: 1 });
+          if (r.cleared && r.deaths === 0 && r.time < best) best = r.time;
+        }
       }
       table[entry.id][id] = best;
     }

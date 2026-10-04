@@ -177,6 +177,7 @@ function normalizeStages(raw: unknown, issues: string[]): Record<string, StageRe
     // ベストがあるのにクリア済みでない/クリア回数 0 は矛盾 → ベストに合わせる
     const cleared = v.cleared === true || bestMs !== null;
     out[id] = { cleared, bestMs, clears: cleared ? Math.max(clears, 1) : clears };
+    if (finite(v.rev) && Number.isInteger(v.rev) && v.rev >= 1 && v.rev <= 1000) out[id].rev = v.rev;
     const splits = bestMs !== null ? normalizeSplits(v.bestSplits) : null;
     if (splits) out[id].bestSplits = splits;
   }
@@ -200,7 +201,9 @@ function normalizeSplits(raw: unknown): StarSplit[] | null {
 function normalizeBest(raw: unknown): TimeAttackBest | null {
   if (!isObj(raw) || !finite(raw.totalMs) || raw.totalMs <= 0) return null;
   const splits = Array.isArray(raw.splitsMs) ? raw.splitsMs.filter((x): x is number => finite(x) && x > 0).slice(0, 10) : [];
-  return { totalMs: raw.totalMs, splitsMs: splits };
+  const best: TimeAttackBest = { totalMs: raw.totalMs, splitsMs: splits };
+  if (typeof raw.revKey === 'string' && /^\d{1,3}(,\d{1,3}){0,9}$/.test(raw.revKey)) best.revKey = raw.revKey;
+  return best;
 }
 
 /**

@@ -28,7 +28,7 @@ const STUN_INPUT: SimInput = emptyInput();
 export const NO_ENV: Readonly<PlayerEnv> = { windX: 0, windY: 0, windZ: 0, waterSurface: -Infinity };
 
 /** 地上では接地の摩擦で風の影響が弱まる。 */
-const GROUND_WIND_FACTOR = 0.55;
+export const GROUND_WIND_FACTOR = 0.55;
 /** この割合以上浸かると泳ぎ (胸まで) */
 const SWIM_DEPTH = 0.5;
 /** 水面近く (これ未満の浸かり方) でジャンプすると水から跳び出せる */
