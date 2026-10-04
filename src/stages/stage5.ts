@@ -4,6 +4,7 @@ import { bannerPole } from './canyonKit';
 import { FieldKit } from './fieldKit';
 import { rampX } from './helpers';
 import { TerrainBuilder } from './terrainBuilder';
+import { brokenColumn, rubble } from './ruinsKit';
 import { brazier } from './templeKit';
 import { farSpire, giantColumn, torchPost, towerBanner, TOWER_PALETTE } from './towerKit';
 import type { SignDef, StageDef, SurfaceStyle, WaypointDef } from './types';
@@ -53,7 +54,7 @@ const CRATE_H = 4.5;
 const GATE_WALL_H = 8.5;
 const TOUGH = { C: 0.95, K: 1.25 } as const;
 /** 階ごとの石の色合い (1 階から) */
-const RING_STYLE: readonly SurfaceStyle[] = ['brick', 'sand', 'stone', 'metal'];
+const RING_STYLE: readonly SurfaceStyle[] = ['dirt', 'sand', 'stone', 'metal'];
 const SUMMIT_STYLE: SurfaceStyle = 'ice';
 /** 上昇気流の強さ (m/s)。軽め〜標準 (SPEED・JUMP・STANDARD) が 6m の壁をこえる */
 const VENT_VEL = 7.5;
@@ -113,7 +114,6 @@ export const STAGE5_GEOMETRY = {
   ventVel: VENT_VEL,
   y: Y,
   ledgeH: LEDGE.h,
-  chamberToughness: TOUGH.K,
   crateToughness: TOUGH.C,
 };
 
@@ -215,7 +215,7 @@ export function buildStage5(): StageDef {
   // 西の廊下: 高い台 (2.8m)。上に星
   k.box([LEDGE.x, y1 + LEDGE.h / 2, LEDGE.z], [LEDGE.w, LEDGE.h, LEDGE.w], 'stone');
   k.star('1 階の高い台', LEDGE.x, LEDGE.z, 1.35, y1 + LEDGE.h + 1.35, { id: 'star-ledge' });
-  sign(LEDGE.x + 5.5, y1, LEDGE.z - 6, Math.PI / 2, ['高い台'], { icon: 'jump', hint: ['台の上に星がある。台の高さは 2.8m。助走して高く跳べる (JUMP が高い) キャラだけが跳び乗れる'] });
+  sign(LEDGE.x + 5.5, y1, LEDGE.z - 6, Math.PI, ['高い台'], { icon: 'jump', hint: ['台の上に星がある。台の高さは 2.8m。助走して高く跳べる (JUMP が高い) キャラだけが跳び乗れる'] });
   k.enemy('blob', 42, -30, 42, -20, { speed: 1.4, y0: y1 });
   k.enemy('blob', -42, -34, -42, -24, { speed: 1.4, y0: y1 });
   // 近道 (木箱の扉)
@@ -225,7 +225,7 @@ export function buildStage5(): StageDef {
   const y2 = Y(2);
   k.checkpoint('cp2', ARRIVE_X, RO[1] + 2.5, 3, y2);
   k.checkpoint('cp2s', -12, -(RO[1] - 2.5), 3, y2);
-  sign(-4, y2, RO[1] - 4, -Math.PI / 2, ['上昇気流'], { icon: 'jump', hint: ['壁の手前の柱の中の上昇気流に入って {jump} すると、軽め〜標準のキャラは 3 階に跳び乗れる', '体が重いと、押し上げが足りない。リングを半周して南の坂へ'] });
+  sign(-4, y2, RO[1] - 4, Math.PI / 2, ['上昇気流'], { icon: 'jump', hint: ['壁の手前の柱の中の上昇気流に入って {jump} すると、軽め〜標準のキャラは 3 階に跳び乗れる', '体が重いと、押し上げが足りない。リングを半周して南の坂へ'] });
 
   // ===== 3 階 =====
   const y3 = Y(3);
@@ -250,7 +250,7 @@ export function buildStage5(): StageDef {
     k.enemy('hopper', R4W.x, 3, R4W.x, 9, { speed: 2.0, phase: 0.7, y0: y4 }).id,
     k.enemy('blob', R4W.x, 8, R4W.x, 12, { speed: 1.4, y0: y4 }).id,
   ];
-  sign(-14, y4, 17, Math.PI + 0.2, ['西の廊下'], { icon: 'warn', tone: 'warn', hint: ['廊下の敵 3 体を倒すと、星が現れる', '東の廊下には、すぐ取れる星がある'] });
+  sign(-14, y4, 17, 0.2, ['西の廊下'], { icon: 'warn', tone: 'warn', hint: ['廊下の敵 3 体を倒すと、星が現れる', '東の廊下には、すぐ取れる星がある'] });
 
   // 廊下の鉄球: 廊下の幅いっぱいを往復する (両端で 1 秒止まる)
   for (const w of LEG_SWEEPERS) {
@@ -270,6 +270,19 @@ export function buildStage5(): StageDef {
   for (const sx of [-1, 1]) {
     brazier(k.push, sx * 6, G, SPAWN_Z + 4, 1.1);
     bannerPole(k.push, sx * 10, G, SPAWN_Z + 2, sx < 0 ? 0xd9573f : 0xffd23f);
+  }
+  // 広場の遺跡 (折れた柱・瓦礫。塔・星の庭・部屋・柱をよける)
+  const keep = (x: number, z: number): boolean => {
+    if (Math.max(Math.abs(x), Math.abs(z)) < RO[0] + 8) return false;
+    if (Math.hypot(x - YARD_E.x, z - YARD_E.z) < 20 || Math.hypot(x - CHAMBER.x, z - CHAMBER.z) < 12 || Math.hypot(x - VENT_PILLAR.x, z - VENT_PILLAR.z) < 10) return false;
+    return !(Math.abs(x) < 24 && z < -50 && z > -80);
+  };
+  for (let i = 0; i < 60; i++) {
+    const x = rng.range(-80, 80);
+    const z = rng.range(-80, 80);
+    if (!keep(x, z)) continue;
+    if (rng.chance(0.4)) brokenColumn(k.push, rng, x, k.g(x, z), z, rng.range(4, 12), rng.range(0.9, 1.6));
+    else rubble(k.push, rng, x, k.g(x, z), z, 6);
   }
   // 各階のかど: 松明台と旗
   for (let j = 1; j <= 4; j++) {
