@@ -5,6 +5,7 @@ import type {
   BoxDef,
   BreakableDef,
   CheckpointDef,
+  CrumbleDef,
   CylinderDef,
   DecorDef,
   EnemyDef,
@@ -36,6 +37,7 @@ export class FieldKit {
   readonly checkpoints: CheckpointDef[] = [];
   readonly waters: WaterDef[] = [];
   readonly winds: WindDef[] = [];
+  readonly crumbles: CrumbleDef[] = [];
   private n = 0;
 
   constructor(readonly terrain: TerrainDef) {}
@@ -156,9 +158,22 @@ export class FieldKit {
     return s;
   }
 
-  checkpoint(id: string, x: number, z: number, radius = 3): CheckpointDef {
-    const c: CheckpointDef = { id, pos: this.at(x, z), radius };
+  /** y を渡すと、足元の高さを直接指定する (地形の上ではない床・台の上のチェックポイント)。 */
+  checkpoint(id: string, x: number, z: number, radius = 3, y?: number): CheckpointDef {
+    const c: CheckpointDef = { id, pos: y !== undefined ? [x, y, z] : this.at(x, z), radius };
     this.checkpoints.push(c);
+    return c;
+  }
+
+  /**
+   * 崩れる床 (中心 cx, cz・幅 w × 奥行き d・上面の高さ top・厚み 0.8m): 乗ってから delay 秒で落ち (重いほど早い)、respawn 秒後に戻る。
+   * 隣り合う床の間に、0.1m のすき間をあける (継ぎ目が見える)。
+   */
+  crumble(cx: number, cz: number, w: number, d: number, top: number, delay: number, o: { respawn?: number; style?: SurfaceStyle } = {}): CrumbleDef {
+    const thick = 0.8;
+    const c: CrumbleDef = { id: this.id('cr'), pos: [cx, top - thick / 2, cz], size: [w - 0.1, thick, d - 0.1], delay, style: o.style ?? 'sand' };
+    if (o.respawn !== undefined) c.respawn = o.respawn;
+    this.crumbles.push(c);
     return c;
   }
 
