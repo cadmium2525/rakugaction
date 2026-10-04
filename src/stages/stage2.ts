@@ -11,14 +11,14 @@ import type { StageDef, WaypointDef } from './types';
  * STAGE 2: 強風の谷 (フィールド型)。
  *
  * 赤い台地の浮島を、深い谷が 2 本、東西に断ち切っている。谷を渡れるのは、それぞれの中央の「つり橋」だけ (横風が吹き抜ける)。
- * 南の岸 (スタート) → 南のつり橋 → 中の台地 → 北のつり橋 → 北の岸 (ゴール)。どの道でも、橋を 10 スパン渡る。
+ * 南の岸 (スタート) → 南のつり橋 → 中の台地 → 北のつり橋 → 北の岸 (ゴール)。どの道でも、橋を 12 スパン (6 スパン × 2 本) 渡る。
  * ラクガキ星は 8 個、5 個でゴールが開く。星はどれも、道の途中ではなく、寄り道の先にある (どれを選ぶかが攻略)。
  *   南の岸:  ★ 谷口の広場 (西)    敵を倒すと現れる: カタマル 3 体 (ACTION は効かない。上から踏む)
  *            ★ 風見の丘 (東)      丘の上。だれでも
  *            ★ 風の祠 (橋のそば)  4m の岩棚。階段 (だれでも) か、上昇気流 + ジャンプの近道 (重いと押し上げが足りない)
  *   谷 1:    ★ 南のつり橋の枝橋   足場から東へのびる枝橋 (横風) の先。風に強い体ほど楽
  *   中の台地: ★ 山頂 (中央)       敵を倒すと現れる: 星のまわりを回るカタマル 2 体
- *            ★ 風の回廊 (東)      向かい風の吹く長い通路 (3 区画 + 避難所)
+ *            ★ 風の回廊 (東)      向かい風の吹く長い通路 (2 区画 + 避難所)
  *   谷 2:    ★ 北のつり橋の枝橋   足場から西へのびる枝橋の先
  *   北の岸:  ★ 突風の広場 (西)    敵を倒すと現れる: チェイサー 2 体 + カタマル 2 体
  * 戦わずに取れる星は 5 個ちょうど (風見・風の祠・枝橋 2 つ・回廊)。敵を倒して出す星が 3 個。
@@ -37,25 +37,29 @@ const GORGE_N: [number, number][] = [[-140, 88], [-95, 82], [-50, 74], [-15, 78]
 /** 横風の強さ (m/s)。体重で効き方が変わる: 軽い = 流されやすい / 重い = 風に強い */
 const CROSSWIND = 14;
 /**
- * スパンごとの風の強さ (m/s)。橋ごとに、10〜14 を並べ替えてある (南の橋は南から北へ 11・13・14・12・13・10、北の橋は 10・13・14・12・13・11)。
- * 風の中を渡れるかは、体重で決まる: 14 は重い体 (HEAVY/EXTREME) だけ / 13 は JUMP から / 12 は POWER から / 11 は STANDARD から / 10 は SPEED も渡れる (風を押し切れる限界は、体重の軽さの順)。
- * 全部が 14 だと、「風に押し切れる重さ」の境目で、時間が急に変わってしまう (わずかな体重の差で 3 割変わった)。体重ごとに、待つスパンの数が 5 → 4 → 3 → 1 → 0 と段階的に変わる。
+ * スパンごとの風の強さ (m/s)。橋ごとに、10〜14 を並べ替えてある (南の橋は南から北へ 11・14・14・13.5・13.5・10、北の橋は 10・13.5・14・12・14・11)。
+ * 風の中を渡れるかは、体重で決まる: 14 と 13.5 は重い体 (HEAVY/EXTREME) だけ / 12 は JUMP・POWER から / 11 は STANDARD から / 10 は SPEED も渡れる (風を押し切れる限界は、体重の軽さの順)。
+ * 全部が 14 だと、「風に押し切れる重さ」の境目で、時間が急に変わってしまう (わずかな体重の差で 3 割変わった)。体重ごとに、待つスパンの数が 10 (SPEED) → 8 (STANDARD) → 6 (JUMP・POWER) → 0 (HEAVY・EXTREME) と段階的に変わる (2 本の橋の合計)。
  */
-const SPAN_WIND: Record<'S' | 'N', readonly number[]> = { S: [11, 13, 14, 12, 13, 10], N: [10, 13, 14, 12, 13, 11] };
+const SPAN_WIND: Record<'S' | 'N', readonly number[]> = { S: [11, 14, 14, 13.5, 13.5, 10], N: [10, 13.5, 14, 12, 14, 11] };
 /** 枝橋の風 (橋に沿った向き = 枝橋には横風) と、向かい風 (回廊) の強さ */
 const JETTY_WIND = 14;
+/** 枝橋の 1 つ目のデッキは、少し弱い (JUMP・POWER は風の中を渡れる) */
+const JETTY_WIND_FIRST = 12;
 const HEADWIND = 11;
-/** 橋のスパンごとの突風の周期 (秒)。吹く時間はその 2/3 (止み間は 1/3)。スパンごとに周期を変えて、止み間が全部そろわないようにする */
-const BRIDGE_PERIODS: readonly number[] = [6, 6, 6, 6, 6];
+/** 橋のスパンごとの突風の周期 (秒)。全部 6 秒: 周期を変えると、止み間との位相の運が大きくなって、時間が読めなくなった (スパンごとのずれは BRIDGE_STAGGER) */
+const BRIDGE_PERIODS: readonly number[] = [6, 6, 6, 6, 6, 6];
+/** 吹く時間 (秒)。周期 6 秒のうち、止み間は 2.2 秒: 灯が緑 (渡れる) の時間が、人の反応より十分に長いように */
+const BRIDGE_ON = 3.8;
 /** 隣のスパンとの、突風のリズムのずれ (秒)。大きいほど、軽いキャラが次のスパンの止み間を待つ時間が長い */
 const BRIDGE_STAGGER = 1.5;
-/** 回廊の風: 6 秒のうち 3.5 秒吹き、2.5 秒止む */
-const HALL_GUST = { period: 6, on: 3.5, ramp: 0.35 };
+/** 回廊の風: 6 秒のうち 3.4 秒吹き、2.6 秒止む */
+const HALL_GUST = { period: 6, on: 3.4, ramp: 0.35 };
 const RAMP = 0.35;
 
 /**
  * つり橋: 南から北へ スパン (風の吹く細い橋) → 避難所 (広い足場) を交互に。デッキの上面は y = 0。
- * 各スパンは、横風 (±CROSSWIND) が長さぶんだけ吹く。id は 'S' (南の橋) / 'N' (北の橋)、z0 = 橋の南の端。
+ * 各スパンは、横風 (SPAN_WIND の強さ。向きは交互) が長さぶんだけ吹く。id は 'S' (南の橋) / 'N' (北の橋)、z0 = 橋の南の端。
  * 2 つ目の避難所 (番号 1) から、横へ枝橋がのびる (jetty = +1 なら東、−1 なら西): 風の吹くデッキ (6m) → 風のない足場 → 風の吹くデッキ (6m) → 風のない足場 (星がある)。
  * 風に強い体なら、風の中をそのまま渡れる。軽い体は、4 回の止み間 (行き 2 回・帰り 2 回) を待つので、時間がかかる (軽い体は、ほかの星の方が割がいい)。
  */
@@ -210,9 +214,8 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
   // ===== 南の岸 東: 風見の丘 =====
   keepOut(VANE.x, VANE.z, 20);
   k.checkpoint('cp2', 28, -45);
-  const vy = k.g(VANE.x, VANE.z);
-  windVane(k.push, VANE.x + 1.8, vy, VANE.z + 1.4, 0.8, 1.15);
-  windmill(k.push, VANE.x - 4.6, vy, VANE.z - 2.2, 0.5);
+  windVane(k.push, VANE.x + 1.8, k.g(VANE.x + 1.8, VANE.z + 1.4), VANE.z + 1.4, 0.8, 1.15);
+  windmill(k.push, VANE.x - 4.6, k.g(VANE.x - 4.6, VANE.z - 2.2), VANE.z - 2.2, 0.5);
   k.star('風見の丘', VANE.x, VANE.z, 1.35, undefined, { id: 'star-vane' });
   k.sign(29, -41, -0.4, ['風見の丘'], { icon: 'arrow', hint: ['丘の上の星へ。道をたどっても、まっすぐ登ってもよい', '風車と風見が、風の向きを教えてくれる'] });
   k.enemy('hopper', 32, -50, 40, -48, { speed: 2.2, phase: 0.2 });
@@ -241,8 +244,7 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
   // ===== 中の台地: 山頂と、風の回廊 =====
   keepOut(SUMMIT.x, SUMMIT.z, 20);
   k.checkpoint('cp4', 0, 24);
-  const sy = k.g(SUMMIT.x, SUMMIT.z);
-  bannerPole(k.push, SUMMIT.x + 2.6, sy, SUMMIT.z + 2.6, 0xd9573f);
+  bannerPole(k.push, SUMMIT.x + 2.6, k.g(SUMMIT.x + 2.6, SUMMIT.z + 2.6), SUMMIT.z + 2.6, 0xd9573f);
   const summitStar = k.star('山頂', SUMMIT.x, SUMMIT.z, 1.35, undefined, { id: 'star-summit' });
   // 星のまわりを回るカタマル (倒すと星が現れる)。星を中心にした正方形の 4 隅を巡る。2 体は反対の隅から始める
   const loop = [[-2.6, -2.6], [2.6, -2.6], [2.6, 2.6], [-2.6, 2.6]] as const;
@@ -270,7 +272,7 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
   k.sign(HALL.x0 - 1, HALL.cz + 5.5, -0.8, ['風の回廊'], {
     icon: 'warn',
     tone: 'warn',
-    hint: ['向かい風の通路。奥の星まで 3 区画。柱の灯が緑のあいだに進む', '区画のあいだは風がない。体が重いほど風に強い'],
+    hint: ['向かい風の通路。奥の星まで 2 区画。柱の灯が緑のあいだに進む', '区画のあいだは風がない。体が重いほど風に強い'],
   });
 
   // ===== 谷 2: 北のつり橋 =====
@@ -281,8 +283,9 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
 
   // ===== 北の岸: 突風の広場 (チェイサー + カタマルの守る星) とゴール =====
   keepOut(GUST.x, GUST.z, GUST.r + 3);
-  k.checkpoint('cp7', 0, 105);
-  k.checkpoint('cp8', GUST.x + 10, GUST.z - 1);
+  k.checkpoint('cp7', 0, 104);
+  // 広場の入口 (チェイサーの追いかける範囲の外。復活してすぐ追われないように)
+  k.checkpoint('cp8', -8, 108);
   const gustStar = k.star('突風の広場', GUST.x, GUST.z, 1.35, undefined, { id: 'star-gust' });
   gustStar.appearAfter = GUST_GUARDS.map((g) => k.enemy(g.kind, ...g.pts, g.o).id);
   k.sign(GUST.x + 8, GUST.z - 6, -0.3, ['要注意'], {
@@ -353,8 +356,8 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
     winds: k.winds,
     ambient: { motes: { count: 60, color: 0xffe2a8, size: 0.1 }, butterflies: 0 },
     routes,
-    // 標準ビルドのボットの所要 (戦う設定) をもとにした目安 (慣れた人は、風の止み間と寄り道の組み合わせで短くできる)
-    parTime: 105,
+    // 標準ビルドのボットの最速 (風の位相をずらした 4 回の平均) 約 98 秒の 1.35 倍 (STAGE 1 と同じ比)。慣れた人は、風の止み間と寄り道の組み合わせで短くできる
+    parTime: 130,
     // 谷のこちら側とあちら側を、ポーズ → チェックポイントから再開 で行き来して省くのを防ぐ
     missPenaltySec: 3,
   };
@@ -371,10 +374,10 @@ function ring(k: FieldKit, rng: Rng, cx: number, cz: number, radius: number, n: 
 }
 
 /** 合図灯の柱 (飾り) と、ランプの位置。柱の根元の高さ y の所に立つ */
-function lamp(k: FieldKit, x: number, y: number, z: number, need?: number): { pos: [number, number, number]; need?: number } {
-  k.push({ shape: 'cylinder', pos: [x, y + 1.1, z], size: [0.08, 2.2, 1], color: 0x6b4a2a, seg: 5 });
-  k.push({ shape: 'cylinder', pos: [x, y + 2.05, z], size: [0.2, 0.22, 1], color: 0x3a2a1a, seg: 6 });
-  return { pos: [x, y + 2.45, z], need };
+function lamp(k: FieldKit, x: number, y: number, z: number, need?: number, height = 2.2): { pos: [number, number, number]; need?: number } {
+  k.push({ shape: 'cylinder', pos: [x, y + height / 2, z], size: [0.08, height, 1], color: 0x6b4a2a, seg: 5 });
+  k.push({ shape: 'cylinder', pos: [x, y + height - 0.15, z], size: [0.2, 0.22, 1], color: 0x3a2a1a, seg: 6 });
+  return { pos: [x, y + height + 0.25, z], need };
 }
 
 /**
@@ -414,11 +417,11 @@ function bridge(k: FieldKit, b: BridgeDef, wind: number, scale: number): void {
     k.box([b.x, -0.4, zs + len / 2], [deckW, 0.8, len], 'wood');
     const period = BRIDGE_PERIODS[i % BRIDGE_PERIODS.length];
     const w = k.wind(`bridge${b.id}${i}`, b.x, zs + len / 2, deckW + 4, len, -7, 13, [(wind / CROSSWIND) * SPAN_WIND[b.id][i] * (i % 2 === 0 ? 1 : -1), 0, 0], {
-      gust: { period, on: Math.round((period * 20) / 3) / 10, ramp: RAMP, phase: b.phase + BRIDGE_STAGGER * i },
+      gust: { period, on: BRIDGE_ON, ramp: RAMP, phase: b.phase + BRIDGE_STAGGER * i },
     });
     // 合図灯: 手前の避難所 (i = 0 は、橋の手前の地面) の、橋の中心から東側の端
     const baseY = i === 0 ? k.g(b.x + 3.7, zs - 1.2) : 0;
-    w.beacons = [lamp(k, b.x + 3.7, baseY, zs - (i === 0 ? 1.2 : 0.8), 1.4)];
+    w.beacons = [lamp(k, b.x + 3.7, baseY, zs - (i === 0 ? 1.2 : 0.8), 1.2)];
     bridgeRail(k.push, b.x - deckW / 2, zs, b.x - deckW / 2, zs + len, 0);
     bridgeRail(k.push, b.x + deckW / 2, zs, b.x + deckW / 2, zs + len, 0);
     // 避難所 (広い足場)。最後のスパンの先は地面
@@ -449,15 +452,16 @@ function bridge(k: FieldKit, b: BridgeDef, wind: number, scale: number): void {
   rail(jettyX(b, 'deck1') - dir * (JETTY.deck / 2), jettyX(b, 'deck1') + dir * (JETTY.deck / 2));
   // 枝橋の風: 橋に沿った向き (枝橋には横風)。風の吹く範囲はデッキだけ (途中と先の足場は風がない = 待てる)。2 つのデッキは、風向きと周期を変える
   const sgn = b.jetty === 1 ? 1 : -1;
-  const jw0 = k.wind(`jetty${b.id}0`, jettyX(b, 'deck0'), zc, JETTY.deck, 9, -7, 13, [0, 0, (JETTY_WIND - 2) * scale * sgn], { gust: { period: 6.4, on: 4.2, ramp: RAMP, phase: b.phase + 3.1 } });
-  const jw1 = k.wind(`jetty${b.id}1`, jettyX(b, 'deck1'), zc, JETTY.deck, 9, -7, 13, [0, 0, -JETTY_WIND * scale * sgn], { gust: { period: 6.4, on: 4.2, ramp: RAMP, phase: b.phase + 5.3 } });
-  jw0.beacons = [lamp(k, b.x + dir * 3.8, 0, zc - 1.2, 1.8), lamp(k, midX - dir * 0.6, 0, zc - 2.4, 1.8)];
-  jw1.beacons = [lamp(k, midX + dir * 0.6, 0, zc + 2.4, 1.8), lamp(k, padX + dir * 1.0, 0, zc - 2.4, 1.8)];
+  const jw0 = k.wind(`jetty${b.id}0`, jettyX(b, 'deck0'), zc, JETTY.deck, 9, -7, 13, [0, 0, JETTY_WIND_FIRST * scale * sgn], { gust: { period: 6.4, on: 4.0, ramp: RAMP, phase: b.phase + 3.1 } });
+  const jw1 = k.wind(`jetty${b.id}1`, jettyX(b, 'deck1'), zc, JETTY.deck, 9, -7, 13, [0, 0, -JETTY_WIND * scale * sgn], { gust: { period: 6.4, on: 4.0, ramp: RAMP, phase: b.phase + 5.3 } });
+  // 枝橋の灯は、橋の灯より背が高い (2 つ目の足場に、橋の灯と並ぶので、見分けられるように)
+  jw0.beacons = [lamp(k, b.x + dir * 3.8, 0, zc - 1.2, 1.5, 3.4), lamp(k, midX - dir * 0.6, 0, zc - 2.4, 1.5, 3.4)];
+  jw1.beacons = [lamp(k, midX + dir * 0.6, 0, zc + 2.4, 1.5, 3.4), lamp(k, padX + dir * 1.0, 0, zc - 2.4, 1.5, 3.4)];
   k.star(b.id === 'S' ? '南のつり橋の枝橋' : '北のつり橋の枝橋', padX, zc, 1.35, 1.35, { id: `star-jetty-${b.id.toLowerCase()}` });
 }
 
 /**
- * 風の回廊: 東へのびる通路 (内幅 inner)。高い壁で囲まれ、入口は西だけ。3 つの区画に向かい風 (西向き) が吹き、区画のあいだは避難所。
+ * 風の回廊: 東へのびる通路 (内幅 inner)。高い壁で囲まれ、入口は西だけ。2 つの区画に向かい風 (西向き) が吹き、区画のあいだは避難所。
  * 各区画の入口に、風の合図灯。
  */
 function hall(k: FieldKit, scale: number): void {
@@ -470,7 +474,7 @@ function hall(k: FieldKit, scale: number): void {
   k.wall(x1 + 0.8, cz, 1.6, inner + 3.2, 5.2, 'brick');
   zones.forEach(([a, b], i) => {
     const w = k.wind(`hall${i}`, (a + b) / 2, cz, b - a, inner, 0, 7, [-HEADWIND * scale, 0, 0], { gust: { ...HALL_GUST, phase: 1.3 * i } });
-    w.beacons = [lamp(k, a - 1.0, k.g(a - 1.0, cz - 3.6), cz - 3.6, 2.4)];
+    w.beacons = [lamp(k, a - 1.0, k.g(a - 1.0, cz - 3.6), cz - 3.6, 1.8)];
   });
   // 回廊の中の飾り: 壁ぎわの石柱と、かがり火 (区画のあいだの避難所の目印)
   for (let x = x0 + 3; x < x1 - 1; x += 5.5) {
@@ -497,7 +501,7 @@ export const STAGE2_STARS: readonly Stage2Star[] = ['gate', 'vane', 'vent', 'jet
  * ボット用ルートを、取る星の組み合わせから組み立てる。順番は、地形の順 (南の岸 → 南の橋 → 中の台地 → 北の橋 → 北の岸) で決まっている。
  * ventShortcut = 風の祠を、階段ではなく上昇気流 + ジャンプで上がる (重い体は届かない)。
  */
-export function stage2RouteFor(stage: StageDef, stars: readonly Stage2Star[], o: { ventShortcut?: boolean } = {}): WaypointDef[] {
+export function stage2RouteFor(stage: Pick<StageDef, 'terrain' | 'pickups'>, stars: readonly Stage2Star[], o: { ventShortcut?: boolean } = {}): WaypointDef[] {
   const has = (s: Stage2Star): boolean => stars.includes(s);
   const at = (x: number, z: number, dy = 0): [number, number, number] => {
     const t = stage.terrain!;
@@ -592,9 +596,8 @@ export function stage2RouteFor(stage: StageDef, stars: readonly Stage2Star[], o:
 
 /** 名前つきのルート (ボットのバランス測定・テスト用)。どれも 5 つの星 (ちょうど必要な数) を取る。星の組み合わせを全部 (56 通り) 測って、体型ごとの最速に近い道を選んである */
 function buildRoutes(k: FieldKit): Record<string, WaypointDef[]> {
-  // stage2RouteFor は完成したステージ (地形・星・敵) を見るので、ここでは作りかけの部品から仮のステージを作る
-  const partial = { terrain: k.terrain, pickups: k.pickups } as unknown as StageDef;
-  const r = (stars: Stage2Star[], o: { ventShortcut?: boolean } = {}): WaypointDef[] => stage2RouteFor(partial, stars, o);
+  // stage2RouteFor が見るのは地形と星だけなので、作りかけのステージの部品を渡せる
+  const r = (stars: Stage2Star[], o: { ventShortcut?: boolean } = {}): WaypointDef[] => stage2RouteFor({ terrain: k.terrain, pickups: k.pickups }, stars, o);
   return {
     // 戦わずに取れる 5 個 (風見・風の祠 (階段)・枝橋 2 つ・回廊)
     main: r(['vane', 'vent', 'jettyS', 'hall', 'jettyN']),

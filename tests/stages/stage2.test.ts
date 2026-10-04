@@ -5,6 +5,7 @@ import { statsToParams } from '../../src/game/params';
 import { GameSim } from '../../src/game/sim';
 import { emptyInput } from '../../src/input/types';
 import { buildStage2, STAGE2_STARS, stage2RouteFor } from '../../src/stages/stage2';
+import { calmRemaining } from '../../src/game/wind';
 import { terrainHeightAt } from '../../src/stages/terrain';
 import type { WindDef } from '../../src/stages/types';
 import { ALL_BUILDS, FRAGILE_BUILD, fmt, runStage, runStageAveraged } from './harness';
@@ -192,6 +193,17 @@ describe('STAGE 2 強風の谷 (フィールド型)', () => {
       if (w.id.startsWith('jetty')) expect(lit(w), w.id).toBeGreaterThanOrEqual(2); // 渡る前の足場と、渡った先の足場 (戻る時の合図)
       if (!w.gust && !w.pulse) expect(lit(w), `${w.id}: 周期のない風に灯はいらない`).toBe(0);
     }
+    // 灯が緑 (渡れる) の時間が、人の反応 (約 0.25 秒) より十分に長い: 止み間のいちばん長い所の残りから、渡るのに要る秒 (need) を引いて 0.6 秒以上
+    for (const w of stage.winds!) {
+      for (const b of w.beacons ?? []) {
+        let best = 0;
+        for (let t = 0; t < 14; t += 0.05) best = Math.max(best, calmRemaining(w, t));
+        expect(best - (b.need ?? 1.5), `${w.id} の灯が緑の時間`).toBeGreaterThanOrEqual(0.6);
+      }
+    }
+    // 枝橋の灯は、橋の灯より背が高い (2 つ目の足場に並ぶので、見分けられる)
+    const heights = (prefix: string): number[] => stage.winds!.filter((w) => w.id.startsWith(prefix)).flatMap((w) => (w.beacons ?? []).map((b) => b.pos[1]));
+    expect(Math.min(...heights('jetty')) - Math.max(...heights('bridge')), '枝橋の灯の高さ').toBeGreaterThanOrEqual(0.8);
     // ランプは風域の近く (12m 以内) にある
     for (const w of stage.winds!) {
       for (const b of w.beacons ?? []) {
@@ -323,7 +335,7 @@ describe('STAGE 2 強風の谷 (フィールド型)', () => {
     }
   }, 600_000);
 
-  it('風の影響: 風を止めた谷 (windScale 0) と比べて、軽いビルドはどの道でも 20 秒以上遅くなり、重量型 (HEAVY/EXTREME) は 10 秒以内。風に強いほど得 (風の位相をずらした 4 回の平均)', async () => {
+  it('風の影響: 風を止めた谷 (windScale 0) と比べて、風に弱い体ほど遅くなる (軽い SPEED が最大、重い EXTREME が最小)。風の位相をずらした 4 回の平均', async () => {
     const calm = buildStage2({ windScale: 0 });
     const cost: Record<string, number> = {};
     for (const id of ALL_BUILDS) {
@@ -333,9 +345,10 @@ describe('STAGE 2 強風の谷 (フィールド型)', () => {
       cost[id] = w.mean - c.mean;
     }
     const detail = JSON.stringify(cost);
-    for (const id of ['STANDARD', 'SPEED', 'JUMP', 'POWER']) expect(cost[id], `${id}: ${detail}`).toBeGreaterThan(20);
+    // 風の中を渡れるスパンの数が、体重で段階的に変わる: 風に弱い 4 ビルドは 15 秒以上、重量型は 10 秒以内
+    for (const id of ['STANDARD', 'SPEED', 'JUMP', 'POWER']) expect(cost[id], `${id}: ${detail}`).toBeGreaterThan(15);
     for (const id of HEAVIES) expect(cost[id], `${id}: ${detail}`).toBeLessThan(10);
-    expect(cost.SPEED).toBeGreaterThan(cost.HEAVY + 15);
-    expect(cost.EXTREME).toBeLessThanOrEqual(cost.HEAVY + 1);
+    expect(cost.SPEED, detail).toBeGreaterThan(cost.HEAVY + 25);
+    expect(cost.EXTREME, detail).toBeLessThanOrEqual(cost.HEAVY + 1);
   }, 600_000);
 });

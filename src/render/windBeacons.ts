@@ -40,8 +40,9 @@ export class WindBeacons {
   update(time: number): void {
     this.lamps.forEach((z, i) => {
       const left = calmRemaining(z.def, time);
+      // 色だけに頼らない: 風が吹いている間は小さく (赤)・止んだら大きく (緑)・もうすぐ吹くなら点滅 (黄)
       let color = WIND;
-      let scale = 1;
+      let scale = 0.8;
       if (left >= z.need) {
         color = CALM;
         scale = 1.12;

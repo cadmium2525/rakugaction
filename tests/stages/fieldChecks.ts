@@ -67,7 +67,8 @@ export function enemyRouteProblems(stage: StageDef): string[] {
 
 /**
  * 歩いて (傾き maxSlopeDeg 以下、ジャンプなしで) 行ける地面の頂点の集合を、seeds (x, z の列) から広げて求める。
- * 地形だけを見る (橋・箱・水は使わない)。戻り値の reach(x, z) は、その点の近く (半径 radius) に行ける頂点があるか。
+ * 地形だけを見る (橋・箱・水は使わない)。戻り値の reach(x, z) は、その点の近く (半径 radius。既定 1.5m = 格子 2m の、いちばん近い頂点まで) に行ける頂点があるか。
+ * (半径を 3m にすると、星の足元が 70° の壁でも、すぐ隣の平らな頂点に行けるので合格してしまった: 批評で発見)
  */
 export function walkableReach(stage: StageDef, seeds: readonly (readonly [number, number])[], maxSlopeDeg = 50): (x: number, z: number, radius?: number) => boolean {
   const t = stage.terrain!;
@@ -99,7 +100,7 @@ export function walkableReach(stage: StageDef, seeds: readonly (readonly [number
       stack.push(n);
     }
   }
-  return (x, z, radius = 3) => {
+  return (x, z, radius = 1.5) => {
     const r = Math.ceil(radius / t.cell);
     const cx = Math.round((x - t.x0) / t.cell);
     const cz = Math.round((z - t.z0) / t.cell);

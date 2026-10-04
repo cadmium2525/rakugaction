@@ -73,6 +73,14 @@ export async function validateStage(stage: StageDef): Promise<void> {
     for (const p of pts) {
       for (const q of near) expect(Math.hypot(p[0] - q[0], p[2] - q[2]), `enemy ${e.id} がスタート/チェックポイントに近すぎる`).toBeGreaterThan(3);
     }
+    // チェイサー: 復活地点 (スタート・チェックポイント) が、追いかける範囲の中で、待機位置から気づく距離 (aggro) の内側にあると、復活してすぐ追われる (復活の無敵は 1 秒)
+    if (e.kind === 'chaser' && e.leash) {
+      const aggro = e.aggro ?? 9;
+      for (const q of near) {
+        const inLeash = q[0] >= e.leash.min[0] - 1 && q[0] <= e.leash.max[0] + 1 && q[2] >= e.leash.min[2] - 1 && q[2] <= e.leash.max[2] + 1;
+        if (inLeash) expect(Math.hypot(e.points[0][0] - q[0], e.points[0][2] - q[2]), `チェイサー ${e.id} の気づく距離の中に、復活地点 [${q[0].toFixed(1)}, ${q[2].toFixed(1)}] がある`).toBeGreaterThanOrEqual(aggro);
+      }
+    }
   }
   // 集めるアイテム: id が重複せず、足元 (真下 3.5m 以内) に床があり、必要な数がアイテムの総数を超えない
   const pickupIds = new Set<string>();
