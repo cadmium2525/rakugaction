@@ -13,10 +13,12 @@ import type { StageDef, WaypointDef } from './types';
  *
  *   南の前庭 (スタート) → 崩れる大広間 (穴の上の床 8 × 8 枚。まっすぐ渡る近道。両わきの石畳の道は遠回り) → 北の前庭 → 崩れる橋 → 奥の院 (ゴール)
  *   星 8 個 (5 個でゴールが開く):
- *     崩れる大広間の星 / 展望の高台 (西。高さ 2.0m。高く跳べる体 (SPEED・JUMP) は、4.4m 先の台から跳び乗れる。ほかは、崩れる階段 8 段) /
+ *     崩れる大広間の星 / 展望の高台 (西。高さ 2.0m。高く跳べる体 (SPEED・JUMP) は、4.4m 先の台から跳び乗れる。ほかは、崩れる階段 10 段) /
  *     向こう岸の島 (北西。5.0m の穴を、助走して跳び越える (STANDARD・SPEED・JUMP)。ほかは、崩れる橋 5 枚) /
- *     宝物庫 (東。正面の大きな木箱の扉を壊す (攻撃力 0.95 以上)。壊せない体は、うしろの崩れる橋から) / トゲの庭 (北の前庭の東寄り) /
+ *     宝物庫 (東。正面の大きな木箱の扉を壊す (攻撃力 0.95 以上)。壊せない体は、うしろの崩れる橋から) / トゲの庭 (石の塀の行き止まりの庭。南の入口から入って、同じ道を戻る) /
  *     敵を倒すと現れる星 3 個 (南西の庭・南東の庭・北の庭)
+ *
+ * 「だけが届く」は、ボット (縁の手前でジャンプを 1 回) の測定。人が縁を蹴ってから (コヨーテ時間) 跳ぶと、届く体の範囲が少し広がる (狭い窓の技)。
  */
 
 /** 地面の高さ (m)。遺跡の石畳はすべて 0。穴の底は −40m (奈落ライン −30m より下) */
@@ -27,34 +29,37 @@ const SPAWN_Z = -66;
 /** 穴 (地形のくぼみ。範囲の外側の縁が、平らな地面の端。内側の頂点は −40m で、縁のセルは崖) */
 const PIT = {
   hall: { x0: -16, x1: 16, z0: -48, z1: -16 },
-  tower: { x0: -54, x1: -32, z0: 2, z1: 30 },
-  vault: { x0: 36, x1: 48, z0: 14, z1: 34 },
-  island: { x0: -56, x1: -36, z0: 54, z1: 98 },
+  tower: { x0: -46, x1: -24, z0: 2, z1: 30 },
+  vault: { x0: 32, x1: 52, z0: 12, z1: 34 },
+  island: { x0: -37, x1: -16, z0: 54, z1: 98 },
   bridge: { x0: -60, x1: 60, z0: 98, z1: 120 },
 } as const;
 /** 崩れる床の delay (秒。標準の体重で)。重い体 (EXTREME: 体重 1.63) は 1/√体重 = 0.78 倍の時間で崩れる */
-const DELAY = { hall: 1.7, stairs: 1.8, bridge: 1.4, vaultBridge: 1.4 };
+const DELAY = { hall: 1.7, stairs: 1.8, bridge: 1.4, vaultBridge: 1.4, north: 1.8 };
 /** 大広間の床 (4m 角)。星は、床 1 枚の中央の上 (床のすき間の上だと、床が見えない) */
 const HALL_TILE = 4;
 const HALL_STAR = [14, -34] as const;
 /** 展望の高台: 台の上面 2.0m・南北 12m。助走する台 (発射台) の縁から 4.4m 先 (高く跳べる体だけ届く) */
-const TOWER = { x0: -48, x1: -38, z0: 10, z1: 22, top: 2.0, padEdge: -33.6, padX1: -28, padZ0: 12, padZ1: 20 };
-/** 崩れる階段: 北から南へ、8 枚 (1 枚が 0.25m ずつ高く)。台の北の端 (z = TOWER.z1) へつながる */
-const STAIRS = { x: -43, n: 8, rise: 0.25, d: 3, z0: 45 };
-/** 向こう岸の島: 東の端から穴の縁 (x = −36) まで 5.0m。南から崩れる橋 5 枚 */
-const ISLAND = { x0: -52, x1: -41, z0: 76, z1: 92, bridgeX: -46, bridgeGap: 1.5, bridgeLen: 2.6, bridgeN: 5 };
-/** 宝物庫: 壁 (高さ 4.5m。だれも登れない) に囲まれた庭。正面 (南) の扉 = 大きな木箱 / うしろ (北) の扉 = 崩れる橋 4 枚 */
-const VAULT = { x0: 34, x1: 50, z0: -6, z1: 12, doorX0: 40, doorX1: 44, wallH: 4.5, wallT: 1.5, bridgeX: 42, bridgeGap: 1.9, bridgeLen: 2.6, bridgeN: 4 };
-/** トゲの庭 (北の前庭の東寄り): 3 列のトゲ床。列ごとに 5.6m のすき間があいていて、左・右・左とすり抜ける */
-const SPIKES = { x0: 10, x1: 34, rows: [42, 50, 58] as const, gapW: 5.6, bedD: 2.0, gapX: [18, 28, 18] as const, star: [22, 65] as const };
+const TOWER = { x0: -40, x1: -30, z0: 10, z1: 22, top: 2.0, padEdge: -25.6, padX1: -20, padZ0: 12, padZ1: 20 };
+/** 崩れる階段: 北から南へ、10 枚 (1 枚が 0.2m ずつ高く。段差 0.25m だと、歩きだけでは登れない体があった)。台の北の端 (z = TOWER.z1) へつながる */
+const STAIRS = { x: -35, n: 10, rise: 0.2, d: 2.6, z0: 47.6 };
+/** 向こう岸の島: 東の端から穴の縁 (x = −16) まで 5.0m (西の縁からは 6.0m)。南から崩れる橋 5 枚 */
+const ISLAND = { x0: -31, x1: -21, z0: 76, z1: 92, bridgeX: -26, bridgeGap: 1.5, bridgeLen: 2.6, bridgeN: 5 };
+/** 宝物庫の木箱の扉の硬さ (攻撃力 0.95 以上 = 標準以上が壊せる) */
+const GATE_TOUGHNESS = 0.95;
+/** 宝物庫: 壁 (高さ 8.5m。跳躍力が極端に大きい体でも登れない) に囲まれた庭。正面 (南) の扉 = 大きな木箱 (高さ gateH) / うしろ (北) の扉 = 崩れる橋 4 枚。穴は庭の北の縁 (z1) から始まり、北の壁 (z1〜zN) は穴の上に立つ (壁の足元は深く埋める)。穴の縁が壁の外にあると、縁に体がひっかかって、壁ぞいに歩いて裏口に入れた。裏口の床 (扉の幅の台) だけが、穴の上に出ている */
+const VAULT = { x0: 34, x1: 50, z0: -6, z1: 12, zN: 14, doorX0: 40, doorX1: 44, wallH: 8.5, gateH: 4.5, wallT: 1.5, bridgeX: 42, bridgeGap: 1.9, bridgeLen: 2.6, bridgeN: 4 };
+/** トゲの庭 (北の前庭の東寄り): 石の塀 (高さ 6m) で囲まれた行き止まりの庭。入口は南 (openS) だけ。3 列のトゲ床を、列ごとの 5.6m のすき間で右・左・右とすり抜けて星を取り、同じ道を戻る (出口を別に作ると、出口から入って列を飛ばせる) */
+const GARDEN = { x0: 10, x1: 34, zS: 39, zN: 66, wallT: 1.5, wallH: 6, openS: [15, 21] as const };
+const SPIKES = { x0: GARDEN.x0, x1: GARDEN.x1, rows: [42, 50, 58] as const, gapW: 5.6, bedD: 2.0, gapX: [18, 28, 18] as const, star: [22, 63.5] as const };
 /** 敵を倒すと現れる星のある庭 */
 const YARDS = {
   sw: { x: -42, z: -40 },
   se: { x: 42, z: -40 },
   north: { x: 30, z: 88 },
 } as const;
-/** 崩れる橋 (北。穴は全幅: これが唯一の道) */
-const BRIDGE = { x: 0, gap: 1.7, len: 3.4, n: 4, w: 4.4 };
+/** 崩れる橋 (北。穴は台地の端から端まで: これが唯一の道)。床 3 枚 (5.2m。長く跳ぶ体が、踏み切りを少し間違えても次の床に届く) */
+const BRIDGE = { x: 0, gap: 1.6, len: 5.2, n: 3, w: 4.4 };
 const GOAL_Z = 130;
 
 /** 崩れる橋の床の並び (進む向き dir = +1 なら z が増える向き)。z0 = 橋の始まりの縁。床と床のあいだが gap、床の長さが len */
@@ -80,8 +85,10 @@ const BRIDGE_TILES = (): Tile[] => tilesAlong(PIT.bridge.z0, 1, BRIDGE.n, BRIDGE
 function buildTerrain(): ReturnType<TerrainBuilder['build']> {
   const tb = new TerrainBuilder(BOUNDS, 2, G);
   tb.palette(RUINS_PALETTE);
-  for (const p of Object.values(PIT)) {
-    tb.set((x, z, h) => (x > p.x0 && x < p.x1 && z > p.z0 && z < p.z1 ? VOID : h));
+  for (const [name, p] of Object.entries(PIT)) {
+    // 橋の穴は台地の端から端まで: 端の頂点 (x = ±60) も掘る (掘らないと、穴の外周に幅 0.3m の尾根が残って、床に乗らずに渡れる)
+    const edge = name === 'bridge' ? 1 : 0;
+    tb.set((x, z, h) => (x > p.x0 - edge && x < p.x1 + edge && z > p.z0 && z < p.z1 ? VOID : h));
   }
   return tb.build();
 }
@@ -95,9 +102,11 @@ export const STAGE4_GEOMETRY = {
   towerTop: TOWER.top,
   towerGap: Math.abs(TOWER.x1 - TOWER.padEdge),
   islandGap: Math.abs(PIT.island.x1 - ISLAND.x1),
-  crateToughness: 0.95,
+  crateToughness: GATE_TOUGHNESS,
   hallTiles: 64,
   vaultWallH: VAULT.wallH,
+  /** 宝物庫の扉から、穴の縁までの最短距離 (跳び越えて扉に入れない距離) */
+  vaultPitMargin: Math.min(VAULT.doorX0 - PIT.vault.x0, PIT.vault.x1 - VAULT.doorX1),
 };
 
 export function buildStage4(): StageDef {
@@ -107,7 +116,7 @@ export function buildStage4(): StageDef {
   const slab = (x0: number, x1: number, z0: number, z1: number, top: number, thick = 2): void => void k.box([(x0 + x1) / 2, top - thick / 2, (z0 + z1) / 2], [x1 - x0, thick, z1 - z0], 'stone');
   /** 崩れる床は、地面 (砂色の石畳) と見分けがつくよう、赤茶色のレンガ色 */
   const crumble = (cx: number, cz: number, w: number, d: number, top: number, delay: number, o: { respawn?: number } = {}): void => void k.crumble(cx, cz, w, d, top, delay, { ...o, style: 'brick' });
-  const wall = (x0: number, x1: number, z0: number, z1: number, h: number): void => void k.box([(x0 + x1) / 2, G + h / 2, (z0 + z1) / 2], [x1 - x0, h, z1 - z0], 'stone');
+  const wall = (x0: number, x1: number, z0: number, z1: number, h: number, foot = 0): void => void k.box([(x0 + x1) / 2, G + (h - foot) / 2, (z0 + z1) / 2], [x1 - x0, h + foot, z1 - z0], 'stone');
 
   // ===== 南の前庭 (スタート) =====
   k.checkpoint('cp0', 0, SPAWN_Z);
@@ -158,15 +167,21 @@ export function buildStage4(): StageDef {
 
   // ===== 東: 宝物庫 (大きな木箱の扉) =====
   const V = VAULT;
-  const vz = (z0: number, z1: number, x0: number, x1: number): void => wall(x0, x1, z0, z1, V.wallH);
+  const vz = (z0: number, z1: number, x0: number, x1: number, foot = 0): void => wall(x0, x1, z0, z1, V.wallH, foot);
   vz(V.z0 - V.wallT, V.z0, V.x0, V.doorX0);
   vz(V.z0 - V.wallT, V.z0, V.doorX1, V.x1);
-  vz(V.z1, V.z1 + V.wallT, V.x0, V.doorX0);
-  vz(V.z1, V.z1 + V.wallT, V.doorX1, V.x1);
-  wall(V.x0 - V.wallT, V.x0, V.z0 - V.wallT, V.z1 + V.wallT, V.wallH);
-  wall(V.x1, V.x1 + V.wallT, V.z0 - V.wallT, V.z1 + V.wallT, V.wallH);
-  // 正面の扉: 大きな 1 つの木箱 (箱を積むと、継ぎ目から乗り越えられる)。攻撃力 0.95 以上 (標準以上) が壊せる。上は石でふさぐ
-  k.breakables.push({ id: 'vault-gate', pos: [(V.doorX0 + V.doorX1) / 2, G + V.wallH / 2, V.z0 - V.wallT / 2], size: [V.doorX1 - V.doorX0, V.wallH, V.wallT], toughness: 0.95, style: 'wood' });
+  vz(V.z1, V.zN, V.x0, V.doorX0, 12);
+  vz(V.z1, V.zN, V.doorX1, V.x1, 12);
+  wall(V.x0 - V.wallT, V.x0, V.z0 - V.wallT, V.zN, V.wallH, 12);
+  wall(V.x1, V.x1 + V.wallT, V.z0 - V.wallT, V.zN, V.wallH, 12);
+  // 裏口の床 (扉の幅の台。穴の上に出ている): 崩れる橋の最後の床から 2.0m
+  slab(V.doorX0, V.doorX1, V.z1, V.zN, G, 2);
+  // 2 つの扉の上は、石の横木でふさぐ (扉の高さ gateH。壁の上までふさぐ: 扉の上の空きから登れない)
+  for (const [z0, z1] of [[V.z0 - V.wallT, V.z0], [V.z1, V.zN]] as const) {
+    k.box([(V.doorX0 + V.doorX1) / 2, G + (V.gateH + V.wallH) / 2, (z0 + z1) / 2], [V.doorX1 - V.doorX0, V.wallH - V.gateH, z1 - z0], 'stone');
+  }
+  // 正面の扉: 大きな 1 つの木箱 (箱を積むと、継ぎ目から乗り越えられる)。攻撃力 0.95 以上 (標準以上) が壊せる
+  k.breakables.push({ id: 'vault-gate', pos: [(V.doorX0 + V.doorX1) / 2, G + V.gateH / 2, V.z0 - V.wallT / 2], size: [V.doorX1 - V.doorX0, V.gateH, V.wallT], toughness: GATE_TOUGHNESS, style: 'wood' });
   k.star('宝物庫', 42, 3, 1.35, G + 1.35, { id: 'star-vault' });
   k.sign(38, -10, Math.PI + 0.2, ['宝物庫'], {
     icon: 'action',
@@ -175,7 +190,7 @@ export function buildStage4(): StageDef {
   k.checkpoint('cp5', 28, -10);
   // うしろの橋 (北から南へ)
   for (const tl of VAULT_TILES()) crumble(V.bridgeX, (tl.lo + tl.hi) / 2, 4.2, V.bridgeLen, G, DELAY.vaultBridge, { respawn: 2 });
-  k.sign(36, 38, Math.PI + 0.3, ['宝物庫のうしろ'], { icon: 'arrow', hint: ['崩れる橋をわたると、宝物庫のうしろの扉に着く', '橋は渡るとすぐ崩れる。止まらずに、まっすぐ'] });
+  k.sign(40, 38, Math.PI + 0.3, ['宝物庫のうしろ'], { icon: 'arrow', hint: ['崩れる橋をわたると、宝物庫のうしろの扉に着く', '橋は渡るとすぐ崩れる。止まらずに、まっすぐ'] });
 
   // ===== 西: 展望の高台 =====
   const T = TOWER;
@@ -183,26 +198,33 @@ export function buildStage4(): StageDef {
   slab(T.padEdge, T.padX1, T.padZ0, T.padZ1, G, 2);
   k.star('展望の高台', (T.x0 + T.x1) / 2, (T.z0 + T.z1) / 2, 1.35, T.top + 1.35, { id: 'star-tower' });
   for (let i = 0; i < STAIRS.n; i++) crumble(STAIRS.x, STAIRS.z0 - STAIRS.d * i, 4, STAIRS.d, STAIRS.rise * (i + 1), DELAY.stairs, { respawn: 5 });
-  k.sign(-26, 16, Math.PI - 0.8, ['展望の高台'], {
+  k.sign(-14, 16, Math.PI - 0.8, ['展望の高台'], {
     icon: 'jump',
-    hint: ['穴の向こうの高い台に、星がある。高く跳べるキャラは、助走して、この台から跳び乗れる', 'ほかのキャラは、北の崩れる階段 (8 段) からのぼれる'],
+    hint: ['穴の向こうの高い台に、星がある。高く跳べるキャラは、助走して、この台から跳び乗れる', 'ほかのキャラは、北の崩れる階段 (10 段) からのぼれる'],
   });
-  k.sign(-36, 46, Math.PI + 0.5, ['崩れる階段'], { icon: 'arrow', hint: ['崩れる階段をのぼると、展望の高台に着く。止まらずに、まっすぐ'] });
-  k.checkpoint('cp6', -26, 16);
-  k.checkpoint('cp7', -36, 42);
+  k.sign(-26, 48, Math.PI + 0.5, ['崩れる階段'], { icon: 'arrow', hint: ['崩れる階段をのぼると、展望の高台に着く。止まらずに、まっすぐ'] });
+  k.checkpoint('cp6', -14, 12);
+  k.checkpoint('cp7', -26, 42);
 
   // ===== 北西: 向こう岸の島 =====
   const I = ISLAND;
   slab(I.x0, I.x1, I.z0, I.z1, G, 2);
-  k.star('向こう岸の島', -46, 84, 1.35, G + 1.35, { id: 'star-island' });
+  k.star('向こう岸の島', (I.x0 + I.x1) / 2, 84, 1.35, G + 1.35, { id: 'star-island' });
   for (const tl of ISLAND_TILES()) crumble(I.bridgeX, (tl.lo + tl.hi) / 2, 4.2, I.bridgeLen, G, DELAY.bridge, { respawn: 2 });
-  k.sign(-30, 70, Math.PI - 0.6, ['向こう岸の島'], {
+  k.sign(-10, 70, Math.PI - 0.6, ['向こう岸の島'], {
     icon: 'jump',
     hint: ['穴の向こうの島に、星がある。助走して 5m 跳び越えられるキャラは、まっすぐ行ける', 'ほかのキャラは、南の崩れる橋 (5 枚) をわたる'],
   });
-  k.checkpoint('cp8', -28, 60);
+  k.checkpoint('cp8', -8, 58);
 
-  // ===== 北東: トゲの庭 =====
+  // ===== 北東: トゲの庭 (石の塀の行き止まりの庭。南の入口 → トゲの床 3 列 → 星 → 同じ道を戻る) =====
+  const Gd = GARDEN;
+  const gw = (x0: number, x1: number, z0: number, z1: number): void => wall(x0, x1, z0, z1, Gd.wallH);
+  gw(Gd.x0 - Gd.wallT, Gd.x0, Gd.zS - Gd.wallT, Gd.zN + Gd.wallT);
+  gw(Gd.x1, Gd.x1 + Gd.wallT, Gd.zS - Gd.wallT, Gd.zN + Gd.wallT);
+  gw(Gd.x0, Gd.openS[0], Gd.zS - Gd.wallT, Gd.zS);
+  gw(Gd.openS[1], Gd.x1, Gd.zS - Gd.wallT, Gd.zS);
+  gw(Gd.x0, Gd.x1, Gd.zN, Gd.zN + Gd.wallT);
   SPIKES.rows.forEach((z, i) => {
     const gx = SPIKES.gapX[i];
     const g0 = gx - SPIKES.gapW / 2;
@@ -211,10 +233,10 @@ export function buildStage4(): StageDef {
     k.hazard((g1 + SPIKES.x1) / 2, z, SPIKES.x1 - g1, SPIKES.bedD, 0.7);
   });
   k.star('トゲの庭', SPIKES.star[0], SPIKES.star[1], 1.35, G + 1.35, { id: 'star-spikes' });
-  k.enemy('spiky', 37, 40, 37, 60, { speed: 2.0, phase: 0.3 });
-  k.enemy('hopper', 12, 62, 12, 70, { speed: 2.0, phase: 0.9 });
-  k.sign(14, 36, Math.PI + 0.3, ['トゲの庭'], { icon: 'warn', tone: 'warn', hint: ['トゲの床は、3 列。列ごとのすき間を、右・左・右とすり抜けて、奥の星へ', 'トゲマルは、{action} (攻撃力 標準以上) でないと倒せない。ぶつからないように'] });
-  k.checkpoint('cp9', 22, 34);
+  // トゲマルは、星の東がわ (x 25〜33) を行き来する (列のすき間から星への道 (x 18〜22) には入らない)
+  k.enemy('spiky', 26, 61.5, 33, 61.5, { speed: 2.0, phase: 0.3 });
+  k.sign(12, 34, Math.PI + 0.3, ['トゲの庭'], { icon: 'warn', tone: 'warn', hint: ['石の塀の庭。南の入口から入って、トゲの床 3 列のすき間を、右・左・右とすり抜けて、奥の星へ。帰りも同じ道', 'トゲマルは、{action} (攻撃力 標準以上) でないと倒せない。ぶつからないように'] });
+  k.checkpoint('cp9', 22, 33);
 
   // ===== 北の庭 (敵を倒すと星が現れる) =====
   const nStar = k.star('北の庭', YARDS.north.x, YARDS.north.z, 1.35, G + 1.35, { id: 'star-north' });
@@ -226,10 +248,10 @@ export function buildStage4(): StageDef {
   ];
   k.sign(16, 80, Math.PI + 0.4, ['北の庭'], { icon: 'warn', tone: 'warn', hint: ['チェイサー 2 体とピョンタを倒すと、星が現れる', 'チェイサーは追いかけてくる。踏みつけか {action} で倒そう'] });
   k.checkpoint('cp10', 0, 94);
-  k.enemy('hopper', -18, 60, -8, 64, { speed: 2.0, phase: 0.6 });
+  k.enemy('hopper', -12, 62, -6, 66, { speed: 2.0, phase: 0.6 });
 
   // ===== 崩れる橋と、奥の院 =====
-  for (const tl of BRIDGE_TILES()) crumble(BRIDGE.x, (tl.lo + tl.hi) / 2, BRIDGE.w, BRIDGE.len, G, DELAY.bridge);
+  for (const tl of BRIDGE_TILES()) crumble(BRIDGE.x, (tl.lo + tl.hi) / 2, BRIDGE.w, BRIDGE.len, G, DELAY.north);
   k.sign(6, 96, Math.PI + 0.2, ['崩れる橋'], { icon: 'warn', tone: 'warn', hint: ['奥の院へ渡る唯一の橋。乗ると崩れるので、止まらずに一気に渡る', 'ラクガキ星を 5 個集めると、ゴールが開く'] });
   k.checkpoint('cp11', 0, 124);
   for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, G + 2.2, GOAL_Z], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'stone' });
@@ -249,7 +271,7 @@ export function buildStage4(): StageDef {
     if (rng.chance(0.55)) brokenColumn(k.push, rng, x, k.g(x, z), z, rng.range(3, 8), rng.range(0.7, 1.1));
     else rubble(k.push, rng, x, k.g(x, z), z, 6);
   }
-  for (const [x, z, yaw] of [[-20, -62, 0], [20, -62, 0], [-24, 36, 1.57], [24, 36, 1.57]] as const) archRuin(k.push, rng, x, k.g(x, z), z, yaw, 7, 6.5);
+  for (const [x, z, yaw] of [[-20, -62, 0], [20, -62, 0], [-24, 36, 1.57], [46, 44, 1.57]] as const) archRuin(k.push, rng, x, k.g(x, z), z, yaw, 7, 6.5);
   for (const sx of [-1, 1]) {
     obelisk(k.push, sx * 20, G, SPAWN_Z + 6, 9);
     obelisk(k.push, sx * 12, G, GOAL_Z + 4, 11);
@@ -289,7 +311,7 @@ export function buildStage4(): StageDef {
     signs: k.signs,
     ambient: { motes: { count: 50, color: 0xffe2b0, size: 0.1 }, butterflies: 0 },
     routes,
-    parTime: 105,
+    parTime: 115,
     missPenaltySec: 3,
   };
 }
@@ -323,7 +345,7 @@ export function stage4RouteFor(stage: Pick<StageDef, 'terrain' | 'pickups'>, pla
   /** 穴の上など、地形の高さが当てにならない所の点 (y = 足元の高さ) */
   const P = (x: number, y: number, z: number, o: Partial<WaypointDef> = {}): WaypointDef => ({ pos: [x, y, z], ...o });
   const clearAt = (x: number, z: number, starId: string): WaypointDef => ({ pos: at(x, z), radius: 3.5, clear: stage.pickups?.find((q) => q.id === starId)?.appearAfter ?? [] });
-  /** 崩れる橋 (床と床のあいだはすき間): 縁 (の 0.4m 手前) でジャンプして、次の床の中央へ跳び移る。ボットは、目標の 0.15m + 速さ × 0.04 秒 手前で踏み切る。startEdge = 橋の始まりの縁の z、endZ = 渡った先の地面の z */
+  /** 崩れる橋 (床と床のあいだはすき間): 縁ぴったり (0.15m + 速さ × 0.04 秒 手前) でジャンプして、次の床の中央へ跳び移る。startEdge = 橋の始まりの縁の z、endZ = 渡った先の地面の z */
   const hops = (x: number, tiles: readonly Tile[], dir: 1 | -1, startEdge: number, endZ: number): WaypointDef[] => {
     const w: WaypointDef[] = [];
     let prev = startEdge;
@@ -365,8 +387,8 @@ export function stage4RouteFor(stage: Pick<StageDef, 'terrain' | 'pickups'>, pla
       // うしろの橋 (北の端から) を渡って、星を取って、同じ橋を戻る (床は、人が離れると 2 秒で戻る)
       const tiles = VAULT_TILES();
       const back = [...tiles].reverse();
-      out.push(W(30, 8, 3), W(30, 38, 3), W(VAULT.bridgeX, PIT.vault.z1 + 2, 1.5), ...hops(VAULT.bridgeX, tiles, -1, PIT.vault.z1, 13), P(42, G, 8, { radius: 1.2 }), P(42, G, 3, { radius: 1.0 }), P(42, G, 8, { radius: 1.2 }), P(VAULT.bridgeX, G, 13, { radius: 1.0 }));
-      out.push(...hops(VAULT.bridgeX, back, 1, PIT.vault.z0, PIT.vault.z1 + 2), W(30, 38, 3), W(30, 8, 3));
+      out.push(W(26, 8, 3), W(26, 32, 3), W(34, 35.5, 2), W(VAULT.bridgeX, PIT.vault.z1 + 1.5, 1.5), ...hops(VAULT.bridgeX, tiles, -1, PIT.vault.z1, 13), P(42, G, 8, { radius: 1.2 }), P(42, G, 3, { radius: 1.0 }), P(42, G, 8, { radius: 1.2 }), P(VAULT.bridgeX, G, 13, { radius: 1.0 }));
+      out.push(...hops(VAULT.bridgeX, back, 1, VAULT.zN, PIT.vault.z1 + 1.5), W(34, 35.5, 2), W(26, 32, 3), W(26, 8, 3));
     }
   }
 
@@ -375,29 +397,15 @@ export function stage4RouteFor(stage: Pick<StageDef, 'terrain' | 'pickups'>, pla
     const cz = (TOWER.z0 + TOWER.z1) / 2;
     const cx = (TOWER.x0 + TOWER.x1) / 2;
     if (plan.up) {
-      out.push(W(-14, 16, 3), W(-24, 16, 2), P(TOWER.padEdge, G, 16, { jump: true, jumpDist: 0.15, land: [TOWER.x1 - 3, TOWER.top, 16] }), P(cx, TOWER.top, cz, { radius: 1.0 }));
+      out.push(W(-6, 16, 3), W(-16, 16, 2), P(TOWER.padEdge, G, 16, { jump: true, jumpDist: 0.15, land: [TOWER.x1 - 3, TOWER.top, 16] }), P(cx, TOWER.top, cz, { radius: 1.0 }));
     } else {
       const steps: WaypointDef[] = [];
       for (let i = 0; i < STAIRS.n; i++) steps.push(P(STAIRS.x, STAIRS.rise * (i + 1), STAIRS.z0 - STAIRS.d * i, { radius: 0.9 }));
-      out.push(W(-30, 46, 3), W(STAIRS.x, STAIRS.z0 + 3, 1.5), ...steps, P(cx, TOWER.top, cz, { radius: 1.0 }));
+      out.push(W(-22, 46, 3), W(STAIRS.x, STAIRS.z0 + 3, 1.5), ...steps, P(cx, TOWER.top, cz, { radius: 1.0 }));
     }
     // 台から、発射台へ跳び降りる (どの体でも)
-    out.push(P(TOWER.x0 + 1.5, TOWER.top, 16, { radius: 0.9 }), P(TOWER.x1, TOWER.top, 16, { jump: true, jumpDist: 0.15, land: [TOWER.padEdge + 3, G, 16] }), W(-28, 16, 2.5));
-    if (!plan.up) out.push(W(-26, 40, 3));
-  }
-
-  // ---- 向こう岸の島 (北西) ----
-  if (has('island')) {
-    if (plan.leap) {
-      out.push(W(-14, 84, 3), W(-26, 84, 2), P(PIT.island.x1, G, 84, { jump: true, jumpDist: 0.15, land: [-46, G, 84] }), P(-46, G, 84, { radius: 1.0 }));
-      // 島の西の端まで戻って、助走して跳び越える
-      out.push(P(-50.5, G, 84, { radius: 0.9 }), P(ISLAND.x1, G, 84, { jump: true, jumpDist: 0.15, land: [PIT.island.x1 + 3, G, 84] }), W(-28, 84, 3));
-    } else {
-      const tiles = ISLAND_TILES();
-      const back = [...tiles].reverse();
-      out.push(W(-30, 50, 3), W(ISLAND.bridgeX, PIT.island.z0 - 2, 1.5), ...hops(ISLAND.bridgeX, tiles, 1, PIT.island.z0, ISLAND.z0 + 2), P(-46, G, 82, { radius: 1.2 }), P(-46, G, 84, { radius: 1.0 }), P(-46, G, 82, { radius: 1.2 }));
-      out.push(...hops(ISLAND.bridgeX, back, -1, ISLAND.z0, PIT.island.z0 - 2), W(-30, 50, 3));
-    }
+    out.push(P(TOWER.x0 + 1.5, TOWER.top, 16, { radius: 0.9 }), P(TOWER.x1, TOWER.top, 16, { jump: true, jumpDist: 0.15, land: [TOWER.padEdge + 3, G, 16] }), W(-18, 16, 2.5));
+    if (!plan.up) out.push(W(-18, 40, 3));
   }
 
   // ---- トゲの庭 (北東): 各列のすき間は、まっすぐ (列の 2m 手前から 2m 先まで) 通り抜ける。すき間の縁でななめに曲がると、トゲに触れる ----
@@ -405,12 +413,29 @@ export function stage4RouteFor(stage: Pick<StageDef, 'terrain' | 'pickups'>, pla
     const gapX = SPIKES.gapX;
     const row = SPIKES.rows;
     const through = (i: number, dir: 1 | -1): WaypointDef[] => [P(gapX[i], G, row[i] - dir * 2.2, { radius: 0.9 }), P(gapX[i], G, row[i] + dir * 2.2, { radius: 0.9 })];
-    out.push(W(14, 36, 2.5), W(gapX[0], 38, 1.5), ...through(0, 1), ...through(1, 1), ...through(2, 1), P(SPIKES.star[0], G, SPIKES.star[1], { radius: 1.0 }));
-    out.push(...through(2, -1), ...through(1, -1), ...through(0, -1), W(gapX[0], 38, 1.5), W(14, 36, 2.5), W(2, 38, 3));
+    // 南の入口から入って、星を取って、同じ道を戻る
+    out.push(W(6, 32, 3), W(gapX[0], 35, 1.5), ...through(0, 1), ...through(1, 1), ...through(2, 1), P(SPIKES.star[0], G, SPIKES.star[1], { radius: 1.0 }));
+    out.push(...through(2, -1), ...through(1, -1), ...through(0, -1), W(gapX[0], 35, 1.5), W(6, 32, 3));
   }
 
-  // ---- 北の庭 (まんなかの道 (トゲの庭の西) を北へ) ----
-  out.push(W(2, 40, 3), W(2, 76, 3));
+  // ---- 向こう岸の島 (北西) ----
+  if (has('island')) {
+    if (plan.leap) {
+      const ix = (ISLAND.x0 + ISLAND.x1) / 2;
+      out.push(W(2, 36, 3), W(PIT.island.x1 + 22, 84, 3), W(PIT.island.x1 + 10, 84, 2), P(PIT.island.x1, G, 84, { jump: true, jumpDist: 0.15, land: [ix, G, 84] }), P(ix, G, 84, { radius: 1.0 }));
+      // 島の西の端まで戻って、助走して跳び越える
+      out.push(P(ISLAND.x0 + 0.5, G, 84, { radius: 0.9 }), P(ISLAND.x1, G, 84, { jump: true, jumpDist: 0.15, land: [PIT.island.x1 + 3, G, 84] }), W(PIT.island.x1 + 8, 84, 3));
+    } else {
+      const tiles = ISLAND_TILES();
+      const back = [...tiles].reverse();
+      out.push(W(-10, 50, 3), W(ISLAND.bridgeX, PIT.island.z0 - 2, 1.5), ...hops(ISLAND.bridgeX, tiles, 1, PIT.island.z0, ISLAND.z0 + 2), P(ISLAND.bridgeX, G, 82, { radius: 1.2 }), P(ISLAND.bridgeX, G, 84, { radius: 1.0 }), P(ISLAND.bridgeX, G, 82, { radius: 1.2 }));
+      out.push(...hops(ISLAND.bridgeX, back, -1, ISLAND.z0, PIT.island.z0 - 2), W(-10, 50, 3));
+    }
+  }
+
+  // ---- 北の庭 (まんなかの道 (トゲの庭の西) を北へ。島の星を取った後は、すでに北にいる) ----
+  if (!has('island')) out.push(W(2, 40, 3));
+  out.push(W(2, 76, 3));
   if (has('north')) out.push(W(16, 84, 3), W(26, 88, 3), clearAt(YARDS.north.x, YARDS.north.z, 'star-north'), W(YARDS.north.x, YARDS.north.z, 1.0), W(16, 90, 3));
 
   // ---- 崩れる橋 → ゴール ----
@@ -422,9 +447,9 @@ export function stage4RouteFor(stage: Pick<StageDef, 'terrain' | 'pickups'>, pla
 /**
  * 名前つきのルート (ボットのバランス測定・テスト用)。どれも 5 つの星を取る。星の組み合わせ (56 通り) × 大広間 (まっすぐ / 回る) を、体型でできること (近道) ごとに全部測って、体型ごとの最速の組み合わせを選んである:
  *  main = 戦わずに取れる 5 個を、どのビルドでも通れる道 (崩れる階段・崩れる橋・うしろの橋) で。
- *  strong = 大広間・宝物庫 (木箱を壊す)・トゲの庭・南西の庭・北の庭 (STANDARD・HEAVY・POWER・EXTREME の最速)。
+ *  strong = 大広間・宝物庫 (木箱を壊す)・トゲの庭・南西の庭・北の庭 (HEAVY・POWER・EXTREME の最速)。
  *  jumper = 大広間・展望の高台 (跳び乗る)・向こう岸の島 (跳び越える)・南西の庭・北の庭 (SPEED・JUMP の最速)。
- *  mixed = 大広間・向こう岸の島 (跳び越える)・宝物庫 (木箱を壊す)・南西の庭・北の庭 (STANDARD の 2 番目)。
+ *  mixed = 大広間・向こう岸の島 (跳び越える)・宝物庫 (木箱を壊す)・南西の庭・北の庭 (STANDARD の最速)。
  */
 function buildRoutes(k: FieldKit): Record<string, WaypointDef[]> {
   const r = (plan: Stage4Plan): WaypointDef[] => stage4RouteFor({ terrain: k.terrain, pickups: k.pickups }, plan);
