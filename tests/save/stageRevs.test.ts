@@ -12,9 +12,10 @@ function loadedProfile(over: Parameters<typeof makeSave>[0] = {}): Profile {
 }
 
 describe('コースの版 (作り替えたステージの、古いベストを捨てる)', () => {
-  it('レジストリの版: 全ステージに 1 以上の整数があり、STAGE 2 は作り替えた版 (2) になっている', () => {
+  it('レジストリの版: 全ステージに 1 以上の整数があり、STAGE 2・3 は作り替えた版 (2 以上) になっている', () => {
     for (const e of STAGE_LIST) expect(Number.isInteger(e.rev) && e.rev >= 1, e.id).toBe(true);
     expect(stageRevs().stage2).toBeGreaterThanOrEqual(2);
+    expect(stageRevs().stage3).toBeGreaterThanOrEqual(2);
     expect(stageRevKey().split(',').length).toBe(STAGE_LIST.length);
   });
 

@@ -57,6 +57,7 @@ export class Bot {
   private calmSpec: { zones: readonly string[]; length: number } | null = null;
   private lastDeaths = 0;
   private blockedTime = 0;
+  private blockedWater = 0;
   /** 折り返し (ほぼ逆向きのウェイポイント) の直後の猶予 (秒)。向きを変えるための減速を、「壁に阻まれた」と取り違えて跳ばない */
   private reverseGrace = 0;
   private bestDist = Infinity;
@@ -170,8 +171,8 @@ export class Bot {
     // 到着判定
     if (wp.jump) {
       const jd = wp.jumpDist ?? DEFAULT_JUMP_DIST;
-      // 水中では、体が水面近くまで上がってから跳ぶ (深い所の JUMP は浮上の泳ぎになり、水から跳び出せない)
-      const canJump = p.grounded || (p.swimming && p.submerge < WATER_JUMP_DEPTH - 0.04);
+      // 水中では、体が水面近くまで上がってから跳ぶ (深い所の JUMP は浮上の泳ぎになり、水から跳び出せない)。浮かんだ体は、頭が水面に出る高さ (浸かり 0.9) で止まるので、基準はプレイヤー側の跳べる浸かり (WATER_JUMP_DEPTH) と同じにする
+      const canJump = p.grounded || (p.swimming && p.submerge < WATER_JUMP_DEPTH);
       if (canJump && dist <= jd + p.horizontalSpeed * 0.04) {
         out.jumpPressed = true;
         out.jumpHeld = true;
@@ -222,6 +223,15 @@ export class Bot {
         this.blockedTime = 0;
       }
     } else this.blockedTime = 0;
+    // 水面で壁 (水から出る縁) に阻まれていたら、人がするように JUMP を連打して水から跳び出す (目標が今の高さより上の時だけ)
+    if (p.swimming && p.submerge < WATER_JUMP_DEPTH && speed < p.params.swimSpeed * 0.35 && d > 0.5 && cur.pos[1] > p.feetY + 0.3 && (out.moveX !== 0 || out.moveZ !== 0)) {
+      this.blockedWater += dt;
+      if (this.blockedWater > 0.12) {
+        out.jumpPressed = true;
+        out.jumpHeld = true;
+        this.blockedWater = 0;
+      }
+    } else this.blockedWater = 0;
   }
 
   /**

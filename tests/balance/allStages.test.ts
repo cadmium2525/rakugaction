@@ -17,8 +17,8 @@ async function measure(): Promise<Table> {
     table[entry.id] = {};
     for (const id of ALL_BUILDS) {
       let best = Infinity;
-      // 風が周期的に吹き止むステージは、止み間との位相で時間が大きく変わる (運)。開始の位相をずらした 4 回の平均で比べる
-      const periodic = (stage.winds ?? []).some((w) => w.gust);
+      // 風が周期的に吹き止むステージ・水位が周期的に上下するステージは、周期との位相で時間が大きく変わる (運)。開始の位相をずらした 4 回の平均で比べる
+      const periodic = (stage.winds ?? []).some((w) => w.gust) || (stage.waters ?? []).some((w) => w.level);
       for (const route of Object.keys(stage.routes ?? {})) {
         if (periodic) {
           const r = await runStageAveraged(stage, id, route, { maxTime: 220, maxDeaths: 1 });
@@ -51,7 +51,7 @@ describe('全ステージ通しのバランス', () => {
       console.log('BALANCE\n' + lines.join('\n'));
     }
     for (const e of STAGE_LIST) for (const b of ALL_BUILDS) expect(Number.isFinite(table[e.id][b]), `${e.id} ${b}`).toBe(true);
-  }, 600_000);
+  }, 1_200_000);
 
   it('ステージごとにリーダーが分かれる: 全ステージでリードするビルドはなく、リーダーは 3 種類以上。風のステージ (S2) は重量型が勝つ', () => {
     const detail = STAGE_LIST.map((e) => `${e.id}:${leaders(table, e.id).join('+')}`).join(' ');

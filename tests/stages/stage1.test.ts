@@ -28,9 +28,9 @@ describe('STAGE 1 草原 (フィールド型)', () => {
     expect(stage.checkpoints!.length).toBeGreaterThanOrEqual(6);
   });
 
-  it('ミスのペナルティ: フィールド型のステージ (STAGE 1・2) だけにあり、respawn イベントにチェックポイントまでの距離が入る', async () => {
+  it('ミスのペナルティ: フィールド型のステージ (STAGE 1・2・3) だけにあり、respawn イベントにチェックポイントまでの距離が入る', async () => {
     expect(stage.missPenaltySec).toBe(3);
-    for (const e of STAGE_LIST) if (e.id !== 'stage1' && e.id !== 'stage2') expect(e.build().missPenaltySec, e.id).toBeUndefined();
+    for (const e of STAGE_LIST) if (e.id !== 'stage1' && e.id !== 'stage2' && e.id !== 'stage3') expect(e.build().missPenaltySec, e.id).toBeUndefined();
     const sim = await makeSim(stage);
     run(sim, 10);
     const [sx, sy, sz] = stage.spawn;

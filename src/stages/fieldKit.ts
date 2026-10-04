@@ -129,8 +129,8 @@ export class FieldKit {
     return hz;
   }
 
-  /** 壊せる木箱の壁: 幅方向 (x) に cols 列 × rows 段、手前の面の中心 (cx, cz)。 */
-  crateWall(cx: number, cz: number, cols: number, rows: number, toughness: number, size = 1.1): BreakableDef[] {
+  /** 壊せる箱の壁: 幅方向 (x) に cols 列 × rows 段、手前の面の中心 (cx, cz)。style 省略 = 木箱。 */
+  crateWall(cx: number, cz: number, cols: number, rows: number, toughness: number, size = 1.1, style: SurfaceStyle = 'wood'): BreakableDef[] {
     const out: BreakableDef[] = [];
     const base = this.g(cx, cz);
     for (let c = 0; c < cols; c++) {
@@ -140,7 +140,7 @@ export class FieldKit {
           pos: [cx + (c - (cols - 1) / 2) * size, base + size / 2 + r * size, cz],
           size: [size, size, size],
           toughness,
-          style: 'wood',
+          style,
         };
         this.breakables.push(b);
         out.push(b);
