@@ -11,6 +11,19 @@ import { validateStage } from './validate';
  * STAGE 5 巨人の塔 (フィールド型)。4 つの階 (リング) と山頂の台。階ごとに、長い道 (リングを半周して坂) か、体型に合った近道 (ゲート)。
  * 1 階の南 = 木箱の扉 (攻撃力が標準以上) / 2 階の北 = 上昇気流 (軽め〜標準)。
  */
+/** 回転した箱 (オイラー角 XYZ。three.js と同じ順) の、世界の軸に沿った半分の大きさ */
+function rotatedHalfExtents(size: readonly [number, number, number], rot: readonly [number, number, number]): [number, number, number] {
+  const [a, b] = [Math.cos(rot[0]), Math.sin(rot[0])];
+  const [c, d] = [Math.cos(rot[1]), Math.sin(rot[1])];
+  const [e, f] = [Math.cos(rot[2]), Math.sin(rot[2])];
+  const m = [
+    [c * e, -c * f, d],
+    [a * f + b * e * d, a * e - b * f * d, -b * c],
+    [b * f - a * e * d, b * e + a * f * d, a * c],
+  ];
+  return [0, 1, 2].map((r) => (Math.abs(m[r][0]) * size[0] + Math.abs(m[r][1]) * size[1] + Math.abs(m[r][2]) * size[2]) / 2) as [number, number, number];
+}
+
 describe('STAGE 5 巨人の塔', () => {
   const stage = buildStage5();
   const G = STAGE5_GEOMETRY;
@@ -87,12 +100,12 @@ describe('STAGE 5 巨人の塔', () => {
   it('高い台 (広場): 塔の壁・柱から 12m 以上はなれている (足がかりにならない)。台の上から、どの向きへ、縁を蹴って (踏み切りを 0〜50 フレームでずらして) 跳んでも、高さ 5m 以上の床に着けない (全ビルド + 跳躍力が極端に大きい体・小さい体・足の速い体)', async () => {
     const L = G.ledge;
     const top = L.h;
-    // 台のまわりの高い物 (台の上面より 2m 以上高い箱) までの距離 (平面。台の段の箱は除く)
+    // 台のまわりの高い物 (台の上面より 2m 以上高い箱) までの距離 (平面。台の段の箱は除く)。傾いた箱 (坂) は、回転後の外接の箱 (最高点・平面の広がり) で見る
     for (const bx of stage.boxes) {
-      const bt = bx.pos[1] + bx.size[1] / 2;
-      if (bt < top + 2) continue;
-      const gx = Math.max(0, Math.abs(bx.pos[0] - L.x) - (bx.size[0] + L.w) / 2);
-      const gz = Math.max(0, Math.abs(bx.pos[2] - L.z) - (bx.size[2] + L.w) / 2);
+      const [ex, ey, ez] = rotatedHalfExtents(bx.size, bx.rot ?? [0, 0, 0]);
+      if (bx.pos[1] + ey < top + 2) continue;
+      const gx = Math.max(0, Math.abs(bx.pos[0] - L.x) - ex - L.w / 2);
+      const gz = Math.max(0, Math.abs(bx.pos[2] - L.z) - ez - L.w / 2);
       expect(Math.hypot(gx, gz), `高い台から、高い箱 (${bx.pos.map((v) => v.toFixed(1)).join(', ')}) まで`).toBeGreaterThanOrEqual(12);
     }
     const mk = (jump: number, size: number, speed = 100): ReturnType<typeof paramsFor> => statsToParams({ hp: 100, power: 100, defense: 100, speed, jump, weight: 100 }, { size, reach: 1, stability: 1 });
@@ -177,7 +190,7 @@ describe('STAGE 5 巨人の塔', () => {
     for (const id of ['POWER', 'HEAVY', 'EXTREME']) expect((await runPlan(id, { gates: g2, stars: common })).cleared, id).toBe(false);
   }, 900_000);
 
-  it('体型の星の、近道 (気流・跳躍・木箱): 風の柱 (STANDARD・SPEED・JUMP のみ)・1 階の高い台 (SPEED・JUMP のみ)・木箱の部屋の正面の扉 (STANDARD・POWER・HEAVY・EXTREME)。使えない体は、止まる', async () => {
+  it('体型の星の、近道 (気流・跳躍・木箱): 風の柱 (STANDARD・SPEED・JUMP のみ)・広場の高い台 (SPEED・JUMP のみ)・木箱の部屋の正面の扉 (STANDARD・POWER・HEAVY・EXTREME)。使えない体は、止まる', async () => {
     const withStar = (build: string, s: Stage5Star): Promise<Awaited<ReturnType<typeof runStage>>> => {
       const plan: Stage5Plan = ['STANDARD', 'POWER', 'HEAVY', 'EXTREME'].includes(build)
         ? { gates: g1, stars: [s, 'r3w', 'r4e', 'r4w', 'yardE'], dirs: ['E', 'E', 'W', 'E'], slow: [] }
