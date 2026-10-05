@@ -38,13 +38,7 @@ export class InputManager {
     surface.addEventListener('pointercancel', this.onMouseUp);
     window.addEventListener('blur', this.reset);
     document.addEventListener('visibilitychange', this.onVisibility);
-    // iOS Safari のピンチ/ジェスチャ拡大を抑止
-    document.addEventListener('gesturestart', this.prevent as EventListener);
   }
-
-  private readonly prevent = (e: Event): void => {
-    e.preventDefault();
-  };
 
   private readonly onVisibility = (): void => {
     if (document.hidden) this.reset();
@@ -114,6 +108,5 @@ export class InputManager {
     this.surface.removeEventListener('pointercancel', this.onMouseUp);
     window.removeEventListener('blur', this.reset);
     document.removeEventListener('visibilitychange', this.onVisibility);
-    document.removeEventListener('gesturestart', this.prevent as EventListener);
   }
 }

@@ -25,6 +25,7 @@ import { RankingService, createRankingService } from '../ranking/service';
 import type { SubmitOutcome } from '../ranking/types';
 import { RankingScreen } from '../ui/rankingScreen';
 import { SaveManager } from '../save/manager';
+import { installZoomGuard } from './zoomGuard';
 import { OrientationGuard } from './orientationGuard';
 import type { LoadOutcome } from '../save/manager';
 import { DraftStore, draftStorage } from '../save/draft';
@@ -177,6 +178,8 @@ export class App {
     // イベントが届かない環境のための定期確認 (0.5 秒ごと。読むだけなので軽い)
     window.setInterval(() => this.orientation?.poll(), 500);
     document.addEventListener('pointerdown', () => lockLandscape(), { once: true });
+    // ブラウザの拡大 (ピンチ・ダブルタップでページ全体がズームする) を、どの画面でも止める。以前は、プレイ中の gesturestart だけ止めていた
+    installZoomGuard();
   }
 
   /** 全画面にする/戻す (対応している端末だけ。iPhone の Safari は未対応)。成功したら横向きロックも試す。 */

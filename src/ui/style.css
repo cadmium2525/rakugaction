@@ -546,7 +546,8 @@ body {
   }
   .name-input {
     min-height: 30px;
-    font-size: 14px;
+    /* 16px 未満の入力欄は、iPhone の Safari が押した時に画面を拡大する */
+    font-size: 16px;
     border-width: 2px;
   }
   .stat-card {
