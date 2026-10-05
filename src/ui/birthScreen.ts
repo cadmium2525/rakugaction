@@ -2,6 +2,7 @@ import type { CharacterRig } from '../character/rig';
 import type { CharacterStats } from '../character/stats';
 import type { RenderHost } from '../render/renderHost';
 import { ShowcaseView } from '../render/showcaseView';
+import { NAME_MAX } from '../core/text';
 import { h } from './dom';
 import type { Screen } from './dom';
 import { StatCard } from './statCard';
@@ -40,9 +41,12 @@ export class BirthScreen implements Screen {
     this.card.setStats(opts.stats);
 
     this.banner = h('div', { class: 'birth-banner', text: 'キャラクター誕生' });
-    this.nameInput = h('input', { class: 'name-input', attrs: { type: 'text', maxlength: '12', value: opts.name, 'aria-label': 'キャラクター名', placeholder: '名前を入力' } });
+    this.nameInput = h('input', { class: 'name-input', attrs: { type: 'text', maxlength: String(NAME_MAX), value: opts.name, enterkeyhint: 'done', autocomplete: 'off', 'aria-label': 'キャラクター名', placeholder: '名前を入力' } });
     this.nameInput.addEventListener('keydown', (e) => e.stopPropagation());
-    this.cardBox = h('div', { class: 'birth-card' }, this.nameInput, this.card.el);
+    // 押した時に全部を選ぶ: そのまま打てば、最初に入っている仮の名前 (能力のタイプ名) と入れかわる
+    this.nameInput.addEventListener('focus', () => this.nameInput.select());
+    const nameRow = h('label', { class: 'name-row' }, h('span', { class: 'name-label', text: '✏️ 名前をつける' }), this.nameInput);
+    this.cardBox = h('div', { class: 'birth-card' }, nameRow, this.card.el);
     this.buttons = h(
       'div',
       { class: 'birth-buttons' },

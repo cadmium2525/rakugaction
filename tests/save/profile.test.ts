@@ -3,6 +3,35 @@ import { Profile } from '../../src/app/profile';
 import { parseSave, serializeSave } from '../../src/save/schema';
 import { makeCharacter, makeSave } from './helpers';
 
+describe('Profile: キャラクターの名前を変える', () => {
+  it('名前が変わり、変更通知が出る (自動保存される)。保存して読み直しても残る', () => {
+    const p = new Profile();
+    p.loadFrom(makeSave().profile);
+    const fn = vi.fn();
+    p.onChange(fn);
+    expect(p.renameCharacter('c1', '  ドラゴン​丸  ')).toBe(true);
+    expect(p.characters.find((c) => c.id === 'c1')?.name).toBe('ドラゴン丸');
+    expect(fn).toHaveBeenCalledTimes(1);
+    const save = makeSave();
+    save.profile = p.snapshot();
+    const again = parseSave(serializeSave(save));
+    expect(again.ok && again.result.data.profile.characters[0].name).toBe('ドラゴン丸');
+  });
+
+  it('空の名前・同じ名前・いないキャラクターでは変えない (通知もしない)。長い名前は 16 文字に切る', () => {
+    const p = new Profile();
+    p.loadFrom(makeSave().profile);
+    const fn = vi.fn();
+    p.onChange(fn);
+    expect(p.renameCharacter('c1', '   ')).toBe(false);
+    expect(p.renameCharacter('c1', 'たろう')).toBe(false);
+    expect(p.renameCharacter('zz', 'だれか')).toBe(false);
+    expect(fn).not.toHaveBeenCalled();
+    expect(p.renameCharacter('c1', 'あ'.repeat(40))).toBe(true);
+    expect(p.characters[0].name).toBe('あ'.repeat(16));
+  });
+});
+
 describe('Profile: 変更通知 (自動保存のきっかけ)', () => {
   it('変更するメソッドは onChange を呼ぶ。読み込み (loadFrom) では呼ばない', () => {
     const p = new Profile();

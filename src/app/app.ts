@@ -27,7 +27,8 @@ import { RankingScreen } from '../ui/rankingScreen';
 import { SaveManager } from '../save/manager';
 import { OrientationGuard } from './orientationGuard';
 import type { LoadOutcome } from '../save/manager';
-import { MAX_CHARACTERS, emptySave } from '../save/schema';
+import { DraftStore, draftStorage } from '../save/draft';
+import { DEFAULT_SETTINGS, MAX_CHARACTERS, emptySave } from '../save/schema';
 import type { QualitySetting, SaveData, SaveSettings } from '../save/schema';
 import { MemoryStore, createSaveStore } from '../save/store';
 import { CharacterListScreen } from '../ui/characterList';
@@ -42,6 +43,7 @@ import { STAGE_LIST, getStageEntry, stageRevKey, stageRevs } from '../stages/reg
 import { TEST_ARENA } from '../stages/testArena';
 import { BirthScreen } from '../ui/birthScreen';
 import { DebugPanel } from '../ui/debugPanel';
+import { choiceDialog, nameDialog } from '../ui/dialog';
 import { h } from '../ui/dom';
 import type { Screen } from '../ui/dom';
 import { EditorScreen } from '../ui/editor/editorScreen';
@@ -113,7 +115,9 @@ export class App {
   ranking = new RankingService(null);
   /** セーブデータの読み書き (起動時に作る)。開発用のショートカット起動ではメモリのみ */
   save: SaveManager | null = null;
-  settings: SaveSettings = { quality: 'auto' };
+  settings: SaveSettings = { ...DEFAULT_SETTINGS };
+  /** 描きかけのラクガキ (下書き)。中断して、あとで続きから描ける。起動時に置き場所を決める (開発用のショートカット起動ではメモリのみ) */
+  drafts = new DraftStore(null);
   /** 起動時の読み込み結果 (QA 用) */
   loadOutcome: LoadOutcome | null = null;
   private notice: string | null = null;
@@ -194,6 +198,7 @@ export class App {
     const shortcut = this.devMode && ['doodle', 'stage', 'hub', 'ta', 'arena', 'birth'].some((k) => this.params.has(k));
     const persistent = !shortcut || this.params.has('save');
     const store = persistent ? await createSaveStore() : new MemoryStore();
+    this.drafts = new DraftStore(persistent ? draftStorage() : null);
     this.save = new SaveManager(store, { onError: () => this.onSaveError() });
     const out = await this.save.load();
     this.loadOutcome = out;
@@ -294,10 +299,19 @@ export class App {
           if (this.profile.characters.length === 0) this.showEditor();
           else this.showCharacters();
         },
+        onRename: (id) => void this.renameCharacter(id).then((changed) => changed && this.showCharacters()),
         onDraw: () => this.showEditor(),
         onBack: () => (this.profile.selected ? void this.showHub() : this.showTitle()),
       }),
     );
+  }
+
+  /** 名前を入力してもらって、キャラクターの名前を変える。変えたら true。 */
+  async renameCharacter(id: string): Promise<boolean> {
+    const rec = this.profile.characters.find((c) => c.id === id);
+    if (!rec) return false;
+    const name = await nameDialog(this.root, { title: '名前を変える', initial: rec.name });
+    return name !== null && this.profile.renameCharacter(id, name);
   }
 
   showSettings(back: () => void): void {
@@ -317,6 +331,12 @@ export class App {
         onFullscreen: () => void this.toggleFullscreen().then(() => this.showSettings(back)),
         onQuality: (q) => {
           this.setQualitySetting(q);
+          this.showSettings(back);
+        },
+        hints: this.settings.hints,
+        onHints: (on) => {
+          this.settings = { ...this.settings, hints: on };
+          this.requestSave();
           this.showSettings(back);
         },
         onReset: () => void this.resetAllData(),
@@ -341,8 +361,9 @@ export class App {
   /** セーブデータを全て消して、最初の状態に戻す。 */
   private async resetAllData(): Promise<void> {
     await this.save?.reset();
+    this.drafts.clear();
     this.profile.reset();
-    this.settings = { quality: 'auto' };
+    this.settings = { ...DEFAULT_SETTINGS };
     this.host?.setQuality(this.effectiveQuality());
     this.loadOutcome = null;
     toast(this.root, 'セーブデータを削除しました', 2500);
@@ -401,18 +422,60 @@ export class App {
         onDraw: () => this.showEditor(),
         onSettings: () => this.showSettings(() => this.showTitle()),
         hasSave: this.profile.characters.length > 0,
+        hasDraft: this.drafts.load() !== null,
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
       }),
     );
   }
 
+  /**
+   * ラクガキを描く。絵を渡さない時 (新しく描く) に、描きかけ (下書き) があれば、続きから描くかを先に聞く。
+   * 絵を渡した時 (誕生画面の「描き直す」など) は、その絵で開く。
+   */
   showEditor(initial?: DrawingData): void {
+    const draft = initial ? null : this.drafts.load();
+    if (!draft) {
+      this.openEditor(initial);
+      return;
+    }
+    void choiceDialog(this.root, {
+      title: '描きかけのラクガキがあります',
+      message: '続きから描けます。新しく描くと、描きかけは消えます。',
+      buttons: [
+        { value: 'cancel', label: 'やめる' },
+        { value: 'new', label: '新しく描く', kind: 'danger' },
+        { value: 'resume', label: '✏️ 続きから描く', kind: 'primary' },
+      ],
+    }).then((v) => {
+      if (v === 'resume') this.openEditor(draft.drawing, draft.currentId);
+      else if (v === 'new') {
+        this.drafts.clear();
+        this.openEditor();
+      }
+    });
+  }
+
+  private openEditor(initial?: DrawingData, initialPartId?: string): void {
     this.leaveGame();
+    let warned = false;
     this.setScreen(
       new EditorScreen({
         initial,
+        initialPartId,
         host: this.root,
         onBack: () => (this.profile.selected ? void this.showHub() : this.showTitle()),
+        onDraft: (data, currentId) => {
+          if (!data) {
+            this.drafts.clear();
+            return;
+          }
+          this.drafts.save(data, currentId);
+          // 端末に書けない時 (容量切れ・保存を止めているブラウザ) は、1 度だけ知らせる (開いている間は続きから描ける)
+          if (this.drafts.available && !this.drafts.persisted && !warned) {
+            warned = true;
+            toast(this.root, '描きかけを端末に保存できません。アプリを閉じると、描きかけは消えます', 4000);
+          }
+        },
         onDone: (data) => {
           this.drawing = cloneDrawing(sanitizeDrawing(data));
           void this.showBirth(this.drawing);
@@ -454,6 +517,8 @@ export class App {
             this.showCharacters();
             return;
           }
+          // キャラクターになったので、描きかけ (下書き) は役目を終えた
+          this.drafts.clear();
           void this.showHub();
         },
       }),
@@ -519,6 +584,7 @@ export class App {
         stages: STAGE_LIST,
         rig: this.makeRigOf(rec)(),
         name: rec.name,
+        onRename: () => void this.renameCharacter(rec.id).then((changed) => changed && void this.showHub()),
         stats: this.effectiveStats(rec),
         statBonus: this.statBonusOf(rec),
         level: this.profile.progress,
@@ -555,6 +621,7 @@ export class App {
       makeRig: this.makeRigOf(rec),
       intro: entry.title,
       bestSplits: this.profile.stage(entry.id).bestSplits,
+      hints: this.settings.hints,
       onFinish: (r) => this.onStageFinished(entry.id, r),
       onQuit: () => void this.showHub(),
     });
@@ -660,6 +727,7 @@ export class App {
       makeRig: this.makeRigOf(rec),
       intro: `${entry.title}  ${no}/${count}`,
       bestSplits: this.profile.stage(entry.id).bestSplits,
+      hints: this.settings.hints,
       clock: this.devClock ?? undefined,
       // HUD の 2 行目: ここまでの総タイム (このステージの経過を含む)
       subTime: () => `ALL STAGES ${no}/${count}   TOTAL ${formatTime(run.totalMs + (session?.timer.elapsedMs ?? 0))}`,

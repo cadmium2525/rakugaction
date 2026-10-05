@@ -255,6 +255,16 @@ describe('検証・修復 (normalizeSave)', () => {
     }
   });
 
+  it('ヒントの設定: 既定は「出さない」。以前のセーブ (設定に hints が無い) も「出さない」。true だけが「出す」', () => {
+    expect(norm(base()).data.settings.hints).toBe(true); // makeSave は hints: true (往復の確認用)
+    for (const v of [undefined, false, 'yes', 1, null]) {
+      const o = base();
+      (o.settings as Obj).hints = v;
+      expect(norm(o).data.settings.hints, String(v)).toBe(false);
+    }
+    expect(norm({}).data.settings.hints).toBe(false);
+  });
+
   it('何も無い/型が違うオブジェクトでも、空のセーブとして整う (例外なし)', () => {
     for (const raw of [{}, { profile: 5, settings: [] }, { profile: { characters: {} } }]) {
       const r = norm(raw as Obj);

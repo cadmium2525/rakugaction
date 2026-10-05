@@ -1,7 +1,7 @@
 import { GAME_VERSION } from '../core/version';
 import type { QualitySetting } from '../save/schema';
 import type { StoreKind } from '../save/store';
-import { h } from './dom';
+import { h, onTap } from './dom';
 import type { Screen } from './dom';
 
 export interface SettingsOptions {
@@ -20,6 +20,9 @@ export interface SettingsOptions {
   isFullscreen: boolean;
   onFullscreen(): void;
   onQuality(q: QualitySetting): void;
+  /** プレイ中のヒント (看板の説明・敵の倒し方・しかけの説明) を出すか */
+  hints: boolean;
+  onHints(on: boolean): void;
   /** セーブデータを全て消す (確認の後に呼ばれる) */
   onReset(): void;
   onBack(): void;
@@ -42,11 +45,15 @@ export class SettingsScreen implements Screen {
       const b = h('button', { class: `btn btn-ghost st-opt${q === opts.quality ? ' on' : ''}`, text: QUALITY_LABEL[q], on: { click: () => opts.onQuality(q) } });
       seg.appendChild(b);
     }
+    const hintSeg = h('div', { class: 'st-seg' });
+    for (const on of [false, true]) {
+      hintSeg.appendChild(h('button', { class: `btn btn-ghost st-opt${on === opts.hints ? ' on' : ''}`, text: on ? '出す' : '出さない', on: { click: () => opts.onHints(on) } }));
+    }
     const when = opts.savedAt ? new Date(opts.savedAt).toLocaleString('ja-JP') : '未保存';
     let armed = false;
     let timer = 0;
     const reset = h('button', { class: 'btn btn-ghost st-reset', text: '🗑 セーブデータをすべて削除' });
-    reset.addEventListener('click', () => {
+    onTap(reset, () => {
       if (!armed) {
         armed = true;
         reset.textContent = '本当にすべて削除しますか？ (もう一度押すと実行)';
@@ -69,6 +76,7 @@ export class SettingsScreen implements Screen {
         { class: 'st-card' },
         h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: '⚙ 設定' }), h('button', { class: 'btn btn-ghost', text: '← 戻る', on: { click: () => opts.onBack() } })),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '画質' }), seg, h('small', { class: 'st-note', text: `「自動」は現在「${QUALITY_LABEL[opts.autoQuality as QualitySetting] ?? opts.autoQuality}」です (端末の性能に合わせて選びます)` })),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'ヒント' }), hintSeg, h('small', { class: 'st-note', text: 'プレイ中に、看板の説明・敵の倒し方・しかけの説明を画面に出します。「出さない」なら、自分で試して見つけます' })),
         h(
           'div',
           { class: 'st-row' },

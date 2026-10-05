@@ -229,7 +229,7 @@
   box-shadow: 0 0 0 3px var(--accent);
   transform: scale(1.1);
 }
-/* 好きな色 (虹色) と、スポイト */
+/* 好きな色 (虹色) */
 .swatch-custom {
   background: conic-gradient(#e53935, #fdd835, #43a047, #29b6f6, #8e24aa, #e53935);
 }
@@ -244,14 +244,6 @@
   font-weight: 900;
   color: #fff;
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
-}
-.swatch-pick {
-  background: #fff;
-  font-size: 15px;
-  line-height: 1;
-}
-.swatch-pick.on {
-  background: #fff1e6;
 }
 .swatch-recent:disabled {
   visibility: hidden;
@@ -411,11 +403,14 @@
 }
 .ed-chips {
   display: flex;
+  align-items: center;
   gap: 5px;
   overflow-x: auto;
   overflow-y: hidden;
   max-width: 100%;
-  padding: 3px 2px;
+  /* バーの高さいっぱいを、チップの「押せる範囲」にする (チップの上下の余白を押しても反応する) */
+  height: var(--bar-h);
+  padding: 0 2px;
   scrollbar-width: none;
 }
 .ed-chips::-webkit-scrollbar {
@@ -426,10 +421,11 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 34px;
-  padding: 0 10px 0 8px;
+  position: relative;
+  height: 38px;
+  padding: 0 11px 0 9px;
   border: 2px solid #e6d8bb;
-  border-radius: 17px;
+  border-radius: 19px;
   background: #fff;
   color: var(--ink);
   font-family: inherit;
@@ -594,9 +590,9 @@
 
 @media (max-height: 420px) {
   .chip {
-    height: 30px;
+    height: 34px;
     font-size: 11px;
-    padding: 0 8px 0 6px;
+    padding: 0 9px 0 7px;
   }
   .ed-bar {
     gap: 5px;
@@ -940,5 +936,53 @@
 @container (max-width: 330px) or (max-height: 330px) {
   .ed-refbar {
     bottom: 40px;
+  }
+}
+
+/* ---------- 押しやすさ: 小さなボタンは、見た目より広い範囲で反応する ----------
+   実機で「何度か押さないと反応しない」(ユーザー評価)。見た目の大きさは変えずに、透明な「押せる範囲」をボタンの外へ広げる。
+   丸いボタン (色) は、角の外側が押せないので特に効く。となりのボタンとのすき間 (4〜5px) を、両側から埋める */
+.chip::before,
+.swatch::before,
+.size-btn::before,
+.seg-btn::before,
+.step-b::before,
+.tool-btn::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+}
+.chip::before {
+  inset: -8px -3px;
+}
+.swatch::before {
+  inset: -5px;
+  border-radius: 0;
+}
+.size-btn,
+.seg-btn,
+.step-b,
+.tool-btn {
+  position: relative;
+}
+/* 押した時に縮む動きは、ボタンの端を押した指がボタンの外に出て、押した事にならない原因になるので、小さなボタンでは色だけ変える */
+.tool-btn:active:not(:disabled),
+.step-b:active {
+  transform: none;
+  filter: brightness(0.93);
+}
+.chip:active:not(:disabled),
+.seg-btn:active,
+.opt:active,
+.size-btn:active {
+  filter: brightness(0.93);
+}
+/* 道具が 7 つ (ペン・消しゴム・塗り・スポイト・戻す・やり直し・全消去) 並ぶので、低い画面では名前を省いて高さを詰める */
+@media (max-height: 350px) {
+  .tool-btn {
+    min-height: 30px;
+  }
+  .tool-btn .tl {
+    display: none;
   }
 }

@@ -1335,3 +1335,26 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- 名前を変える (ハブの名前・キャラクター一覧) ---------- */
+.hub-name-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 押せる範囲を、文字のまわりへ広げる */
+  padding: 8px 10px;
+  margin: -8px -10px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.hub-name-edit {
+  font-size: 15px;
+  text-shadow: none;
+  opacity: 0.9;
+}
+.cl-rename {
+  min-height: 36px;
+  padding: 4px 10px;
+}

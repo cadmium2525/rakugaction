@@ -1,4 +1,5 @@
 import type { CharacterRecord } from '../character/record';
+import { sanitizeName } from '../core/text';
 import type { SaveProfile } from '../save/schema';
 import { MAX_LEVEL, expForLevel, levelFromExp } from '../progression/level';
 import type { TimeAttackBest } from '../timeattack/run';
@@ -116,6 +117,16 @@ export class Profile {
   select(id: string): boolean {
     if (!this.characters.some((c) => c.id === id)) return false;
     this.selectedId = id;
+    this.changed();
+    return true;
+  }
+
+  /** キャラクターの名前を変える (制御文字などを除いた、最大 16 文字)。空の名前・同じ名前・いないキャラクターは false。 */
+  renameCharacter(id: string, name: string): boolean {
+    const rec = this.characters.find((c) => c.id === id);
+    const next = sanitizeName(name, '');
+    if (!rec || next === '' || next === rec.name) return false;
+    rec.name = next;
     this.changed();
     return true;
   }

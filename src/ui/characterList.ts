@@ -2,7 +2,7 @@ import type { CharacterRecord } from '../character/record';
 import { describeBuild } from '../character/statGen';
 import { STAT_KEYS } from '../character/stats';
 import { MAX_CHARACTERS } from '../save/schema';
-import { h } from './dom';
+import { h, onTap } from './dom';
 import type { Screen } from './dom';
 
 export interface CharacterListOptions {
@@ -10,6 +10,8 @@ export interface CharacterListOptions {
   selectedId: string | null;
   onSelect(id: string): void;
   onDelete(id: string): void;
+  /** 名前を変える (入力のダイアログは呼び出し側が出す) */
+  onRename(id: string): void;
   onDraw(): void;
   onBack(): void;
 }
@@ -52,7 +54,7 @@ export class CharacterListScreen implements Screen {
     const del = h('button', { class: 'btn btn-ghost cl-del', text: '🗑', attrs: { 'aria-label': `${c.name} を削除` } });
     let armed = false;
     let timer = 0;
-    del.addEventListener('click', () => {
+    onTap(del, () => {
       if (!armed) {
         armed = true;
         del.textContent = '本当に削除？';
@@ -77,6 +79,7 @@ export class CharacterListScreen implements Screen {
         h('div', { class: 'cl-build', text: build.label }),
         h('div', { class: 'cl-stats', text: STAT_KEYS.map((k) => `${SHORT[k]} ${c.stats[k]}`).join('  ') }),
       ),
+      h('button', { class: 'btn btn-ghost cl-rename', text: '✏️ 名前', attrs: { 'aria-label': `${c.name} の名前を変える` }, on: { click: () => this.opts.onRename(c.id) } }),
       h('button', { class: 'btn btn-primary cl-pick', text: selected ? 'ステージ選択へ' : '選択', on: { click: () => this.opts.onSelect(c.id) } }),
       del,
     );

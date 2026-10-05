@@ -66,6 +66,11 @@ export interface SessionDeps {
   intro?: string;
   /** これまでのベストの走りの、星の取得時刻 (あれば、星を取るたびにベストとの差を出す) */
   bestSplits?: readonly StarSplit[];
+  /**
+   * ヒント (看板の説明カード・敵の倒し方・星が現れる条件・しかけの説明) を画面に出すか。既定は出さない:
+   * 試行錯誤で見つけるのもアクションゲームの楽しみで、説明が多いと画面が見づらい (ユーザー評価)。設定画面で出せる。
+   */
+  hints?: boolean;
 }
 
 type Phase = 'ready' | 'playing' | 'goal' | 'done';
@@ -303,18 +308,17 @@ export class StageSession {
           break;
         }
         case 'goalLocked':
-          this.hud.toast(`ゴールを開くには ${this.deps.stage.objective?.noun ?? 'アイテム'} があと ${e.need} 個必要`, 2200);
+          this.hud.toast(`★ あと ${e.need} 個`, 1500);
           break;
         case 'crumble':
-          if (e.state === 'shake' && !this.crumbleHintShown && this.phase === 'playing') {
+          if (this.deps.hints && e.state === 'shake' && !this.crumbleHintShown && this.phase === 'playing') {
             this.crumbleHintShown = true;
             this.hud.toast('🏛 崩れる床: 乗り続けると落ちる (体重が重いほど早い)', 3200);
           }
           break;
-        case 'break':
-          this.hud.toast('木箱を破壊', 700);
-          break;
         case 'enemy': {
+          // 倒し方・星が現れるまでの残りは、ヒントを出す設定の時だけ (既定は、火花や星の出現を見て気づいてもらう)
+          if (!this.deps.hints) break;
           const sim = this.scene.sim;
           if (e.how === 'guard') {
             // ACTION が効かない敵 (カタマル) にはね返された時、倒し方を教える (続けてはね返されても、同じ説明を重ねて出さない)
@@ -335,10 +339,11 @@ export class StageSession {
         }
         case 'pickupAppear': {
           const k = this.deps.stage.pickups?.find((x) => x.id === e.id);
-          this.hud.toast(`★ ${k?.label ?? '星'}に、星が現れた`, 2200);
+          this.hud.toast(this.deps.hints ? `★ ${k?.label ?? '星'}に、星が現れた` : '★ 星が現れた', this.deps.hints ? 2200 : 1500);
           break;
         }
         case 'breakGuard': {
+          if (!this.deps.hints) break;
           // 連打しても、同じ説明を重ねて出さない (1 回の攻撃で隣り合う箱が複数当たることもある)
           const now = this.scene.sim.time;
           if (now - this.lastGuardToast > 1.5) {
@@ -403,7 +408,7 @@ export class StageSession {
     const sx = e.windX * Math.cos(yaw) + e.windZ * -Math.sin(yaw);
     const sy = e.windX * -Math.sin(yaw) + e.windZ * -Math.cos(yaw);
     this.hud.setWind((Math.atan2(sx, sy) * 180) / Math.PI, spd / 14);
-    if (!this.windHintShown && spd > 3 && this.phase === 'playing') {
+    if (this.deps.hints && !this.windHintShown && spd > 3 && this.phase === 'playing') {
       this.windHintShown = true;
       this.hud.toast('🌪 強風: 体重が重いほど押されにくい。風が弱まるのを待つのも手', 3200);
     }
@@ -456,7 +461,7 @@ export class StageSession {
     this.hud.setSwim(this.scene.sim.player.swimming, this.view.cameraUnderwater);
     if (this.scene.paused) return;
     this.phaseTime += dt;
-    if (this.phase === 'playing') {
+    if (this.phase === 'playing' && this.deps.hints) {
       this.updateSigns(dt);
       this.updateSealHints();
     }

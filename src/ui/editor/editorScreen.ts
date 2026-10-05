@@ -9,6 +9,7 @@ import { TEMPLATES } from '../../drawing/templates';
 import type { CharacterLayout } from '../../character/layout';
 import { rgbToHex } from '../../core/color';
 import { capturePointer } from '../../input/touchControls';
+import { choiceDialog } from '../dialog';
 import { h } from '../dom';
 import type { Screen } from '../dom';
 import { toast } from '../toast';
@@ -22,6 +23,13 @@ import { altHint, altLabel, backHint, backLabel, drawAltGuides, drawBackGuides, 
 
 export interface EditorOptions {
   initial?: DrawingData;
+  /** 続きから描く時の、最後に描いていたパーツ (無ければ胴体から) */
+  initialPartId?: string;
+  /**
+   * 絵が変わるたびに (少し待って、まとめて) 呼ばれる: 描きかけを下書きとして残す。
+   * 中断して戻る時・生成する時・画面が隠れる時は、待たずに呼ぶ。null = 下書きを消す (破棄して戻った)。
+   */
+  onDraft?(data: DrawingData | null, currentId: string): void;
   /** トースト等を出す親要素 */
   host: HTMLElement;
   onBack(): void;
@@ -31,6 +39,8 @@ export interface EditorOptions {
 
 /** 紙の拡大の上限 */
 const ZOOM_MAX = 4;
+/** 絵が変わってから下書きを残すまでの待ち (ms)。続けて描いている間は、まとめて 1 回 */
+const DRAFT_DELAY_MS = 700;
 
 /** 最近使った好きな色を覚えておく場所 */
 const RECENT_KEY = 'rakugaction.recentColors';
@@ -99,7 +109,6 @@ export class EditorScreen implements Screen {
   private readonly nextBtn: HTMLButtonElement;
   private readonly swatches: HTMLButtonElement[] = [];
   private readonly customBtn: HTMLButtonElement;
-  private readonly pickBtn: HTMLButtonElement;
   private readonly recentBtn: HTMLButtonElement;
   private readonly colorPicker = new ColorPicker();
   /** スポイトを使う前に選んでいた道具 (拾ったら戻す) */
@@ -142,9 +151,19 @@ export class EditorScreen implements Screen {
   private ignoreUntilUp = false;
   private rect: DOMRect | null = null;
   private disposed = false;
+  // ---- 下書き (描きかけを残す) ----
+  private draftTimer = 0;
+  /** まだ下書きに残していない変更がある */
+  private draftDirty = false;
+  /** 最後に下書きへ渡した絵 (同じ絵を何度も書かない。色や道具を変えただけでは絵は変わらない) */
+  private draftSent: DrawingData | null = null;
+  private draftSentPart = '';
+  /** 破棄して戻る時: これ以降は下書きを残さない */
+  private draftOff = false;
 
   constructor(private readonly opts: EditorOptions) {
     this.state = new EditorState(opts.initial);
+    if (opts.initialPartId && this.state.drawing.parts.some((p) => p.id === opts.initialPartId)) this.state.setPart(opts.initialPartId);
     this.loadRecentColors();
 
     // --- キャンバス ---
@@ -200,14 +219,15 @@ export class EditorScreen implements Screen {
 
     // --- 左ツール ---
     const mkTool = (tool: Tool, icon: string, label: string): HTMLButtonElement => {
-      const b = h('button', { class: 'tool-btn', attrs: { 'aria-label': label }, on: { click: () => this.setTool(tool) } }, h('span', { class: 'ti', text: icon }), h('span', { class: 'tl', text: label }));
+      // スポイトは、もう一度押すと前の道具に戻る
+      const b = h('button', { class: 'tool-btn', attrs: { 'aria-label': label }, on: { click: () => (tool === 'pick' ? this.togglePick() : this.setTool(tool)) } }, h('span', { class: 'ti', text: icon }), h('span', { class: 'tl', text: label }));
       this.toolBtns.set(tool, b);
       return b;
     };
     this.undoBtn = h('button', { class: 'tool-btn', attrs: { 'aria-label': '元に戻す' }, on: { click: () => this.undo() } }, h('span', { class: 'ti', text: '↶' }), h('span', { class: 'tl', text: '戻す' }));
     this.redoBtn = h('button', { class: 'tool-btn', attrs: { 'aria-label': 'やり直し' }, on: { click: () => this.redo() } }, h('span', { class: 'ti', text: '↷' }), h('span', { class: 'tl', text: 'やり直し' }));
     this.clearBtn = h('button', { class: 'tool-btn tool-danger', attrs: { 'aria-label': '全消去' }, on: { click: () => this.clearPart() } }, h('span', { class: 'ti', text: '🗑' }), h('span', { class: 'tl', text: '全消去' }));
-    const tools = h('div', { class: 'ed-tools' }, mkTool('pen', '✏️', 'ペン'), mkTool('eraser', '🧽', '消しゴム'), mkTool('fill', '🪣', '塗り'), this.undoBtn, this.redoBtn, this.clearBtn);
+    const tools = h('div', { class: 'ed-tools' }, mkTool('pen', '✏️', 'ペン'), mkTool('eraser', '🧽', '消しゴム'), mkTool('fill', '🪣', '塗り'), mkTool('pick', '💧', 'スポイト'), this.undoBtn, this.redoBtn, this.clearBtn);
 
     // --- 右サイド: 色・太さ (いちばん上) → このパーツの設定 → 全体像の小窓 ---
     this.miniCanvas = h('canvas', { class: 'ed-mini', attrs: { width: '220', height: '220' } });
@@ -225,9 +245,8 @@ export class EditorScreen implements Screen {
       palette.appendChild(b);
     }
     this.customBtn = h('button', { class: 'swatch swatch-custom', attrs: { 'aria-label': '好きな色を選ぶ' }, on: { click: () => this.openColorPicker() } });
-    this.pickBtn = h('button', { class: 'swatch swatch-pick', text: '💧', attrs: { 'aria-label': 'スポイト (絵の上の色を拾う)' }, on: { click: () => this.togglePick() } });
     this.recentBtn = h('button', { class: 'swatch swatch-recent', attrs: { 'aria-label': '最近使った色' }, on: { click: () => this.useRecent() } });
-    palette.append(this.customBtn, this.pickBtn, this.recentBtn);
+    palette.append(this.customBtn, this.recentBtn);
     const sizes = h('div', { class: 'ed-sizes' });
     BRUSH_SIZES.forEach((_, i) => {
       const dotPx = 3 + i * 4;
@@ -271,6 +290,8 @@ export class EditorScreen implements Screen {
 
     this.bindCanvas();
     window.addEventListener('keydown', this.onKey);
+    document.addEventListener('visibilitychange', this.onHidden);
+    window.addEventListener('pagehide', this.flushDraft);
     this.refreshAll();
     // 新しく描く時は、最初にひな形を選んでもらう
     if (!opts.initial) this.openPicker();
@@ -348,6 +369,7 @@ export class EditorScreen implements Screen {
   }
 
   private scheduleMini(): void {
+    this.scheduleDraft();
     if (this.miniRaf || this.disposed) return;
     this.miniRaf = requestAnimationFrame(() => {
       this.miniRaf = 0;
@@ -392,6 +414,14 @@ export class EditorScreen implements Screen {
     // 選択中のチップが見える位置までスクロール
     const on = this.chips.querySelector('.chip.on') as HTMLElement | null;
     on?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+  }
+
+  /** 描いた / まだ の印だけを更新する (線を 1 本描くたびにチップを作り直すと、指の下のボタンが入れかわって、タップを取りこぼす) */
+  private markChips(): void {
+    for (const b of Array.from(this.chips.querySelectorAll<HTMLElement>('.chip[data-id]'))) {
+      const slot = this.state.drawing.parts.find((p) => p.id === b.dataset.id);
+      if (slot) b.classList.toggle('done', this.inked(slot));
+    }
   }
 
   /** 右側の「このパーツの設定」。 */
@@ -732,7 +762,6 @@ export class EditorScreen implements Screen {
     this.recentBtn.style.background = recent;
     this.recentBtn.disabled = recent === '';
     this.recentBtn.dataset.hex = recent;
-    this.pickBtn.classList.toggle('on', this.state.tool === 'pick');
   }
 
   private useRecent(): void {
@@ -750,7 +779,7 @@ export class EditorScreen implements Screen {
     } else {
       this.toolBeforePick = this.state.tool;
       this.state.tool = 'pick';
-      toast(this.opts.host, '拾いたい色の所をタッチしてください');
+      toast(this.opts.host, '絵の上の、拾いたい色の所をタッチしてください');
     }
     this.refreshPartUi();
   }
@@ -1126,10 +1155,69 @@ export class EditorScreen implements Screen {
     this.openPreview();
   }
 
+  /** 「戻る」: 描きかけがあれば、中断 (下書きに残して、あとで続きから) か、破棄かを選ぶ。 */
   private back(): void {
-    if (hasAnyInk(this.state.drawing) && !window.confirm('描いた絵は破棄されます。戻りますか？')) return;
-    this.opts.onBack();
+    if (!hasAnyInk(this.state.drawing)) {
+      this.discardDraft();
+      this.opts.onBack();
+      return;
+    }
+    void choiceDialog(this.el, {
+      title: 'ラクガキを中断しますか？',
+      message: '中断すると、描きかけの絵を残して戻ります。「ラクガキを描く」から、続きを描けます。',
+      buttons: [
+        { value: 'stay', label: '描き続ける' },
+        { value: 'discard', label: '🗑 破棄して戻る', kind: 'danger' },
+        { value: 'suspend', label: '⏸ 中断する', kind: 'primary' },
+      ],
+    }).then((v) => {
+      if (this.disposed || v === null || v === 'stay') return;
+      if (v === 'discard') this.discardDraft();
+      else {
+        this.flushDraft();
+        if (this.opts.onDraft) toast(this.opts.host, '描きかけを残しました。「ラクガキを描く」から続きを描けます', 3200);
+      }
+      this.opts.onBack();
+    });
   }
+
+  // ===== 下書き =====
+
+  private scheduleDraft(): void {
+    if (!this.opts.onDraft || this.draftOff || this.disposed) return;
+    this.draftDirty = true;
+    if (this.draftTimer) return;
+    this.draftTimer = window.setTimeout(() => {
+      this.draftTimer = 0;
+      this.flushDraft();
+    }, DRAFT_DELAY_MS);
+  }
+
+  /** 描きかけを、待たずに下書きへ渡す (中断・生成・画面が隠れる時)。絵が前回と同じなら何もしない。 */
+  private readonly flushDraft = (): void => {
+    window.clearTimeout(this.draftTimer);
+    this.draftTimer = 0;
+    if (!this.opts.onDraft || this.draftOff || !this.draftDirty) return;
+    this.draftDirty = false;
+    // 絵は書き換えずに作り直す (イミュータブル更新) ので、パーツの並びと各パーツが前回と同じ物なら、絵は変わっていない
+    const d = this.state.drawing;
+    const prev = this.draftSent;
+    if (prev && this.draftSentPart === this.state.currentId && prev.parts.length === d.parts.length && prev.parts.every((p, i) => p === d.parts[i])) return;
+    this.draftSent = { ...d, parts: d.parts.slice() };
+    this.draftSentPart = this.state.currentId;
+    this.opts.onDraft(cloneDrawing(d), this.state.currentId);
+  };
+
+  private discardDraft(): void {
+    window.clearTimeout(this.draftTimer);
+    this.draftTimer = 0;
+    this.draftOff = true;
+    this.opts.onDraft?.(null, this.state.currentId);
+  }
+
+  private readonly onHidden = (): void => {
+    if (document.hidden) this.flushDraft();
+  };
 
   private openPreview(): void {
     this.modal.removeAttribute('hidden');
@@ -1186,6 +1274,7 @@ export class EditorScreen implements Screen {
       toast(this.opts.host, 'まず何か描いてください');
       return;
     }
+    this.flushDraft();
     this.opts.onDone(cloneDrawing(this.state.drawing));
   }
 
@@ -1489,7 +1578,7 @@ export class EditorScreen implements Screen {
     this.undoBtn.disabled = !this.state.canUndo;
     this.redoBtn.disabled = !this.state.canRedo;
     this.clearBtn.disabled = this.state.ops.length === 0;
-    this.renderChips();
+    this.markChips();
     this.scheduleMini();
     this.refreshNextLabel();
   }
@@ -1511,7 +1600,11 @@ export class EditorScreen implements Screen {
   };
 
   dispose(): void {
+    // 別の画面へ移る時も、描きかけを残す (破棄を選んだ時は残さない)
+    this.flushDraft();
     this.disposed = true;
+    document.removeEventListener('visibilitychange', this.onHidden);
+    window.removeEventListener('pagehide', this.flushDraft);
     this.closePreview3d();
     cancelAnimationFrame(this.miniRaf);
     window.clearTimeout(this.noteTimer);

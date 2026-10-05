@@ -21,7 +21,11 @@ export type QualitySetting = 'auto' | Quality;
 
 export interface SaveSettings {
   quality: QualitySetting;
+  /** プレイ中にヒント (看板の説明・敵の倒し方・しかけの説明) を出すか。既定は出さない */
+  hints: boolean;
 }
+
+export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false };
 
 export interface SaveProfile {
   characters: CharacterRecord[];
@@ -48,7 +52,7 @@ export function emptySave(now = Date.now()): SaveData {
     savedAt: now,
     gameVersion: GAME_VERSION,
     profile: { characters: [], selectedId: null, stages: {}, allStagesBest: null, allStagesRuns: 0, exp: 0 },
-    settings: { quality: 'auto' },
+    settings: { ...DEFAULT_SETTINGS },
   };
 }
 
@@ -77,7 +81,7 @@ const MIGRATIONS: Record<number, (raw: Obj) => Obj> = {
       allStagesRuns: 0,
       exp: 0,
     },
-    settings: { quality: 'auto' },
+    settings: { quality: 'auto', hints: false },
   }),
   // v1 → v2: 各キャラクターのラクガキを新しい形式へ (人型の 6 パーツ → 胴体・頭・腕・脚のスロット。見た目と能力は変わらない)
   1: (raw) => {
@@ -238,7 +242,7 @@ export function normalizeSave(raw: Obj): NormalizeResult {
       allStagesRuns: clampInt(profile.allStagesRuns, 0, 1_000_000, 0),
       exp: clampInt(profile.exp, 0, maxExp, 0),
     },
-    settings: { quality },
+    settings: { quality, hints: settings.hints === true },
   };
   return { data, issues, recompute };
 }

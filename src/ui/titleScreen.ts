@@ -8,6 +8,8 @@ export interface TitleOptions {
   onSettings?(): void;
   /** 保存されたキャラクターがいるか (「あそぶ」を「つづきから」にする) */
   hasSave?: boolean;
+  /** 描きかけのラクガキ (下書き) があるか */
+  hasDraft?: boolean;
   /** 開発用 (?debug / dev サーバーのみ表示) */
   onArena?(): void;
 }
@@ -20,7 +22,7 @@ export class TitleScreen implements Screen {
       'div',
       { class: 'title-menu' },
       h('button', { class: 'btn btn-primary', text: opts.hasSave ? '▶ 続きから' : '▶ はじめる', on: { click: opts.onPlay } }),
-      h('button', { class: 'btn btn-ghost', text: '✏️ ラクガキを描く', on: { click: opts.onDraw } }),
+      h('button', { class: 'btn btn-ghost', text: opts.hasDraft ? '✏️ ラクガキを描く (描きかけあり)' : '✏️ ラクガキを描く', on: { click: opts.onDraw } }),
     );
     if (opts.onSettings) menu.appendChild(h('button', { class: 'btn btn-ghost', text: '⚙ 設定', on: { click: opts.onSettings } }));
     if (opts.onArena) {

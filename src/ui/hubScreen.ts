@@ -16,6 +16,8 @@ export interface HubOptions {
   stages: readonly StageEntry[];
   rig: CharacterRig;
   name: string;
+  /** 名前を押した時 (名前を変える)。無ければ、名前は押せない */
+  onRename?(): void;
   /** 表示する能力 (プレイヤーレベル補正後) */
   stats: CharacterStats;
   /** 補正で増えた分 (能力カードに +N と表示) */
@@ -95,7 +97,9 @@ export class HubScreen implements Screen {
     this.el = h(
       'div',
       { class: 'screen screen-clear hub-screen' },
-      h('div', { class: 'hub-name', text: opts.name }),
+      opts.onRename
+        ? h('button', { class: 'hub-name hub-name-btn', attrs: { 'aria-label': `${opts.name} の名前を変える` }, on: { click: () => opts.onRename?.() } }, h('span', { text: opts.name }), h('span', { class: 'hub-name-edit', text: '✏️' }))
+        : h('div', { class: 'hub-name', text: opts.name }),
       opts.level ? levelBadge(opts.level) : null,
       h('div', { class: 'hub-panel' }, h('div', { class: 'hub-title', text: 'ステージ選択' }), list, card.el, menu),
     );
