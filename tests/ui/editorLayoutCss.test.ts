@@ -45,3 +45,27 @@ describe('エディタの右の欄 (色・太さ・全体像)', () => {
     expect(ruleBody('.ed-part > *')).toMatch(/flex:\s*none/);
   });
 });
+
+/**
+ * 回帰テスト: スポイトで拾った色が「最近使った色」として元のスポイトの場所に出て、押すと「好きな色を選ぶ」ボタンがその色に化け、
+ * 最近使った色のボタンと入れかわった (「押したら別のボタンと重なった」ように見えた = ユーザー報告)。
+ * 虹色の「＋」はいつも色を作る画面を開くボタンのまま。最近使った色は、選んでも場所が変わらない枠に並べる。
+ */
+describe('エディタの色の並び (好きな色・最近使った色)', () => {
+  it('虹色の「＋」ボタンは、選んでいる色に化けない (背景・選択中の印を書き換えない)', () => {
+    expect(src).not.toMatch(/customBtn\.style\.background/);
+    expect(src).not.toMatch(/customBtn\.classList\.toggle/);
+  });
+
+  it('最近使った色は、枠ごとに recentColors の同じ番号の色を出す (選んでいる色を除いて詰めない = 選んでも場所が変わらない)', () => {
+    expect(src).toMatch(/this\.state\.recentColors\[i\]/);
+    expect(src).not.toMatch(/recentColors\.find\(\(c\) => c !== this\.state\.color\)/);
+  });
+
+  it('まだ無い枠は場所ごと消す (見えないボタンの跡を残さない)。色の並びにスポイトは置かない (道具の列にある)', () => {
+    expect(ruleBody('.swatch-recent[hidden]')).toMatch(/display:\s*none/);
+    expect(css).not.toMatch(/\.swatch-pick/);
+    expect(src).toMatch(/mkTool\('pick', '💧', 'スポイト'\)/);
+  });
+});
+

@@ -39,6 +39,8 @@ export interface EditorOptions {
 
 /** 紙の拡大の上限 */
 const ZOOM_MAX = 4;
+/** 色の並びに出す「最近使った好きな色」の数 */
+const RECENT_SLOTS = 2;
 /** 絵が変わってから下書きを残すまでの待ち (ms)。続けて描いている間は、まとめて 1 回 */
 const DRAFT_DELAY_MS = 700;
 
@@ -109,7 +111,8 @@ export class EditorScreen implements Screen {
   private readonly nextBtn: HTMLButtonElement;
   private readonly swatches: HTMLButtonElement[] = [];
   private readonly customBtn: HTMLButtonElement;
-  private readonly recentBtn: HTMLButtonElement;
+  /** 最近使った好きな色 (新しい順)。色のボタンとして並べ、選んでも場所は変わらない */
+  private readonly recentBtns: HTMLButtonElement[] = [];
   private readonly colorPicker = new ColorPicker();
   /** スポイトを使う前に選んでいた道具 (拾ったら戻す) */
   private toolBeforePick: Tool = 'pen';
@@ -245,8 +248,12 @@ export class EditorScreen implements Screen {
       palette.appendChild(b);
     }
     this.customBtn = h('button', { class: 'swatch swatch-custom', attrs: { 'aria-label': '好きな色を選ぶ' }, on: { click: () => this.openColorPicker() } });
-    this.recentBtn = h('button', { class: 'swatch swatch-recent', attrs: { 'aria-label': '最近使った色' }, on: { click: () => this.useRecent() } });
-    palette.append(this.customBtn, this.recentBtn);
+    palette.append(this.customBtn);
+    for (let i = 0; i < RECENT_SLOTS; i++) {
+      const b = h('button', { class: 'swatch swatch-recent', attrs: { 'aria-label': `最近使った色 ${i + 1}`, hidden: '' }, on: { click: () => this.useRecent(i) } });
+      this.recentBtns.push(b);
+      palette.append(b);
+    }
     const sizes = h('div', { class: 'ed-sizes' });
     BRUSH_SIZES.forEach((_, i) => {
       const dotPx = 3 + i * 4;
@@ -752,20 +759,23 @@ export class EditorScreen implements Screen {
     this.refreshPartUi();
   }
 
-  /** 好きな色 (虹色のボタン) と、最近使った色のボタンの見た目。基本パレット以外の色を選んでいる時は、その色を虹色のボタンの代わりに出す。 */
+  /**
+   * 最近使った好きな色のボタン。好きな色 (スポイトで拾った色・色を作る画面で選んだ色) は、新しい順にここへ並ぶ。
+   * 虹色の「＋」は、いつも「色を作る画面を開く」ボタンのまま (以前は、選んでいる色に化けて、最近使った色のボタンと入れかわり、
+   * 「押したら別のボタンと重なった」ように見えた = ユーザー報告)。選んでいる色は、ほかの色と同じく枠で示す。
+   */
   private refreshCustomColors(): void {
-    const inBase = BASE_PALETTE.some((c) => c.hex === this.state.color);
-    this.customBtn.classList.toggle('on', !inBase);
-    this.customBtn.style.background = inBase ? '' : this.state.color;
-    this.customBtn.classList.toggle('has-color', !inBase);
-    const recent = this.state.recentColors.find((c) => c !== this.state.color) ?? '';
-    this.recentBtn.style.background = recent;
-    this.recentBtn.disabled = recent === '';
-    this.recentBtn.dataset.hex = recent;
+    this.recentBtns.forEach((b, i) => {
+      const hex = this.state.recentColors[i] ?? '';
+      b.hidden = hex === '';
+      b.style.background = hex;
+      b.dataset.hex = hex;
+      b.classList.toggle('on', hex !== '' && hex === this.state.color);
+    });
   }
 
-  private useRecent(): void {
-    const hex = this.recentBtn.dataset.hex;
+  private useRecent(i: number): void {
+    const hex = this.recentBtns[i]?.dataset.hex;
     if (hex) this.setColor(hex);
   }
 
