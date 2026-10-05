@@ -23,6 +23,7 @@ import type { Split, TimeAttackResult } from '../timeattack/run';
 import { SplitScreen, TimeAttackResultScreen } from '../ui/timeAttackScreens';
 import { RankingService, createRankingService } from '../ranking/service';
 import type { SubmitOutcome } from '../ranking/types';
+import { SUBMIT_NOTE } from '../ranking/display';
 import { RankingScreen } from '../ui/rankingScreen';
 import { SaveManager } from '../save/manager';
 import { installZoomGuard } from './zoomGuard';
@@ -69,7 +70,8 @@ function lockLandscape(): void {
 /** ランキング送信の結果メッセージ。 */
 function rankMessage(o: SubmitOutcome): string {
   const rank = o.rank !== null ? `  ${o.rank}位` : '';
-  if (o.status === 'created') return `🏆 ランキングに登録しました${rank}`;
+  // 名前と姿は、管理者の確認のあとに公開される (docs/RANKING_MODERATION.md)
+  if (o.status === 'created') return `🏆 ランキングに登録しました${rank}  名前と姿は、確認のあとに公開されます`;
   if (o.status === 'updated') return `🏆 自己ベストを更新しました${rank}`;
   return `登録済みの記録の方が速いため、更新されませんでした${rank}`;
 }
@@ -806,6 +808,7 @@ export class App {
         onSubmit: clean && rec && this.ranking.available ? () => void this.submitRanking(screen, result, rec) : undefined,
         onRanking: this.ranking.available ? () => this.showRanking() : undefined,
         statusText: this.ranking.available ? '' : 'ランキングは現在利用できません',
+        submitNote: SUBMIT_NOTE,
         onRetry: () => void this.startTimeAttack(),
         onHub: () => {
           this.ta = null;
@@ -819,7 +822,7 @@ export class App {
   private async submitRanking(screen: TimeAttackResultScreen | null, result: TimeAttackResult, rec: CharacterRecord): Promise<void> {
     screen?.setStatus('送信中…');
     const eff = this.effectiveStats(rec);
-    const res = await this.ranking.submit({ result, name: rec.name, label: describeBuild(eff).label, stats: eff, level: this.profile.level });
+    const res = await this.ranking.submit({ result, name: rec.name, label: describeBuild(eff).label, stats: eff, level: this.profile.level, drawing: rec.drawing });
     if (!res.ok) {
       screen?.setStatus(`ランキングに登録できませんでした: ${res.message}`);
       return;
@@ -829,7 +832,7 @@ export class App {
 
   showRanking(): void {
     this.leaveGame();
-    this.setScreen(new RankingScreen({ service: this.ranking, onBack: () => void this.showHub() }));
+    this.setScreen(new RankingScreen({ service: this.ranking, root: this.root, onBack: () => void this.showHub() }));
   }
 
   /** 開発/QA 用: 実行中のステージをボットに自動プレイさせる (実描画・実 HUD・実結果画面を通した E2E 確認用)。 */

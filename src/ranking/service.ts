@@ -1,9 +1,11 @@
 import { loadRankingConfig } from './config';
 import { FirestoreRankingBackend } from './firestore';
 import type { KeyValueStore } from './firestore';
+import type { DrawingData } from '../drawing/model';
+import { decodeLook } from './look';
 import { MockRankingBackend } from './mock';
 import { fail, ok } from './types';
-import type { MineResult, RankingBackend, RankingEntry, RankingResult, SubmitOutcome } from './types';
+import type { MineResult, RankingBackend, RankingEntry, RankingResult, ReportOutcome, SubmitOutcome } from './types';
 import { buildSubmission, validateSubmission } from './validate';
 import type { SubmissionSource } from './validate';
 
@@ -63,6 +65,23 @@ export class RankingService {
     return ok(board);
   }
 
+  /**
+   * 記録の姿 (ラクガキの絵)。承認された記録と自分の記録だけ。見せられる姿が無い・絵として使えない時は null。
+   * サーバーの絵は信用しない: decodeLook が、手元の絵と同じ検査を通す。
+   */
+  async loadLook(uid: string): Promise<RankingResult<DrawingData | null>> {
+    if (!this.backend) return fail('unconfigured', 'ランキングは現在利用できません');
+    const res = await this.guard(() => this.backend!.fetchLook(uid));
+    if (!res.ok) return res;
+    return ok(res.value ? decodeLook(res.value) : null);
+  }
+
+  /** 記録を通報する (管理者に、もう一度確認してもらう)。 */
+  async report(uid: string): Promise<RankingResult<ReportOutcome>> {
+    if (!this.backend) return fail('unconfigured', 'ランキングは現在利用できません');
+    return this.guard(() => this.backend!.report(uid));
+  }
+
   /** バックエンドが想定外の例外を投げても、ゲームを止めずに失敗として返す。 */
   private async guard<T>(fn: () => Promise<RankingResult<T>>): Promise<RankingResult<T>> {
     try {
@@ -113,7 +132,13 @@ export interface CreateRankingOptions {
 
 /** 設定を読んでランキングサービスを作る。設定が無ければ available = false。 */
 export async function createRankingService(opts: CreateRankingOptions = {}): Promise<RankingService> {
-  if (opts.mock) return new RankingService(new MockRankingBackend());
+  if (opts.mock) {
+    const backend = new MockRankingBackend();
+    // 開発用: 見本の記録 (承認・審査中・非表示がまざった TOP) を入れておく
+    const { seedDemoRanking } = await import('../dev/rankingDemo');
+    seedDemoRanking(backend.store);
+    return new RankingService(backend);
+  }
   const fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
   const cfg = await loadRankingConfig(fetchImpl);
   if (!cfg) return new RankingService(null);

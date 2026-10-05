@@ -1,7 +1,10 @@
-import { decodeEntry, encodeEntry } from './firestoreCodec';
+import { LIST_FIELDS, decodeEntry, encodeEntry } from './firestoreCodec';
 import type { FsFields } from './firestoreCodec';
+import { statusForSubmit } from './policy';
+import { NetworkError, docsBaseOf, httpJson, reasonOfStatus } from './rest';
+import type { HttpResult } from './rest';
 import { fail, ok } from './types';
-import type { MineResult, RankingBackend, RankingEntry, RankingErrorReason, RankingResult, RankingSubmission, SubmitOutcome } from './types';
+import type { MineResult, RankingBackend, RankingEntry, RankingErrorReason, RankingResult, RankingSubmission, ReportOutcome, SubmitOutcome } from './types';
 import { validateSubmission } from './validate';
 
 export interface FirestoreConfig {
@@ -27,16 +30,11 @@ export interface FirestoreDeps {
 
 const STORE_UID = 'rakugaction.rank.uid';
 const STORE_REFRESH = 'rakugaction.rank.refresh';
+/** 通報した記録の uid (この端末で、同じ記録を 2 回送らないための覚え書き。JSON の配列) */
+const STORE_REPORTED = 'rakugaction.rank.reported';
+const REPORTED_KEEP = 200;
 /** トークンの期限切れ直前 (秒) に更新する */
 const EXPIRY_MARGIN_MS = 60_000;
-
-interface HttpResult {
-  status: number;
-  json: unknown;
-}
-
-/** ネットワークに届かない/タイムアウトした時に投げる内部用の例外 (外には出さず fail('offline') に変換する)。 */
-class NetworkError extends Error {}
 
 /**
  * Firestore REST + Identity Toolkit (匿名認証) によるランキング。SDK は同梱しない。
@@ -62,34 +60,17 @@ export class FirestoreRankingBackend implements RankingBackend {
   }
 
   private get docsBase(): string {
-    return `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(this.cfg.projectId)}/databases/(default)/documents`;
+    return docsBaseOf(this.cfg.projectId);
   }
 
   // ---- HTTP ----
 
-  private async http(url: string, init: RequestInit = {}): Promise<HttpResult> {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), this.timeoutMs);
-    try {
-      const res = await this.deps.fetch(url, { ...init, signal: ctrl.signal });
-      let json: unknown = null;
-      try {
-        json = await res.json();
-      } catch {
-        // 本文が JSON でない/空 (204 など): json は null のまま。ステータスで判断する
-      }
-      return { status: res.status, json };
-    } catch (e) {
-      throw new NetworkError(e instanceof Error ? e.message : 'network');
-    } finally {
-      clearTimeout(timer);
-    }
+  private http(url: string, init: RequestInit = {}): Promise<HttpResult> {
+    return httpJson(this.deps.fetch, url, init, this.timeoutMs);
   }
 
   private static reasonOf(status: number): RankingErrorReason {
-    if (status === 401) return 'auth';
-    if (status === 400 || status === 403 || status === 404 || status === 409) return 'rejected';
-    return 'server';
+    return reasonOfStatus(status);
   }
 
   // ---- 匿名認証 ----
@@ -179,6 +160,8 @@ export class FirestoreRankingBackend implements RankingBackend {
     try {
       const body = {
         structuredQuery: {
+          // 姿 (look) は大きいので、一覧では読まない
+          select: { fields: LIST_FIELDS.map((fieldPath) => ({ fieldPath })) },
           from: [{ collectionId: this.cfg.collection }],
           orderBy: [{ field: { fieldPath: 'timeMs' }, direction: 'ASCENDING' }],
           limit: Math.max(1, Math.min(100, Math.trunc(limit))),
@@ -209,6 +192,25 @@ export class FirestoreRankingBackend implements RankingBackend {
     return ok({ entry: got.value, rank: rank.ok ? rank.value : null });
   }
 
+  /** 記録の姿。承認された記録と、自分の記録だけ返す (審査中・非表示の他人の姿は、読めても見せない)。 */
+  async fetchLook(uid: string): Promise<RankingResult<string | null>> {
+    const got = await this.getEntry(uid);
+    if (!got.ok) return got;
+    const e = got.value;
+    if (!e || e.look === '') return ok(null);
+    return ok(e.status === 'approved' || uid === this.uid ? e.look : null);
+  }
+
+  private reported(): string[] {
+    try {
+      const raw = JSON.parse(this.deps.store.get(STORE_REPORTED) ?? '[]') as unknown;
+      return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      // 壊れた覚え書きは無かった事にする (もう一度通報できるだけ)
+      return [];
+    }
+  }
+
   // ---- 書き込み ----
 
   async submit(sub: RankingSubmission): Promise<RankingResult<SubmitOutcome>> {
@@ -227,7 +229,8 @@ export class FirestoreRankingBackend implements RankingBackend {
       const r = await this.http(`${this.docsBase}/${this.cfg.collection}/${encodeURIComponent(auth.uid)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
-        body: JSON.stringify({ fields: encodeEntry(auth.uid, sub) }),
+        // 絵と名前が前と同じなら、審査の結果を引き継ぐ。変わった (初めての) 時は、審査中から (rules も同じ事を要求する)
+        body: JSON.stringify({ fields: encodeEntry(auth.uid, sub, statusForSubmit(existing.value, sub)) }),
       });
       if (r.status !== 200) return fail(FirestoreRankingBackend.reasonOf(r.status), `送信が受け付けられませんでした (${r.status})`);
     } catch (e) {
@@ -236,5 +239,34 @@ export class FirestoreRankingBackend implements RankingBackend {
     }
     const rank = await this.rankOf(sub.timeMs);
     return ok({ status: existing.value ? 'updated' : 'created', rank: rank.ok ? rank.value : null });
+  }
+
+  /**
+   * 通報: reports/{通報された記録の uid}_{自分の uid} を作る (同じ記録は 1 人 1 回)。読めるのは管理者だけ。
+   * 見るだけの人も通報できるように、ここで匿名ユーザーを作る (ログインの画面は出ない)。
+   */
+  async report(uid: string): Promise<RankingResult<ReportOutcome>> {
+    const auth = await this.ensureAuth();
+    if ('error' in auth) return auth.error;
+    if (uid === auth.uid) return fail('invalid', '自分の記録は通報できません');
+    if (this.reported().includes(uid)) return ok('already');
+    const id = `${uid}_${auth.uid}`;
+    try {
+      // currentDocument.exists=false: 無い時だけ作る (2 回目は 409 / 400 が返る)
+      const r = await this.http(`${this.docsBase}/reports/${encodeURIComponent(id)}?currentDocument.exists=false`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${auth.token}` },
+        body: JSON.stringify({ fields: { target: { stringValue: uid }, reporter: { stringValue: auth.uid }, at: { integerValue: String(Math.trunc(this.now())) } } }),
+      });
+      const already = r.status === 409 || (r.status === 400 && /ALREADY_EXISTS|FAILED_PRECONDITION/.test(JSON.stringify(r.json)));
+      if (r.status === 200 || already) {
+        this.deps.store.set(STORE_REPORTED, JSON.stringify([uid, ...this.reported().filter((x) => x !== uid)].slice(0, REPORTED_KEEP)));
+        return ok(already ? 'already' : 'reported');
+      }
+      return fail(FirestoreRankingBackend.reasonOf(r.status), `通報を送れませんでした (${r.status})`);
+    } catch (e) {
+      if (e instanceof NetworkError) return fail('offline', 'ネットワークに接続できません');
+      throw e;
+    }
   }
 }

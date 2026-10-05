@@ -50,7 +50,7 @@ describe('FirestoreRankingBackend: 送信', () => {
 
   it('順位は「自分より速い人の数 + 1」', async () => {
     const fb = new FakeFirebase();
-    fb.seed([other('a', 100_000), other('b', 120_000), other('c', 300_000)], encodeEntry);
+    fb.seed([other('a', 100_000), other('b', 120_000), other('c', 300_000)]);
     const r = await make(fb).submit(sample()); // 190 秒
     expect(r.ok && r.value.rank).toBe(3);
   });
@@ -144,9 +144,9 @@ describe('FirestoreRankingBackend: 送信', () => {
 describe('FirestoreRankingBackend: 閲覧', () => {
   it('TOP: 速い順に並び、ログインなしで読める。壊れた/値域外のドキュメントは除く', async () => {
     const fb = new FakeFirebase();
-    fb.seed([other('a', 200_000), other('b', 100_000), other('c', 150_000)], encodeEntry);
+    fb.seed([other('a', 200_000), other('b', 100_000), other('c', 150_000)]);
     // 値域外 (総タイム 10 秒) のドキュメントは表示しない
-    fb.docs.set('evil', { ...encodeEntry('evil', other('evil', 100_000)), timeMs: { integerValue: '10000' } });
+    fb.docs.set('evil', { ...encodeEntry('evil', other('evil', 100_000), 'approved'), timeMs: { integerValue: '10000' } });
     const r = await make(fb).fetchTop(100);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -172,7 +172,7 @@ describe('FirestoreRankingBackend: 閲覧', () => {
   it('自分の記録と順位 (送信後の別セッションでも取れる)', async () => {
     const fb = new FakeFirebase();
     const store = memStore();
-    fb.seed([other('a', 100_000), other('b', 120_000)], encodeEntry);
+    fb.seed([other('a', 100_000), other('b', 120_000)]);
     await make(fb, store).submit(sample()); // 190 秒 → 3 位
     const r = await make(fb, store).fetchMine();
     expect(r.ok && r.value.rank).toBe(3);

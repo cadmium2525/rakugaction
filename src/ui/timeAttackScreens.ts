@@ -102,6 +102,8 @@ export interface TimeAttackResultOptions {
   submitLabel?: string;
   /** 送信の状態表示 (送信中/成功/失敗/利用不可) */
   statusText?: string;
+  /** ランキングに登録する前に見せる注意 (絵と名前が公開されること)。登録できる時だけ出す */
+  submitNote?: string;
   /** ランキング画面を開く (ランキングが使える時だけ) */
   onRanking?: () => void;
   onRetry(): void;
@@ -145,6 +147,7 @@ export class TimeAttackResultScreen implements Screen {
     );
     const notice = r.flags.length > 0 ? h('div', { class: 'ta-notice', text: `この記録は参考記録になります (${r.flags.map((f) => FLAG_TEXT[f]).join(' / ')})` }) : null;
     this.statusEl = h('div', { class: 'ta-status', text: opts.statusText ?? '' });
+    const submitNote = opts.onSubmit && opts.submitNote ? h('div', { class: 'ta-submit-note', text: opts.submitNote }) : null;
     const btns = h('div', { class: 'rs-btns' });
     if (opts.onSubmit) btns.appendChild(h('button', { class: 'btn btn-primary', text: opts.submitLabel ?? '🏆 ランキングに登録', on: { click: () => opts.onSubmit?.() } }));
     if (opts.onRanking) btns.appendChild(h('button', { class: 'btn btn-ghost', text: '🏆 ランキングを見る', on: { click: () => opts.onRanking?.() } }));
@@ -155,7 +158,7 @@ export class TimeAttackResultScreen implements Screen {
     this.el = h(
       'div',
       { class: 'screen screen-clear result-screen' },
-      h('div', { class: 'rs-card ta-result' }, h('div', { class: 'rs-title', text: 'ALL STAGES CLEAR!' }), rows, total, opts.progress ? progressBlock(opts.progress) : null, notice, this.statusEl, btns),
+      h('div', { class: 'rs-card ta-result' }, h('div', { class: 'rs-title', text: 'ALL STAGES CLEAR!' }), rows, total, opts.progress ? progressBlock(opts.progress) : null, notice, submitNote, this.statusEl, btns),
     );
   }
 

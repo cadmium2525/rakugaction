@@ -1358,3 +1358,157 @@
   min-height: 36px;
   padding: 4px 10px;
 }
+
+/* ---------- ランキング: 名前と姿の審査の状態・3D の姿を見る・通報 ---------- */
+.rk-line {
+  display: flex;
+  align-items: center;
+}
+.rk-line.mine {
+  background: #fff3c7;
+}
+.rk-line .rk-row {
+  flex: 1;
+  min-width: 0;
+}
+.rk-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rk-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 承認されていない記録: 体型タイプ名を、付けた名前と区別して薄く出す */
+.rk-name.anon .rk-name-text {
+  font-weight: 600;
+  color: #8a7c60;
+}
+.rk-chip {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #ece3cf;
+  color: #7a6a4c;
+  font-size: 9px;
+  font-weight: 800;
+}
+.rk-look {
+  flex: none;
+  min-width: 40px;
+  min-height: 34px;
+  margin-right: 6px;
+  padding: 0 8px;
+}
+.rk-look-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.28;
+  font-size: 15px;
+}
+.rk-mine-box {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rk-mine {
+  align-items: center;
+}
+.rk-mine .rk-look {
+  margin-right: 0;
+  min-height: 30px;
+}
+.rk-mine-note {
+  text-align: center;
+  font-size: 10px;
+  color: #7a6a4c;
+}
+.rk-viewer {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--safe-top) + 8px) calc(var(--safe-right) + 10px) calc(var(--safe-bottom) + 8px) calc(var(--safe-left) + 10px);
+  background: rgba(10, 16, 28, 0.6);
+}
+.rk-viewer[hidden] {
+  display: none;
+}
+.rk-viewer-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: min(420px, 100%);
+  max-height: 100%;
+  padding: 10px 14px 12px;
+  border-radius: 20px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.rk-viewer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  max-width: 100%;
+}
+.rk-viewer-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+}
+.rk-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(100%, calc(100dvh - 170px));
+  aspect-ratio: 1;
+  border-radius: 14px;
+  background: linear-gradient(#fff7e6, #ffe9c4);
+}
+.rk-viewer-canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+.rk-viewer-msg {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: #7a6a4c;
+}
+.rk-viewer-sub {
+  font-size: 10px;
+  color: #8a7c60;
+}
+.rk-viewer-btns {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.rk-viewer-btns .btn {
+  flex: 1;
+}
+.rk-viewer-btns .rk-report {
+  flex: none;
+  color: #c0392b;
+  border-color: #f0c4bd;
+}
+.ta-submit-note {
+  margin: 2px 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: #7a6a4c;
+}

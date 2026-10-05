@@ -3,6 +3,8 @@ import { hashString, sanitizeName } from '../core/text';
 import { GAME_VERSION } from '../core/version';
 import { MAX_LEVEL } from '../progression/level';
 import type { TimeAttackResult } from '../timeattack/run';
+import type { DrawingData } from '../drawing/model';
+import { LOOK_MAX_CHARS, encodeLook } from './look';
 import { RANKING_SCHEMA_VERSION } from './types';
 import type { RankStats, RankingSubmission } from './types';
 
@@ -25,6 +27,8 @@ export const RANK_LIMITS = {
   deathsMax: 9999,
   /** 送信時刻とサーバー時刻の許容差 (ms) */
   clockSkewMs: 600_000,
+  /** 姿 (look) の最大の長さ (文字) */
+  lookMax: LOOK_MAX_CHARS,
 } as const;
 
 // 表示名の整形とハッシュは保存データと共通なので core/text.ts にある (ここから再公開する)
@@ -59,6 +63,7 @@ export function validateSubmission(s: RankingSubmission): string[] {
   if (!isInt(s.level) || s.level < 1 || s.level > MAX_LEVEL) errs.push('level');
   if (!isInt(s.submittedAt) || s.submittedAt <= 0) errs.push('submittedAt');
   if (!Array.isArray(s.flags) || s.flags.length !== 0) errs.push('flags');
+  if (typeof s.look !== 'string' || s.look.length > L.lookMax) errs.push('look');
   const st = s.stats as Partial<RankStats> | undefined;
   for (const k of ['hp', 'power', 'defense', 'speed', 'jump', 'weight'] as const) {
     const v = st?.[k];
@@ -75,6 +80,8 @@ export interface SubmissionSource {
   label: string;
   /** 走った時の能力 (レベル補正後) */
   stats: CharacterStats;
+  /** 走ったキャラクターの絵 (ランキングに姿を載せる。管理者が承認するまでは出ない)。無ければ姿なし */
+  drawing?: DrawingData;
   level: number;
   now?: number;
   gameVersion?: string;
@@ -106,5 +113,6 @@ export function buildSubmission(src: SubmissionSource): RankingSubmission {
     paramsHash: paramsHash(stats, Math.round(src.level), version),
     flags: [...src.result.flags],
     submittedAt: src.now ?? Date.now(),
+    look: src.drawing ? encodeLook(src.drawing) : '',
   };
 }

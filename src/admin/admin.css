@@ -1,0 +1,347 @@
+/* 管理者アプリ (/admin/)。ゲームの画面とは別のページなので、ゲームの CSS は読まない (ゲームは画面を固定して、スクロールや文字の選択を止めている)。 */
+:root {
+  --ink: #2b2a33;
+  --paper: #fffaf0;
+  --accent: #ff7a3d;
+  --line: #e6d8bb;
+  font-family: 'Hiragino Maru Gothic ProN', 'Yu Gothic UI', 'Meiryo', 'Noto Sans JP', system-ui, sans-serif;
+}
+* {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: #14202e;
+  color: var(--ink);
+}
+#admin {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 10px;
+}
+.ad-card,
+.ad-shell {
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.ad-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 520px;
+  margin: 8vh auto 0;
+  padding: 18px;
+}
+.ad-card-title {
+  font-size: 18px;
+  font-weight: 900;
+}
+.ad-p {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ad-p.dim,
+.dim {
+  color: #8a7c60;
+}
+.ad-google {
+  min-height: 44px;
+}
+.ad-uid-box {
+  width: 100%;
+  padding: 8px 10px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  font: 600 13px/1.2 ui-monospace, Consolas, monospace;
+}
+.ad-shell {
+  padding: 10px 12px 14px;
+}
+.ad-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #f0e2c8;
+}
+.ad-title {
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--accent);
+}
+.ad-account {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-size: 12px;
+  color: #6b5a3c;
+}
+.ad-notice {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #fff3c7;
+  font-size: 12px;
+  font-weight: 700;
+}
+.ad-nav,
+.ad-tabs,
+.ad-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.ad-tab,
+.ad-filter,
+.ad-btn {
+  min-height: 38px;
+  padding: 0 12px;
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ad-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ad-tab.on,
+.ad-filter.on {
+  border-color: var(--accent);
+  background: #fff1e6;
+}
+.ad-reload {
+  margin-left: auto;
+}
+.ad-badge {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+}
+.ad-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.ad-btn.good {
+  border-color: #9fd3ae;
+  background: #e8f7ec;
+  color: #1e7a3a;
+}
+.ad-btn.warn {
+  border-color: #f0d28a;
+  background: #fff6dc;
+  color: #8a5a00;
+}
+.ad-btn.bad {
+  border-color: #f0c4bd;
+  color: #c0392b;
+}
+.ad-note {
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e7a3a;
+}
+.ad-note.bad {
+  color: #c0392b;
+}
+.ad-mod.busy {
+  opacity: 0.6;
+  pointer-events: none;
+}
+.ad-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 6px;
+  align-items: start;
+}
+.ad-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ad-filters {
+  margin: 0 0 4px;
+}
+.ad-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 42px;
+  padding: 4px 10px;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.05);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ad-row.on {
+  border-color: var(--accent);
+  background: #fff1e6;
+}
+.ad-row.ad-banned {
+  cursor: default;
+}
+.ad-rank {
+  flex: none;
+  min-width: 40px;
+  font-weight: 900;
+}
+.ad-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+}
+.ad-status {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.ad-status.st-pending {
+  background: #fff3c7;
+  color: #8a5a00;
+}
+.ad-status.st-approved {
+  background: #e8f7ec;
+  color: #1e7a3a;
+}
+.ad-status.st-hidden {
+  background: #ececec;
+  color: #666;
+}
+.ad-extra {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  color: #c0392b;
+}
+.ad-time {
+  flex: none;
+  font: 800 13px/1.2 ui-monospace, Consolas, monospace;
+}
+.ad-empty {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 13px;
+  color: #8a7c60;
+}
+.ad-detail {
+  position: sticky;
+  top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.04);
+}
+.ad-d-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ad-d-head .ad-time {
+  margin-left: auto;
+  font-size: 16px;
+}
+.ad-d-name {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 22px;
+  /* 名前は、長くても全部読めるように折り返す (審査で見落とさない) */
+  overflow-wrap: anywhere;
+}
+.ad-d-label {
+  flex: none;
+  font-size: 11px;
+  font-weight: 800;
+  color: #8a7c60;
+}
+.ad-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 1;
+  margin: 0 auto;
+  border-radius: 12px;
+  background: linear-gradient(#fff7e6, #ffe9c4);
+}
+.ad-canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+.ad-d-sub {
+  text-align: center;
+  font-size: 11px;
+  color: #8a7c60;
+}
+.ad-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.ad-actions .ad-btn {
+  flex: 1 1 auto;
+}
+.ad-danger-zone {
+  padding-top: 8px;
+  border-top: 1px dashed #e0c8b0;
+}
+.ad-meta {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #6b5a3c;
+}
+.ad-uid {
+  font-family: ui-monospace, Consolas, monospace;
+  overflow-wrap: anywhere;
+}
+/* 幅の狭い画面 (スマホの縦持ち): 一覧の下に、選んだ記録を出す */
+@media (max-width: 760px) {
+  .ad-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ad-detail {
+    position: static;
+  }
+  .ad-reload {
+    margin-left: 0;
+  }
+}

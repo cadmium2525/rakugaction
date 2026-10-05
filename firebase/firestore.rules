@@ -2,74 +2,153 @@ rules_version = '2';
 
 // RAKUGACTION ランキング用の Firestore セキュリティルール。
 //
-// 方針 (docs/RANKING.md):
-//  - 読み取りは誰でも可 (TOP100 / 自分の記録を見るだけなのでログイン不要)
-//  - 書き込みは匿名ログインしたユーザー本人のドキュメント (ranking/{uid}) だけ。1 ユーザー 1 件 = ベストのみ
-//  - 更新は「今のベストより速い時」だけ。削除は不可 (管理者が Firebase コンソールで行う)
+// 方針 (docs/RANKING.md・docs/RANKING_MODERATION.md):
+//  - 記録 (ranking/{uid}): 読み取りは誰でも可 (TOP100 / 自分の記録を見るだけなのでログイン不要)
+//  - 書き込みは匿名ログインしたユーザー本人のドキュメントだけ。1 ユーザー 1 件 = ベストのみ。更新は「今のベストより速い時」だけ
 //  - 値域・splits の合計 = 総タイム・各ステージの最短タイム・送信時刻のずれ を検査する
-//  - クライアントから管理者権限/秘密鍵は使わない。ここで完全な不正防止はできない (異常値の排除までが目標)
+//  - 姿 (look) と名前は、管理者が承認するまでランキングに出さない。その状態 (status) を変えられるのは管理者だけ:
+//      本人が書けるのは「審査中 (pending)」だけ。絵と名前が前と同じなら、前の状態のまま (承認が続く)。変えたら審査中から
+//  - 管理者 = admins/{uid} があるユーザー (Firebase の管理画面で手で作る。アプリからは作れない)
+//      管理者は、記録の status だけを書き換えられる・記録を削除できる・再登録の禁止 (banned) を書ける
+//  - 通報 (reports): ログインした人 (匿名でよい) が、1 つの記録につき 1 回だけ作れる。読めるのは管理者だけ
+//  - クライアントに管理者の鍵・秘密は置かない。ここで完全な不正防止はできない (異常値の排除までが目標)
 //
 // ★ 下の数値は src/ranking/validate.ts の RANK_LIMITS と同じ値。変更する時は両方を揃えること
-//   (tests/ranking/rules.test.ts が一致を検査する)。
+//   (tests/ranking/rules.test.ts が一致を検査する)。書き込みの決まりは src/ranking/policy.ts にも同じ内容がある。
 service cloud.firestore {
   match /databases/{database}/documents {
     match /ranking/{uid} {
       allow read: if true;
-      allow create: if isOwner(uid) && validEntry(request.resource.data, uid);
-      allow update: if isOwner(uid)
+      allow create: if isOwner(uid)
+                    && !isBanned(uid)
                     && validEntry(request.resource.data, uid)
-                    && request.resource.data.timeMs < resource.data.timeMs;
-      allow delete: if false;
+                    && request.resource.data.status == 'pending';
+      allow update: if (isOwner(uid)
+                        && !isBanned(uid)
+                        && validEntry(request.resource.data, uid)
+                        && request.resource.data.timeMs < resource.data.timeMs
+                        && statusKept(request.resource.data, resource.data))
+                    || (isAdmin() && adminEdit(request.resource.data, resource.data));
+      allow delete: if isAdmin();
+    }
+
+    // 管理者の一覧。本人が「自分は管理者か」を確かめるためにだけ読める。作る・消すのは Firebase の管理画面から
+    match /admins/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // 再登録を禁止した匿名 ID
+    match /banned/{uid} {
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && validBan(request.resource.data, uid);
+      allow delete: if isAdmin();
+    }
+
+    // 通報: reports/{通報された記録の uid}_{通報した人の uid}
+    match /reports/{id} {
+      allow create: if request.auth != null
+                    && validReport(request.resource.data)
+                    && id == request.resource.data.target + '_' + request.auth.uid;
+      allow read: if isAdmin();
+      allow update: if false;
+      allow delete: if isAdmin();
     }
 
     // それ以外は全て禁止
     match /{document=**} {
       allow read, write: if false;
     }
-  }
 
-  function isOwner(uid) {
-    return request.auth != null && request.auth.uid == uid;
-  }
+    // ---- 関数 (この match の中に置く: admins / banned / ranking を読む時に、database を使うため) ----
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
 
-  // 1 ステージのタイム (ms): 整数で、最短 min 以上・20 分 (1200000) 以下
-  function validSplit(t, min) {
-    return t is int && t >= min && t <= 1200000;
-  }
+    // 管理者: 匿名でないログイン (Google) で、admins/{自分の uid} がある
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous'
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
 
-  function validStat(v) {
-    return v is int && v >= 20 && v <= 300;
-  }
+    function isBanned(uid) {
+      return exists(/databases/$(database)/documents/banned/$(uid));
+    }
 
-  function validEntry(d, uid) {
-    return d.keys().hasOnly(['uid', 'schemaVersion', 'name', 'label', 'timeMs', 'splits', 'simMs', 'deaths', 'level', 'stats', 'gameVersion', 'paramsHash', 'flags', 'submittedAt'])
-      && d.keys().hasAll(['uid', 'schemaVersion', 'name', 'label', 'timeMs', 'splits', 'simMs', 'deaths', 'level', 'stats', 'gameVersion', 'paramsHash', 'flags', 'submittedAt'])
-      && d.uid == uid
-      && d.schemaVersion == 1
-      && d.name is string && d.name.size() >= 1 && d.name.size() <= 16
-      && d.label is string && d.label.size() <= 16
-      && d.gameVersion is string && d.gameVersion.size() >= 1 && d.gameVersion.size() <= 16
-      && d.paramsHash is string && d.paramsHash.size() >= 1 && d.paramsHash.size() <= 16
-      && d.flags is list && d.flags.size() == 0
-      && d.splits is list && d.splits.size() == 5
-      && validSplit(d.splits[0], 20000)
-      && validSplit(d.splits[1], 18000)
-      && validSplit(d.splits[2], 16000)
-      && validSplit(d.splits[3], 17000)
-      && validSplit(d.splits[4], 20000)
-      && d.timeMs is int
-      && d.timeMs == d.splits[0] + d.splits[1] + d.splits[2] + d.splits[3] + d.splits[4]
-      && d.timeMs <= 6000000
-      && d.simMs is int && d.simMs >= 0 && d.simMs <= 12000000
-      && d.deaths is int && d.deaths >= 0 && d.deaths <= 9999
-      && d.level is int && d.level >= 1 && d.level <= 20
-      && d.stats is map
-      && d.stats.keys().hasOnly(['hp', 'power', 'defense', 'speed', 'jump', 'weight'])
-      && d.stats.keys().hasAll(['hp', 'power', 'defense', 'speed', 'jump', 'weight'])
-      && validStat(d.stats.hp) && validStat(d.stats.power) && validStat(d.stats.defense)
-      && validStat(d.stats.speed) && validStat(d.stats.jump) && validStat(d.stats.weight)
-      && d.submittedAt is int
-      && d.submittedAt <= request.time.toMillis() + 600000
-      && d.submittedAt >= request.time.toMillis() - 600000;
+    // 本人の更新: 絵と名前が前と同じなら、状態は前のまま。変わったら、審査中 (pending) でなければならない
+    function statusKept(d, old) {
+      return (d.look == old.look && d.name == old.name && d.status == old.status)
+        || ((d.look != old.look || d.name != old.name) && d.status == 'pending');
+    }
+
+    // 管理者の更新: status だけ (タイム・絵・名前などは書き換えられない)
+    function adminEdit(d, old) {
+      return d.diff(old).affectedKeys().hasOnly(['status'])
+        && d.status in ['pending', 'approved', 'hidden'];
+    }
+
+    function validBan(d, uid) {
+      return d.keys().hasOnly(['uid', 'at'])
+        && d.keys().hasAll(['uid', 'at'])
+        && d.uid == uid
+        && d.at is int;
+    }
+
+    function validReport(d) {
+      return d.keys().hasOnly(['target', 'reporter', 'at'])
+        && d.keys().hasAll(['target', 'reporter', 'at'])
+        && d.reporter == request.auth.uid
+        && d.target is string && d.target.size() >= 1 && d.target.size() <= 128
+        && d.target != request.auth.uid
+        && d.at is int
+        && d.at <= request.time.toMillis() + 600000
+        && d.at >= request.time.toMillis() - 600000
+        && exists(/databases/$(database)/documents/ranking/$(d.target));
+    }
+
+    // 1 ステージのタイム (ms): 整数で、最短 min 以上・20 分 (1200000) 以下
+    function validSplit(t, min) {
+      return t is int && t >= min && t <= 1200000;
+    }
+
+    function validStat(v) {
+      return v is int && v >= 20 && v <= 300;
+    }
+
+    function validEntry(d, uid) {
+      return d.keys().hasOnly(['uid', 'schemaVersion', 'name', 'label', 'timeMs', 'splits', 'simMs', 'deaths', 'level', 'stats', 'gameVersion', 'paramsHash', 'flags', 'submittedAt', 'look', 'status'])
+        && d.keys().hasAll(['uid', 'schemaVersion', 'name', 'label', 'timeMs', 'splits', 'simMs', 'deaths', 'level', 'stats', 'gameVersion', 'paramsHash', 'flags', 'submittedAt', 'look', 'status'])
+        && d.uid == uid
+        && d.schemaVersion == 2
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 16
+        && d.label is string && d.label.size() <= 16
+        && d.gameVersion is string && d.gameVersion.size() >= 1 && d.gameVersion.size() <= 16
+        && d.paramsHash is string && d.paramsHash.size() >= 1 && d.paramsHash.size() <= 16
+        && d.look is string && d.look.size() <= 150000
+        && d.status in ['pending', 'approved', 'hidden']
+        && d.flags is list && d.flags.size() == 0
+        && d.splits is list && d.splits.size() == 5
+        && validSplit(d.splits[0], 20000)
+        && validSplit(d.splits[1], 18000)
+        && validSplit(d.splits[2], 16000)
+        && validSplit(d.splits[3], 17000)
+        && validSplit(d.splits[4], 20000)
+        && d.timeMs is int
+        && d.timeMs == d.splits[0] + d.splits[1] + d.splits[2] + d.splits[3] + d.splits[4]
+        && d.timeMs <= 6000000
+        && d.simMs is int && d.simMs >= 0 && d.simMs <= 12000000
+        && d.deaths is int && d.deaths >= 0 && d.deaths <= 9999
+        && d.level is int && d.level >= 1 && d.level <= 20
+        && d.stats is map
+        && d.stats.keys().hasOnly(['hp', 'power', 'defense', 'speed', 'jump', 'weight'])
+        && d.stats.keys().hasAll(['hp', 'power', 'defense', 'speed', 'jump', 'weight'])
+        && validStat(d.stats.hp) && validStat(d.stats.power) && validStat(d.stats.defense)
+        && validStat(d.stats.speed) && validStat(d.stats.jump) && validStat(d.stats.weight)
+        && d.submittedAt is int
+        && d.submittedAt <= request.time.toMillis() + 600000
+        && d.submittedAt >= request.time.toMillis() - 600000;
+    }
   }
 }

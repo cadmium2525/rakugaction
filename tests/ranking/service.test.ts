@@ -115,6 +115,8 @@ describe('RankingService', () => {
       submit: backend.submit.bind(backend),
       fetchTop: backend.fetchTop.bind(backend),
       fetchMine: async () => ({ ok: false, reason: 'server', message: 'x' }),
+      fetchLook: backend.fetchLook.bind(backend),
+      report: backend.report.bind(backend),
     };
     const b = await new RankingService(flaky).loadBoard();
     expect(b.ok && b.value.mine).toEqual({ entry: null, rank: null });
@@ -126,10 +128,14 @@ describe('RankingService', () => {
       submit: () => Promise.reject(new Error('boom')),
       fetchTop: () => Promise.reject(new Error('boom')),
       fetchMine: () => Promise.reject(new Error('boom')),
+      fetchLook: () => Promise.reject(new Error('boom')),
+      report: () => Promise.reject(new Error('boom')),
     };
     const s = new RankingService(boom);
     expect((await s.submit(src())).ok).toBe(false);
     expect((await s.loadBoard()).ok).toBe(false);
+    expect((await s.loadLook('x')).ok).toBe(false);
+    expect((await s.report('x')).ok).toBe(false);
   });
 });
 

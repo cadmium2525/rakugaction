@@ -1,5 +1,5 @@
-import { RANKING_SCHEMA_VERSION } from './types';
-import type { RankStats, RankingEntry, RankingSubmission } from './types';
+import { LOOK_STATUSES, RANKING_SCHEMA_VERSION } from './types';
+import type { LookStatus, RankStats, RankingEntry, RankingSubmission } from './types';
 import { sanitizeName, validateSubmission } from './validate';
 
 /** Firestore REST の Value 表現 (使う型だけ)。 */
@@ -17,8 +17,11 @@ export type FsFields = Record<string, FsValue>;
 const str = (v: string): FsValue => ({ stringValue: v });
 const int = (v: number): FsValue => ({ integerValue: String(Math.trunc(v)) });
 
+/** 一覧 (TOP100) で読むフィールド = 姿 (look) 以外の全部。姿は大きいので、見る記録の分だけ別に読む */
+export const LIST_FIELDS: readonly string[] = ['uid', 'schemaVersion', 'name', 'label', 'timeMs', 'splits', 'simMs', 'deaths', 'level', 'stats', 'gameVersion', 'paramsHash', 'flags', 'submittedAt', 'status'];
+
 /** 記録 → Firestore ドキュメントのフィールド。rules の許可フィールド一覧と同じ集合。 */
-export function encodeEntry(uid: string, s: RankingSubmission): FsFields {
+export function encodeEntry(uid: string, s: RankingSubmission, status: LookStatus): FsFields {
   const statsFields: FsFields = {};
   for (const k of ['hp', 'power', 'defense', 'speed', 'jump', 'weight'] as const) statsFields[k] = int(s.stats[k]);
   return {
@@ -36,6 +39,8 @@ export function encodeEntry(uid: string, s: RankingSubmission): FsFields {
     paramsHash: str(s.paramsHash),
     flags: { arrayValue: { values: s.flags.map(str) } },
     submittedAt: int(s.submittedAt),
+    look: str(s.look),
+    status: str(status),
   };
 }
 
@@ -86,6 +91,7 @@ export function decodeEntry(fields: FsFields | undefined): RankingEntry | null {
   const level = readInt(fields.level);
   const submittedAt = readInt(fields.submittedAt);
   const schemaVersion = readInt(fields.schemaVersion);
+  const statusRaw = readStr(fields, 'status');
   if ([timeMs, simMs, deaths, level, submittedAt, schemaVersion].some((x) => x === null)) return null;
   const entry: RankingEntry = {
     uid,
@@ -102,9 +108,14 @@ export function decodeEntry(fields: FsFields | undefined): RankingEntry | null {
     paramsHash,
     flags,
     submittedAt: submittedAt ?? 0,
+    // 一覧では読まない (フィールドが無い) ので ''
+    look: readStr(fields, 'look') ?? '',
+    // 状態が無い・知らない値の記録は、審査中として扱う (承認されていない物は出さない)
+    status: (LOOK_STATUSES as readonly string[]).includes(statusRaw ?? '') ? (statusRaw as LookStatus) : 'pending',
   };
   // 値域外の記録 (rules をすり抜けた/古い形式) は表示しない
-  const { uid: _uid, ...asSub } = entry;
+  const { uid: _uid, status: _status, ...asSub } = entry;
   void _uid;
+  void _status;
   return validateSubmission(asSub).length === 0 ? entry : null;
 }

@@ -1,6 +1,6 @@
 import { GAME_VERSION } from '../../src/core/version';
 import { RANKING_SCHEMA_VERSION } from '../../src/ranking/types';
-import type { RankingEntry, RankingSubmission } from '../../src/ranking/types';
+import type { LookStatus, RankingEntry, RankingSubmission } from '../../src/ranking/types';
 import { paramsHash } from '../../src/ranking/validate';
 
 export const STATS = { hp: 100, power: 100, defense: 100, speed: 100, jump: 100, weight: 100 };
@@ -24,13 +24,14 @@ export function sample(over: Partial<RankingSubmission> = {}): RankingSubmission
     paramsHash: paramsHash(stats, level),
     flags: [],
     submittedAt: Date.now(),
+    look: '',
     ...over,
   };
 }
 
-/** 総タイム totalMs (ms) の他ユーザーの記録。 */
-export function other(uid: string, totalMs: number, over: Partial<RankingSubmission> = {}): RankingEntry {
+/** 総タイム totalMs (ms) の他ユーザーの記録 (既定は、承認済み)。 */
+export function other(uid: string, totalMs: number, over: Partial<RankingSubmission> = {}, status: LookStatus = 'approved'): RankingEntry {
   const base = [totalMs * 0.2, totalMs * 0.18, totalMs * 0.17, totalMs * 0.2].map(Math.round);
   const splits = [...base, totalMs - base.reduce((a, b) => a + b, 0)];
-  return { ...sample({ splits, name: uid, ...over }), uid };
+  return { ...sample({ splits, name: uid, ...over }), uid, status };
 }

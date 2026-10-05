@@ -71,7 +71,7 @@ describe('validateSubmission (rules と同じ検査)', () => {
     expect(bad({ flags: ['clock-mismatch'] })).toContain('flags');
     expect(bad({ name: '' })).toContain('name');
     expect(bad({ name: 'a'.repeat(17) })).toContain('name');
-    expect(bad({ schemaVersion: 2 })).toContain('schemaVersion');
+    expect(bad({ schemaVersion: 1 })).toContain('schemaVersion');
     expect(bad({ gameVersion: '' })).toContain('gameVersion');
   });
 });
@@ -97,14 +97,14 @@ describe('buildSubmission', () => {
 describe('Firestore コーデック', () => {
   it('encode → decode で元に戻る', () => {
     const sub = sample({ name: 'たろう', level: 7 });
-    const decoded = decodeEntry(encodeEntry('u1', sub));
-    expect(decoded).toEqual({ ...sub, uid: 'u1' });
+    const decoded = decodeEntry(encodeEntry('u1', sub, 'approved'));
+    expect(decoded).toEqual({ ...sub, uid: 'u1', status: 'approved' });
   });
 
   it('形式が壊れた/足りないドキュメントは null', () => {
     expect(decodeEntry(undefined)).toBeNull();
     expect(decodeEntry({})).toBeNull();
-    const f = encodeEntry('u1', sample());
+    const f = encodeEntry('u1', sample(), 'approved');
     for (const key of ['name', 'splits', 'stats', 'timeMs', 'level', 'submittedAt']) {
       const broken: FsFields = { ...f };
       delete broken[key];
@@ -115,13 +115,13 @@ describe('Firestore コーデック', () => {
   });
 
   it('値域外の記録は表示しない (rules をすり抜けた古い/改ざんデータ)', () => {
-    const f = encodeEntry('u1', sample());
+    const f = encodeEntry('u1', sample(), 'approved');
     expect(decodeEntry({ ...f, level: { integerValue: '99' } })).toBeNull();
     expect(decodeEntry({ ...f, timeMs: { integerValue: '5' } })).toBeNull();
   });
 
   it('名前は読み込み時にも整形する (サーバーのデータは信用しない)', () => {
-    const f = encodeEntry('u1', sample());
+    const f = encodeEntry('u1', sample(), 'approved');
     const e = decodeEntry({ ...f, name: { stringValue: 'a‮b\nc' } });
     expect(e?.name).toBe('abc');
   });

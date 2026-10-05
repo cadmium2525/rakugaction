@@ -2,5 +2,6 @@
   "enabled": true,
   "apiKey": "AIzaSy-あなたのFirebaseプロジェクトのWeb-APIキー",
   "projectId": "your-firebase-project-id",
-  "collection": "ranking"
+  "collection": "ranking",
+  "googleClientId": "123456789012-管理者アプリのログイン用のOAuthクライアントID.apps.googleusercontent.com"
 }

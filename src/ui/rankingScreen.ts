@@ -1,11 +1,17 @@
+import { canViewLook, displayName, mineStatusText, statusChip } from '../ranking/display';
 import type { RankingBoard, RankingService } from '../ranking/service';
 import type { RankingEntry } from '../ranking/types';
 import { formatTime } from '../timeattack/timer';
+import { choiceDialog } from './dialog';
 import { h } from './dom';
 import type { Screen } from './dom';
+import { CharacterPreview3D } from './editor/preview3d';
+import { toast } from './toast';
 
 export interface RankingScreenOptions {
   service: RankingService;
+  /** ダイアログ・お知らせを出す親要素 */
+  root: HTMLElement;
   onBack(): void;
 }
 
@@ -13,18 +19,24 @@ const MEDAL = ['🥇', '🥈', '🥉'];
 
 /**
  * ランキング画面: ALL STAGES タイムアタックの TOP100 と、自分の記録/順位。
+ * 名前と 3D の姿は、管理者が承認した記録だけ出す (それ以外は、体型タイプ名。docs/RANKING_MODERATION.md)。
  * 通信の失敗・未設定でも画面が壊れず、理由を表示して再読み込みできる (ゲーム本体には影響しない)。
- * サーバーから来た文字列は textContent でしか出さない (HTML として解釈しない)。
+ * サーバーから来た文字列は textContent でしか出さない (HTML として解釈しない)。絵は、手元の絵と同じ検査を通してから立体にする。
  */
 export class RankingScreen implements Screen {
   readonly el: HTMLElement;
   private readonly body: HTMLElement;
   private readonly footer: HTMLElement;
+  private readonly viewer: HTMLElement;
+  private preview: CharacterPreview3D | null = null;
+  /** 姿を読み込んでいる記録 (読み込みの間に閉じた・別の記録を開いた時に、古い結果を捨てる) */
+  private viewing: string | null = null;
   private disposed = false;
 
   constructor(private readonly opts: RankingScreenOptions) {
     this.body = h('div', { class: 'rk-body' });
     this.footer = h('div', { class: 'rk-footer' });
+    this.viewer = h('div', { class: 'rk-viewer', attrs: { hidden: '' } });
     this.el = h(
       'div',
       { class: 'screen rk-screen' },
@@ -41,6 +53,7 @@ export class RankingScreen implements Screen {
         this.body,
         this.footer,
       ),
+      this.viewer,
     );
   }
 
@@ -81,29 +94,120 @@ export class RankingScreen implements Screen {
       this.body.replaceChildren(list);
     }
     const m = board.mine;
+    const mine = m.entry;
     this.footer.replaceChildren(
-      m.entry
-        ? h('div', { class: 'rk-mine' }, h('b', { text: 'あなたの記録' }), h('span', { text: m.rank !== null ? `${m.rank}位` : '' }), h('b', { class: 'rk-time', text: formatTime(m.entry.timeMs) }), h('span', { text: `Lv.${m.entry.level}` }))
+      mine
+        ? h(
+            'div',
+            { class: 'rk-mine-box' },
+            h(
+              'div',
+              { class: 'rk-mine' },
+              h('b', { text: 'あなたの記録' }),
+              h('span', { text: m.rank !== null ? `${m.rank}位` : '' }),
+              h('b', { class: 'rk-time', text: formatTime(mine.timeMs) }),
+              h('span', { text: `Lv.${mine.level}` }),
+              h('button', { class: 'btn btn-ghost rk-look', text: '👁 姿', attrs: { 'aria-label': '自分の姿を見る' }, on: { click: () => void this.openViewer(mine, m.rank, true) } }),
+            ),
+            h('div', { class: 'rk-mine-note', text: mineStatusText(mine, m.rank) }),
+          )
         : h('div', { class: 'rk-mine dim', text: 'まだ記録がありません。ALL STAGES TIME ATTACK をクリアすると登録できます。' }),
     );
   }
 
   private row(e: RankingEntry, rank: number, mine: boolean): HTMLElement {
     const detail = h('div', { class: 'rk-detail', attrs: { hidden: '' } }, h('div', { text: e.splits.map((t, i) => `S${i + 1} ${formatTime(t)}`).join('   ') }), h('div', { text: `HP ${e.stats.hp} / POWER ${e.stats.power} / DEFENSE ${e.stats.defense} / SPEED ${e.stats.speed} / JUMP ${e.stats.jump} / WEIGHT ${e.stats.weight}   ミス ${e.deaths} 回` }));
+    const named = mine || e.status === 'approved';
+    const chip = statusChip(e, rank, mine);
     const row = h(
       'button',
       { class: `rk-row${mine ? ' mine' : ''}`, on: { click: () => (detail.hasAttribute('hidden') ? detail.removeAttribute('hidden') : detail.setAttribute('hidden', '')) } },
       h('span', { class: 'rk-rank', text: MEDAL[rank - 1] ?? String(rank) }),
-      h('span', { class: 'rk-name', text: e.name }),
+      h('span', { class: `rk-name${named ? '' : ' anon'}` }, h('span', { class: 'rk-name-text', text: displayName(e, mine) }), chip ? h('span', { class: 'rk-chip', text: chip }) : null),
       h('span', { class: 'rk-lv', text: `Lv.${e.level}` }),
-      h('span', { class: 'rk-label', text: e.label }),
+      // 名前の代わりに体型タイプ名を出している時は、同じ言葉を 2 回並べない
+      h('span', { class: 'rk-label', text: named ? e.label : '' }),
       h('b', { class: 'rk-time', text: formatTime(e.timeMs) }),
     );
-    return h('div', { class: 'rk-item' }, row, detail);
+    const look = canViewLook(e, mine)
+      ? h('button', { class: 'btn btn-ghost rk-look', text: '👁', attrs: { 'aria-label': `${displayName(e, mine)} の姿を見る` }, on: { click: () => void this.openViewer(e, rank, mine) } })
+      : h('span', { class: 'rk-look rk-look-none', text: '👤', attrs: { 'aria-label': '姿は公開されていません' } });
+    return h('div', { class: 'rk-item' }, h('div', { class: `rk-line${mine ? ' mine' : ''}` }, row, look), detail);
+  }
+
+  // ===== 姿を見る (3D) =====
+
+  private async openViewer(e: RankingEntry, rank: number | null, mine: boolean): Promise<void> {
+    this.closeViewer();
+    this.viewing = e.uid;
+    const stage = h('div', { class: 'rk-viewer-stage' }, h('div', { class: 'rk-viewer-msg', text: '読み込み中…' }));
+    const buttons = h('div', { class: 'rk-viewer-btns' });
+    // 通報は、他人の (公開されている) 記録だけ
+    if (!mine) buttons.appendChild(h('button', { class: 'btn btn-ghost rk-report', text: '⚑ 通報', attrs: { 'aria-label': 'この記録を通報する' }, on: { click: () => void this.report(e) } }));
+    buttons.appendChild(h('button', { class: 'btn btn-primary', text: '閉じる', on: { click: () => this.closeViewer() } }));
+    this.viewer.replaceChildren(
+      h(
+        'div',
+        { class: 'rk-viewer-box' },
+        h('div', { class: 'rk-viewer-head' }, h('span', { class: 'rk-rank', text: rank !== null ? (MEDAL[rank - 1] ?? `${rank}位`) : '' }), h('b', { class: 'rk-viewer-name', text: displayName(e, mine) }), h('b', { class: 'rk-time', text: formatTime(e.timeMs) })),
+        stage,
+        h('div', { class: 'rk-viewer-sub', text: `${e.label}  Lv.${e.level}  ドラッグで回せます` }),
+        buttons,
+      ),
+    );
+    this.viewer.removeAttribute('hidden');
+    const res = await this.opts.service.loadLook(e.uid);
+    if (this.disposed || this.viewing !== e.uid) return;
+    const say = (text: string): void => stage.replaceChildren(h('div', { class: 'rk-viewer-msg', text }));
+    if (!res.ok) {
+      say(`姿を読み込めませんでした: ${res.message}`);
+      return;
+    }
+    if (!res.value) {
+      say('この記録には、見られる姿がありません');
+      return;
+    }
+    if (!CharacterPreview3D.available()) {
+      say('この端末では、3D を表示できません');
+      return;
+    }
+    const canvas = h('canvas', { class: 'rk-viewer-canvas' });
+    stage.replaceChildren(canvas);
+    this.preview = new CharacterPreview3D(canvas);
+    if (this.preview.setDrawing(res.value)) this.preview.start();
+    else {
+      this.preview.dispose();
+      this.preview = null;
+      say('この絵は、立体にできませんでした');
+    }
+  }
+
+  private closeViewer(): void {
+    this.viewing = null;
+    this.preview?.dispose();
+    this.preview = null;
+    this.viewer.setAttribute('hidden', '');
+    this.viewer.replaceChildren();
+  }
+
+  private async report(e: RankingEntry): Promise<void> {
+    const v = await choiceDialog(this.opts.root, {
+      title: 'この記録を通報しますか？',
+      message: '不適切な絵や名前を見つけた時に、管理者へ知らせます。管理者が確認して、掲載をやめるかを決めます。',
+      buttons: [
+        { value: 'no', label: 'やめる' },
+        { value: 'yes', label: '⚑ 通報する', kind: 'danger' },
+      ],
+    });
+    if (v !== 'yes' || this.disposed) return;
+    const res = await this.opts.service.report(e.uid);
+    if (this.disposed) return;
+    toast(this.opts.root, !res.ok ? `通報を送れませんでした: ${res.message}` : res.value === 'already' ? 'この記録は、すでに通報してあります' : '通報しました。管理者が確認します', 3000);
   }
 
   dispose(): void {
     this.disposed = true;
+    this.closeViewer();
     this.el.remove();
   }
 }
