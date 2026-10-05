@@ -77,8 +77,8 @@ export type Stage5Star = 'vent' | 'chamber' | 'ledge' | 'r3w' | 'r4e' | 'r4w' | 
 export const STAGE5_STARS: readonly Stage5Star[] = ['vent', 'chamber', 'ledge', 'r3w', 'r4e', 'r4w', 'yardE', 'r3e'];
 /** 風の柱 (広場の南西): 高さ 6m の石の柱に、上昇気流。柱の上に星 */
 const VENT_PILLAR = { x: -38, z: -60, w: 3, h: FLOOR_H };
-/** 風の柱の西の坂の長さ */
-const VENT_RAMP = 20;
+/** 風の柱の西の坂の長さ。長いほど、気流 (近道) との差が開く: 20m で 4〜5 秒・34m で 8〜9 秒 (批評 A 中: 近道の節約を大きく → 重い体は風の柱を選ばず、軽め〜標準は選ぶ = 体型で星が分かれる) */
+const VENT_RAMP = 34;
 /** 木箱の部屋 (広場の南東): 壁 8.5m に囲まれた小部屋。南の扉は大きな木箱 (攻撃力が標準以上)。中に星 */
 const CHAMBER = { x: 30, z: -60, inner: 5, door: 3, wallT: 1.5 };
 /** 高い台 (広場の南西。塔の壁・柱から 12m 以上はなれた、何もない所): 上面 2.8m。SPEED・JUMP だけが段なしの西がわから跳び乗れる。段は 3 つ (0.9 / 1.9 / 2.8m) で、1 段が 1.0m 以下。上に星 */
@@ -125,6 +125,23 @@ export const STAGE5_GEOMETRY = {
   crateToughness: TOUGH_C,
   /** 頭上の高さ: 木箱の扉の横木の下 (1 段目の上) */
   gateClearance: CRATE_H - GATE_STEPS[0],
+};
+
+const NO_GATE = [false, false, false, false, false];
+const GATE_C = [false, true, false, false, false];
+const GATE_U = [false, false, true, false, false];
+
+/**
+ * 名前つきルートの計画 (ボットの、体型ごとの最速に近い道)。
+ * main = 近道なし・戦わずに取れる 5 個を、だれでも行ける遅い道で (受動プレイでもクリアできる) /
+ * std = STANDARD / strong = POWER・HEAVY・EXTREME (木箱の扉) / light = SPEED・JUMP (上昇気流)。
+ * 「近い変種より遅くない」ことは tests/stages/stage5.test.ts が確かめる
+ */
+export const STAGE5_PLANS: Record<'main' | 'std' | 'strong' | 'light', Stage5Plan> = {
+  main: { gates: NO_GATE, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4e'], slow: ['vent', 'chamber', 'ledge'], dirs: ['E', 'E', 'W', 'E'] },
+  std: { gates: GATE_C, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4w'], slow: ['ledge'], dirs: ['E', 'E', 'W', 'W'] },
+  strong: { gates: GATE_C, stars: ['chamber', 'ledge', 'r3w', 'r4e', 'r4w'], slow: ['vent', 'ledge'], dirs: ['E', 'E', 'W', 'W'] },
+  light: { gates: GATE_U, stars: ['vent', 'chamber', 'ledge', 'r4e', 'r4w'], slow: ['chamber', 'ledge'], dirs: ['W', 'E', 'E', 'W'] },
 };
 
 /** `ventVel`: 上昇気流の押し上げ (m/s)。調整・実測用 (scratch/s5/ventcost.ts)。既定値 (8.5) はテストが守る */
@@ -189,7 +206,7 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   k.star('風の柱の上', vp.x, vp.z, 1.35, vp.h + 1.35, { id: 'star-vent' });
   // だれでものぼれる長い坂 (西から。上の端が柱の上面)
   k.boxes.push(rampX(vp.x - vp.w / 2 - VENT_RAMP, G, vp.x - vp.w / 2, vp.h, vp.z, vp.w, 2, 'stone'));
-  sign(vp.x + 5, G, vp.z - 4, Math.PI + 0.4, ['風の柱'], { icon: 'jump', hint: ['柱の上に星がある。西の長い坂 (20m) を、だれでものぼれる', '南の上昇気流には、走って入って {jump} を押し続けると、軽め〜標準のキャラは一気に跳び乗れる'] });
+  sign(vp.x + 5, G, vp.z - 4, Math.PI + 0.4, ['風の柱'], { icon: 'jump', hint: ['柱の上に星がある。西の長い坂 (34m) を、だれでものぼれる', '南の上昇気流には、走って入って {jump} を押し続けると、軽め〜標準のキャラは一気に跳び乗れる'] });
   k.checkpoint('cp0b', -20, -62);
 
   // 高い台 (広場の南): 上に星。だれでものぼれる段 (北がわ。3 段)
@@ -322,17 +339,7 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   }
   k.push({ shape: 'box', pos: [0, -50, 0], size: [800, 2, 800], color: 0x2b2447, far: true });
 
-  const r = (plan: Stage5Plan): WaypointDef[] => stage5RouteFor({ pickups: k.pickups }, plan);
-  const none = [false, false, false, false, false];
-  const g1 = [false, true, false, false, false];
-  const g2 = [false, false, true, false, false];
-  const routes = {
-    // 本道: 戦わずに取れる 5 個を、近道なし・だれでも行ける遅い道 (坂・段・うしろの入口) で。受動プレイでもクリアできる
-    main: r({ gates: none, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4e'], slow: ['vent', 'chamber', 'ledge'], dirs: ['E', 'E', 'W', 'E'] }),
-    std: r({ gates: g1, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4w'], slow: ['ledge'], dirs: ['E', 'E', 'W', 'W'] }),
-    strong: r({ gates: g1, stars: ['vent', 'chamber', 'ledge', 'r3w', 'r4w'], slow: ['vent', 'ledge'], dirs: ['E', 'E', 'W', 'W'] }),
-    light: r({ gates: g2, stars: ['vent', 'chamber', 'ledge', 'r4e', 'r4w'], slow: ['chamber'], dirs: ['E', 'E', 'E', 'E'] }),
-  };
+  const routes = Object.fromEntries(Object.entries(STAGE5_PLANS).map(([name, plan]) => [name, stage5RouteFor({ pickups: k.pickups }, plan)]));
 
   return {
     id: 'stage5',
@@ -359,7 +366,7 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
     winds: k.winds,
     ambient: { motes: { count: 50, color: 0xe6dcff, size: 0.1 }, butterflies: 0 },
     routes,
-    parTime: 140,
+    parTime: 125,
     missPenaltySec: 3,
     minimapHeightShade: true,
   };
@@ -515,7 +522,7 @@ export function stage5RouteFor(stage: Pick<StageDef, 'pickups'>, plan: Stage5Pla
   if (has('vent')) {
     const v = VENT_PILLAR;
     if (slow('vent')) {
-      // 西の長い坂 (20m) から、柱の上へ
+      // 西の長い坂 (VENT_RAMP = 34m) から、柱の上へ
       wp(v.x - v.w / 2 - VENT_RAMP - 4, G, PLAZA_ROAD + 2, { radius: 3 });
       wp(v.x - v.w / 2 - VENT_RAMP + 1, G, v.z, { radius: 1.2 });
       wp(v.x - v.w / 2 - 1.5, v.h - 0.3, v.z, { radius: 1.2 });
@@ -527,8 +534,8 @@ export function stage5RouteFor(stage: Pick<StageDef, 'pickups'>, plan: Stage5Pla
       wp(v.x, G, v.z - v.w / 2 - 4, { radius: 1.5 });
       wp(v.x, G, v.z - v.w / 2 - 1.8, { jump: true, hold: true, jumpDist: 0.5, land: [v.x, v.h, v.z], radius: 0.8 });
       wp(v.x, v.h, v.z, { radius: 1.0 });
-      // 柱の上から、南へ降りる (降りた先は広場)
-      wp(v.x - 4, G, v.z - v.w / 2 - 4, { radius: 2.5 });
+      // 柱の上から、南へ降りる (降りた先は広場)。次は東 (坂の足元) へ
+      wp(v.x + 4, G, v.z - v.w / 2 - 4, { radius: 2.5 });
     }
   }
 

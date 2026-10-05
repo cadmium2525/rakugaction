@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { runBot } from '../../src/game/bot';
 import { statsToParams } from '../../src/game/params';
-import { buildStage5, STAGE5_GEOMETRY, STAGE5_STARS, stage5RouteFor } from '../../src/stages/stage5';
+import { emptyInput } from '../../src/input/types';
+import { buildStage5, STAGE5_GEOMETRY, STAGE5_PLANS, STAGE5_STARS, stage5RouteFor } from '../../src/stages/stage5';
 import type { Stage5Plan, Stage5Star } from '../../src/stages/stage5';
 import { makeSim, paramsFor, run } from '../helpers/headless';
 import { enemyRouteProblems, spawnProblems } from './fieldChecks';
@@ -284,12 +286,66 @@ describe('STAGE 5 巨人の塔', () => {
     }
   });
 
+  /** 計画 (Stage5Plan) を、ボットで走らせた時間 (鉄球の位相 0 / 3 秒の平均)。通れない・死ぬ時は Infinity */
+  async function planTime(id: string, plan: Stage5Plan): Promise<number> {
+    const route = stage5RouteFor(stage, plan);
+    const times: number[] = [];
+    for (const delay of [0, 3]) {
+      const sim = await makeSim(stage, id);
+      for (let i = 0; i < delay * 60; i++) sim.step(emptyInput());
+      const r = runBot(sim, route, { maxTime: 300 + delay, maxDeaths: 1 });
+      sim.dispose();
+      if (!r.cleared || r.deaths > 0) return Infinity;
+      times.push(r.time - delay);
+    }
+    return (times[0] + times[1]) / 2;
+  }
+
+  it('名前つきルートは最速に近い: 階 1・3・4 の向きを 1 つ変えた変種・寄り道の近道 / 遅い道を 1 つ変えた変種より、5% を超えて遅くない (批評 A 中: light が約 10% 遅かったのを見逃した)', async () => {
+    const fastOk: Record<'vent' | 'chamber' | 'ledge', readonly string[]> = { vent: U_BUILDS, chamber: C_BUILDS, ledge: ['SPEED', 'JUMP'] };
+    const cases: [string, 'std' | 'strong' | 'light'][] = [['STANDARD', 'std'], ['POWER', 'strong'], ['EXTREME', 'strong'], ['SPEED', 'light'], ['JUMP', 'light']];
+    for (const [id, name] of cases) {
+      const plan = STAGE5_PLANS[name];
+      const base = await planTime(id, plan);
+      expect(base, `${id}: 名前つきルート ${name} を通れない`).toBeLessThan(Infinity);
+      const dirs = plan.dirs ?? ['E', 'E', 'E', 'E'];
+      const variants: Stage5Plan[] = [0, 2, 3].map((i) => ({ ...plan, dirs: dirs.map((d, k) => (k === i ? (d === 'E' ? 'W' : 'E') : d)) }));
+      for (const st of ['vent', 'chamber', 'ledge'] as const) {
+        if (!plan.stars.includes(st) || !fastOk[st].includes(id)) continue;
+        const slow = new Set(plan.slow ?? []);
+        if (slow.has(st)) slow.delete(st);
+        else slow.add(st);
+        variants.push({ ...plan, slow: [...slow] });
+      }
+      for (const v of variants) {
+        const t = await planTime(id, v);
+        expect(base, `${id}: ${name} (${base.toFixed(1)} 秒) より、変種 dirs=${(v.dirs ?? []).join('')} slow=${(v.slow ?? []).join('+') || '-'} (${t.toFixed(1)} 秒) のほうが速い`).toBeLessThanOrEqual(t * 1.05);
+      }
+    }
+  }, 900_000);
+
+  it('寄り道の近道は、遅い道より速い (体型で星の値段が変わる = 星の選びに差が出る): 気流の風の柱 (STANDARD・SPEED・JUMP) は 4 秒以上、木箱の部屋の扉 (STANDARD・POWER・HEAVY・EXTREME) は 3 秒以上', async () => {
+    const pairs: [string, 'std' | 'strong' | 'light', 'vent' | 'chamber', number][] = [
+      ['STANDARD', 'std', 'vent', 4], ['SPEED', 'light', 'vent', 4], ['JUMP', 'light', 'vent', 4],
+      ['STANDARD', 'std', 'chamber', 3], ['POWER', 'strong', 'chamber', 3], ['HEAVY', 'strong', 'chamber', 3], ['EXTREME', 'strong', 'chamber', 3],
+    ];
+    for (const [id, name, st, gain] of pairs) {
+      const plan = STAGE5_PLANS[name];
+      const slow = new Set(plan.slow ?? []);
+      slow.delete(st);
+      const fast = await planTime(id, { ...plan, stars: [...new Set([...plan.stars, st])], slow: [...slow] });
+      slow.add(st);
+      const slowT = await planTime(id, { ...plan, stars: [...new Set([...plan.stars, st])], slow: [...slow] });
+      expect(slowT - fast, `${id}: ${st} を近道で取る (${fast.toFixed(1)} 秒) と、遅い道 (${slowT.toFixed(1)} 秒) の差`).toBeGreaterThanOrEqual(gain);
+    }
+  }, 900_000);
+
   it('本道 (近道なし・戦わずに取れる星 5 個をだれでも行ける遅い道で): 全ビルドが、戦わず (受動プレイ) に、死なずにクリアでき、遅すぎない', async () => {
     for (const id of ALL_BUILDS) {
       const r = await runStage(stage, id, 'main', { maxTime: 300, maxDeaths: 2, fight: false });
       expect(r.cleared, fmt(r)).toBe(true);
       expect(r.deaths, fmt(r)).toBe(0);
-      expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 140) * 1.8);
+      expect(r.time, fmt(r)).toBeLessThan((stage.parTime ?? 125) * 1.8);
     }
   }, 900_000);
 
