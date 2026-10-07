@@ -1,7 +1,7 @@
 {
-  "enabled": false,
-  "apiKey": "",
-  "projectId": "",
+  "enabled": true,
+  "apiKey": "AIzaSyC7b6n4ufMQk4C34281_t1owwom5ik4ML8",
+  "projectId": "rakugaking-28eb4",
   "collection": "ranking",
-  "googleClientId": ""
+  "googleClientId": "288171468113-a4n43qp7i9s632jov7vjk4luhn01jdi5.apps.googleusercontent.com"
 }

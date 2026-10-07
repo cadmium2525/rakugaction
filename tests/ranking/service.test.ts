@@ -170,12 +170,16 @@ describe('ランキング設定', () => {
     expect(await loadRankingConfig(offline)).toBeNull();
   });
 
-  it('同梱の public/ranking-config.json は無効 (enabled: false) のまま = 設定前は未設定として動く', async () => {
+  it('同梱の public/ranking-config.json: 書いてあるのは公開してよい識別子だけ (秘密の値の欄が無い)。形が正しければランキングが有効になる', async () => {
     const { readFileSync } = await import('node:fs');
     const text = readFileSync(new URL('../../public/ranking-config.json', import.meta.url), 'utf-8');
-    expect(parseRankingConfig(JSON.parse(text))).toBeNull();
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    expect(Object.keys(raw).sort()).toEqual(['apiKey', 'collection', 'enabled', 'googleClientId', 'projectId']);
+    expect(text).not.toMatch(/secret|private_key|password|refresh/i);
     const svc = await createRankingService({ fetchImpl: (async () => new Response(text, { status: 200 })) as typeof fetch });
-    expect(svc.available).toBe(false);
+    // enabled が true なら、値の形が正しい (ランキングが使える) こと。false なら未設定として動く
+    expect(svc.available).toBe(raw.enabled === true);
+    expect(parseRankingConfig(raw) !== null).toBe(raw.enabled === true);
   });
 
   it('有効な設定なら Firestore バックエンドが使われる / mock 指定ならモック', async () => {
