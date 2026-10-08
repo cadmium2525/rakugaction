@@ -1,3 +1,5 @@
+import { renderThumbs } from './characterThumb';
+import type { ThumbJob } from './characterThumb';
 import { canViewLook, displayName, mineStatusText, statusChip } from '../ranking/display';
 import type { RankingBoard, RankingService } from '../ranking/service';
 import type { RankingEntry } from '../ranking/types';
@@ -32,6 +34,8 @@ export class RankingScreen implements Screen {
   /** 姿を読み込んでいる記録 (読み込みの間に閉じた・別の記録を開いた時に、古い結果を捨てる) */
   private viewing: string | null = null;
   private disposed = false;
+  /** 表彰台の絵づくりを止める (画面を閉じた・読み直した時) */
+  private stopThumbs: (() => void) | null = null;
 
   constructor(private readonly opts: RankingScreenOptions) {
     this.body = h('div', { class: 'rk-body' });
@@ -91,7 +95,7 @@ export class RankingScreen implements Screen {
     } else {
       const list = h('div', { class: 'rk-list' });
       board.top.forEach((e, i) => list.appendChild(this.row(e, i + 1, e.uid === mineUid)));
-      this.body.replaceChildren(list);
+      this.body.replaceChildren(this.podium(board.top, mineUid), list);
     }
     const m = board.mine;
     const mine = m.entry;
@@ -133,6 +137,53 @@ export class RankingScreen implements Screen {
       ? h('button', { class: 'btn btn-ghost rk-look', text: '👁', attrs: { 'aria-label': `${displayName(e, mine)} の姿を見る` }, on: { click: () => void this.openViewer(e, rank, mine) } })
       : h('span', { class: 'rk-look rk-look-none', text: '👤', attrs: { 'aria-label': '姿は公開されていません' } });
     return h('div', { class: 'rk-item' }, h('div', { class: `rk-line${mine ? ' mine' : ''}` }, row, look), detail);
+  }
+
+  // ===== 表彰台 (TOP 3 の姿を、最初から並べて見せる) =====
+
+  /**
+   * 上位 3 人の台。姿 (3D を絵にしたもの) を出すのは、見せてよい記録だけ (承認済み、または自分)。それ以外は、影の印。
+   * 絵は、台を出したあとで 1 人ずつ読み込む (読めなくても、順位とタイムは出ている)。押すと、回して見られる画面を開く。
+   */
+  private podium(top: readonly RankingEntry[], mineUid: string | null): HTMLElement {
+    this.stopThumbs?.();
+    this.stopThumbs = null;
+    const jobs: ThumbJob[] = [];
+    const pending: Promise<void>[] = [];
+    // 並び: 2 位・1 位・3 位 (まん中が 1 位)
+    const order = [1, 0, 2].filter((i) => i < top.length);
+    const slots = order.map((i) => {
+      const e = top[i];
+      const mine = e.uid === mineUid;
+      const show = canViewLook(e, mine);
+      const img = h('img', { class: 'rk-pod-img empty', attrs: { alt: '', draggable: 'false' } });
+      const figure = show ? img : h('div', { class: 'rk-pod-none', text: '👤' });
+      if (show) {
+        pending.push(
+          this.opts.service.loadLook(e.uid).then((res) => {
+            if (this.disposed || !res.ok || !res.value) return;
+            jobs.push({
+              key: `rank:${e.uid}:${e.timeMs}`,
+              drawing: res.value,
+              done: (url) => {
+                img.src = url;
+                img.classList.remove('empty');
+              },
+            });
+          }),
+        );
+      }
+      return h(
+        show ? 'button' : 'div',
+        { class: `rk-pod rk-pod-${i + 1}${mine ? ' mine' : ''}`, attrs: show ? { 'aria-label': `${i + 1} 位 ${displayName(e, mine)} の姿を見る` } : {}, on: show ? { click: () => void this.openViewer(e, i + 1, mine) } : {} },
+        figure,
+        h('div', { class: 'rk-pod-step' }, h('span', { class: 'rk-pod-medal', text: MEDAL[i] ?? String(i + 1) }), h('span', { class: 'rk-pod-name', text: displayName(e, mine) }), h('b', { class: 'rk-pod-time', text: formatTime(e.timeMs) })),
+      );
+    });
+    void Promise.all(pending).then(() => {
+      if (!this.disposed && jobs.length > 0) this.stopThumbs = renderThumbs(jobs);
+    });
+    return h('div', { class: 'rk-podium' }, ...slots);
   }
 
   // ===== 姿を見る (3D) =====
@@ -206,6 +257,7 @@ export class RankingScreen implements Screen {
   }
 
   dispose(): void {
+    this.stopThumbs?.();
     this.disposed = true;
     this.closeViewer();
     this.el.remove();

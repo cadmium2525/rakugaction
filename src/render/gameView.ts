@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { QualitySettings } from './quality';
 import type { RenderHost, RenderInfo } from './renderHost';
 import { AmbientView } from './ambientView';
+import { DustPuff, ImpactMeter } from './impactFx';
 import { createSky } from './sky';
 import { StageView } from './stageView';
 import { PlayerView } from './playerView';
@@ -31,17 +32,23 @@ export class GameView {
   private readonly hemi = new THREE.HemisphereLight(0xcfe3ff, 0x8a7a5a, 1.0);
   private readonly sun = new THREE.DirectionalLight(0xffffff, 1.5);
   private readonly unsubscribe: (() => void)[] = [];
+  /** 手ごたえの演出 (ゆれ・止め・寄り・土けむり)。見た目だけ */
+  readonly impact = new ImpactMeter(typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  private readonly dust = new DustPuff();
+  private readonly shakeOff = { x: 0, y: 0 };
+  private baseFov = 58;
 
   constructor(readonly host: RenderHost) {
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 300);
     this.scene.add(this.hemi, this.sun, this.sun.target);
-    this.scene.add(this.player.group);
+    this.scene.add(this.player.group, this.dust.group);
     this.applyQuality(host.currentSettings);
     this.unsubscribe.push(
       host.onResize((w, h) => {
         this.camera.aspect = w / h;
         // 横長すぎる画面 (横持ちスマホ) では視野を少し狭めて足元が見えるように
-        this.camera.fov = w / h > 1.9 ? 54 : 58;
+        this.baseFov = w / h > 1.9 ? 54 : 58;
+        this.camera.fov = this.baseFov;
         this.camera.updateProjectionMatrix();
       }),
       host.onQualityChange((s) => this.applyQuality(s)),
@@ -134,7 +141,10 @@ export class GameView {
   render(sim: GameSim | null, cam: FollowCamera | null, alpha: number, dt: number): void {
     const host = this.host;
     if (host.contextLost) return;
-    if (sim) {
+    // 止め: 当たった瞬間の数コマは、絵を動かさない (世界の計算は進んでいる)
+    const frozen = this.impact.step(dt);
+    this.dust.update(dt);
+    if (sim && !frozen) {
       this.stageView?.update(sim, alpha, dt);
       this.player.update(sim, alpha, dt);
       if (this.sun.castShadow) {
@@ -147,12 +157,28 @@ export class GameView {
       const pose = cam.pose;
       this.camera.position.set(pose.x, pose.y, pose.z);
       this.camera.lookAt(pose.tx, pose.ty, pose.tz);
+      // ゆれ: 画面の左右・上下へ、少しずらす (向きは変えない)
+      this.impact.offset(this.shakeOff);
+      if (this.shakeOff.x !== 0 || this.shakeOff.y !== 0) {
+        this.camera.translateX(this.shakeOff.x);
+        this.camera.translateY(this.shakeOff.y);
+      }
+      const fov = this.baseFov + this.impact.s.punch;
+      if (Math.abs(fov - this.camera.fov) > 0.01) {
+        this.camera.fov = fov;
+        this.camera.updateProjectionMatrix();
+      }
       if (sim) this.updateUnderwater(sim, pose.y, pose.x, pose.z);
     }
     if (this.sky) this.sky.position.copy(this.camera.position);
     this.ambient?.update(this.camera.position, dt);
     host.renderer.render(this.scene, this.camera);
     host.adaptResolution(dt);
+  }
+
+  /** 着地の土けむりを、足もとに出す (strength 0..1)。 */
+  landDust(x: number, y: number, z: number, strength: number): void {
+    this.dust.spawn(x, y, z, strength);
   }
 
   info(): RenderInfo {
@@ -162,6 +188,7 @@ export class GameView {
   dispose(): void {
     for (const u of this.unsubscribe) u();
     this.unloadStage();
+    this.dust.dispose();
     this.player.dispose();
   }
 }

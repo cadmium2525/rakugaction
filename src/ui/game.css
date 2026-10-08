@@ -1777,3 +1777,104 @@
   font-weight: 900;
   font-variant-numeric: tabular-nums;
 }
+
+/* ---------- ランキング: 表彰台 (TOP 3) ---------- */
+.rk-podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 4px 10px;
+}
+.rk-pod {
+  flex: 1 1 0;
+  max-width: 150px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-family: inherit;
+}
+.rk-pod-img,
+.rk-pod-none {
+  align-self: center;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+.rk-pod-1 .rk-pod-img,
+.rk-pod-1 .rk-pod-none {
+  width: 92px;
+  height: 92px;
+}
+.rk-pod-img.empty {
+  visibility: hidden;
+}
+.rk-pod-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  opacity: 0.3;
+}
+.rk-pod-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 6px 6px;
+  border-radius: 10px 10px 4px 4px;
+  background: #f1e3bf;
+  min-height: 54px;
+}
+.rk-pod-1 .rk-pod-step {
+  min-height: 74px;
+  background: #ffe08a;
+}
+.rk-pod-3 .rk-pod-step {
+  min-height: 44px;
+  background: #ecd2b4;
+}
+.rk-pod.mine .rk-pod-step {
+  outline: 2px solid var(--accent);
+}
+.rk-pod-medal {
+  font-size: 18px;
+  line-height: 1.1;
+}
+.rk-pod-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+}
+.rk-pod-time {
+  font: 800 12px/1.2 ui-monospace, Consolas, monospace;
+}
+@media (max-height: 420px) {
+  .rk-pod-img,
+  .rk-pod-none {
+    width: 54px;
+    height: 54px;
+  }
+  .rk-pod-1 .rk-pod-img,
+  .rk-pod-1 .rk-pod-none {
+    width: 66px;
+    height: 66px;
+  }
+  .rk-pod-step {
+    min-height: 40px;
+  }
+  .rk-pod-1 .rk-pod-step {
+    min-height: 52px;
+  }
+  .rk-pod-3 .rk-pod-step {
+    min-height: 34px;
+  }
+}

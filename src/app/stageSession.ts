@@ -13,6 +13,9 @@ import { Hud } from '../ui/hud';
 import { Minimap } from '../ui/minimap';
 import type { AudioManager } from '../audio/audioManager';
 import { soundsFor } from '../audio/eventSounds';
+import { GhostView } from '../render/ghostView';
+import { GhostRecorder } from '../timeattack/ghost';
+import type { GhostData } from '../timeattack/ghost';
 import { PauseMenu } from '../ui/pauseMenu';
 import type { ObjectiveInfo } from '../ui/pauseMenu';
 import { missPenaltySec, returnSpeed } from '../timeattack/penalty';
@@ -43,6 +46,8 @@ export interface StageResult {
   penaltyMs?: number;
   /** 星 (集めるアイテム) を取った時刻。取った順 */
   splits?: StarSplit[];
+  /** この走りで通った道 (ベストなら、次からゴーストになる) */
+  ghost?: GhostData;
 }
 
 export interface SessionDeps {
@@ -73,6 +78,8 @@ export interface SessionDeps {
    * 試行錯誤で見つけるのもアクションゲームの楽しみで、説明が多いと画面が見づらい (ユーザー評価)。設定画面で出せる。
    */
   hints?: boolean;
+  /** ベストの走りの道 (あれば、半透明の自分が同じ道を走る)。無ければ出さない */
+  ghost?: GhostData | null;
   /** 音 (効果音・ジングル)。無ければ鳴らさない (デモ・テスト) */
   audio?: Pick<AudioManager, 'sfx' | 'jingle' | 'setDucked'>;
 }
@@ -118,6 +125,8 @@ export class StageSession {
   private result: StageResult | null = null;
   /** 操作できるようになった時点のシミュレーション時間 (秒)。simMs はここからの経過 */
   private simAtPlay = 0;
+  private recorder = new GhostRecorder();
+  private ghostView: GhostView | null = null;
   private goBannerShown = false;
   /** 説明を出した看板 (番号)。やり直しで消える */
   private readonly signsShown = new Set<number>();
@@ -170,6 +179,15 @@ export class StageSession {
       onPauseChange: (p) => s.onPauseChange(p),
     });
     if (deps.stage.terrain) s.minimap = new Minimap(s.hud.el, deps.stage);
+    if (deps.ghost) {
+      try {
+        s.ghostView = new GhostView(deps.makeRig(), deps.ghost, deps.params.height);
+        s.view.scene.add(s.ghostView.group);
+      } catch (e) {
+        // ゴーストの姿を作れなかった時は、ゴーストなしで遊べる
+        console.warn('ghost unavailable', e);
+      }
+    }
     s.syncHud();
     return s;
   }
@@ -210,6 +228,7 @@ export class StageSession {
     this.scene.overridePerStep = this.botInput !== null;
     this.input.reset();
     this.simAtPlay = this.scene.sim.time;
+    this.recorder = new GhostRecorder();
     this.timer.start();
     this.deps.audio?.sfx('go');
   }
@@ -392,6 +411,7 @@ export class StageSession {
       pickupsRequired: sim.pickupsRequired,
       penaltyMs: this.penaltyMs,
       splits: this.splits.slice(),
+      ghost: this.recorder.finish(),
     };
     this.hud.setBanner('GOAL!', 'clear');
     this.deps.audio?.jingle('clear');
@@ -465,6 +485,14 @@ export class StageSession {
 
   private onFrame(dt: number): void {
     if (this.disposed) return;
+    // ゴースト: 走っている間は道を覚え、ベストの走りがあれば同じ時刻の位置に出す (READY の間は出さない)
+    const sim = this.scene.sim;
+    const runT = sim.time - this.simAtPlay;
+    if (this.phase === 'playing') {
+      const p = sim.player;
+      this.recorder.sample(runT, p.pos.x, p.pos.y - p.params.height / 2, p.pos.z, p.yaw);
+    }
+    this.ghostView?.update(this.phase === 'playing' ? runT : -1, this.scene.paused ? 0 : dt);
     this.hud.setTime(this.timer.elapsedMs);
     const sub = this.deps.subTime?.();
     if (sub !== undefined) this.hud.setSubTime(sub);
@@ -501,6 +529,10 @@ export class StageSession {
 
   dispose(): void {
     this.disposed = true;
+    if (this.ghostView) {
+      this.view.scene.remove(this.ghostView.group);
+      this.ghostView.dispose();
+    }
     this.minimap?.dispose();
     this.hud.dispose();
     this.menu.dispose();

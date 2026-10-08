@@ -183,6 +183,23 @@ export class PlayScene {
       else if (e.type === 'pickup') this.view.stageView?.onPickup(e.id);
       else if (e.type === 'pickupAppear') this.view.stageView?.onPickupAppear(e.id);
       else if (e.type === 'respawn') this.camera.snapTo(this.sim, this.sim.player.yaw);
+      this.juice(e);
+    }
+  }
+
+  /** 手ごたえの演出 (ゆれ・止め・寄り・土けむり)。見た目だけで、世界の計算と時計には触らない。 */
+  private juice(e: SimEvent): void {
+    const fx = this.view.impact;
+    if (e.type === 'enemy') fx.hit(e.how === 'guard' ? 0.08 : 0.16, e.how === 'guard' ? 0.04 : 0.07);
+    else if (e.type === 'hurt') fx.hit(0.28, 0.09);
+    else if (e.type === 'break') fx.hit(0.2, 0.06);
+    else if (e.type === 'breakGuard') fx.hit(0.08, 0.03);
+    else if (e.type === 'attack') fx.punchFov(5);
+    else if (e.type === 'land' && e.impact >= 6) {
+      const k = Math.min(1, (e.impact - 6) / 10);
+      const p = this.sim.player.pos;
+      this.view.landDust(p.x, p.y - this.sim.player.params.height / 2, p.z, k);
+      if (e.impact >= 11) fx.hit(0.05 + k * 0.08);
     }
   }
 

@@ -373,6 +373,12 @@ export class App {
           if (kind === 'se') this.audio.sfx('star');
           this.requestSave();
         },
+        ghost: this.settings.ghost,
+        onGhost: (on) => {
+          this.settings = { ...this.settings, ghost: on };
+          this.requestSave();
+          this.showSettings(back);
+        },
         hints: this.settings.hints,
         onHints: (on) => {
           this.settings = { ...this.settings, hints: on };
@@ -731,6 +737,7 @@ export class App {
       makeRig: this.makeRigOf(rec),
       intro: entry.title,
       bestSplits: this.profile.stage(entry.id).bestSplits,
+      ghost: this.settings.ghost ? this.profile.stage(entry.id).ghost : null,
       hints: this.settings.hints,
       audio: this.audio,
       onFinish: (r) => this.onStageFinished(entry.id, r),
@@ -748,7 +755,7 @@ export class App {
     const prevBest = this.profile.stage(stageId).bestMs;
     // 星の取得時刻は、記録を更新する前の (これまでの) ベストと比べる
     const prevSplits = this.profile.stage(stageId).bestSplits;
-    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs, r.splits, entry.rev);
+    const { newBest, firstClear } = this.profile.recordClear(stageId, r.timeMs, r.splits, entry.rev, r.ghost);
     const extraPickups = Math.max(0, (r.pickups ?? 0) - (r.pickupsRequired ?? 0));
     const gain = stageExp({ order: entry.order, rank: r.rank, firstClear, newBest, enemiesDefeated: r.enemiesDefeated, extraPickups });
     const before = this.profile.progress;
@@ -865,7 +872,7 @@ export class App {
     const split: Split = { stageId: r.stageId, timeMs: r.timeMs, simMs: r.simMs, deaths: r.deaths, falls: r.falls, hits: r.hits };
     if (!run.finishStage(split)) return;
     // 通常のステージ記録 (ベスト) も更新する。EXP は走り全体の完走時にまとめて与える
-    this.profile.recordClear(r.stageId, r.timeMs, r.splits, getStageEntry(r.stageId)?.rev);
+    this.profile.recordClear(r.stageId, r.timeMs, r.splits, getStageEntry(r.stageId)?.rev, r.ghost);
     session.hud.el.style.display = 'none';
     session.setControlsVisible(false);
     if (run.complete) {

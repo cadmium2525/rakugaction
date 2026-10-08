@@ -1,3 +1,4 @@
+import type { GhostData } from '../timeattack/ghost';
 import type { CharacterRecord } from '../character/record';
 import { sanitizeName } from '../core/text';
 import type { SaveProfile } from '../save/schema';
@@ -21,6 +22,8 @@ export interface StageRecord {
   bestSplits?: StarSplit[];
   /** ベストを出した時の、コースの版 (`StageEntry.rev`)。省略 = 1。コースが作り替わると、ベストは比べものにならないので使わない */
   rev?: number;
+  /** ベストを出した走りの道 (ゴースト) */
+  ghost?: GhostData;
 }
 
 /**
@@ -168,6 +171,7 @@ export class Profile {
       if (rec.bestMs !== null) out.stages.push(id);
       rec.bestMs = null;
       delete rec.bestSplits;
+      delete rec.ghost;
       rec.rev = cur;
     }
     const legacyKey = Object.keys(revs).map(() => '1').join(',');
@@ -179,7 +183,7 @@ export class Profile {
   }
 
   /** クリアを記録する。ベスト更新なら newBest = true。rev = いまのコースの版 (省略 = 1)。 */
-  recordClear(stageId: string, timeMs: number, splits?: readonly StarSplit[], rev = 1): { newBest: boolean; firstClear: boolean } {
+  recordClear(stageId: string, timeMs: number, splits?: readonly StarSplit[], rev = 1, ghost?: GhostData): { newBest: boolean; firstClear: boolean } {
     const r = this.stage(stageId);
     r.rev = rev;
     const firstClear = !r.cleared;
@@ -191,6 +195,8 @@ export class Profile {
       // ベストの走りの星の時刻に差し替える (星の記録が無い走りなら、古い記録は残さない)
       if (splits && splits.length > 0) r.bestSplits = splits.map((x) => ({ id: x.id, ms: x.ms }));
       else delete r.bestSplits;
+      if (ghost && ghost.q.length >= 8) r.ghost = ghost;
+      else delete r.ghost;
     }
     this.changed();
     return { newBest, firstClear };

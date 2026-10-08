@@ -23,6 +23,9 @@ export interface SettingsOptions {
   /** プレイ中のヒント (看板の説明・敵の倒し方・しかけの説明) を出すか */
   hints: boolean;
   onHints(on: boolean): void;
+  /** ゴースト (ベストの走り) を出すか */
+  ghost: boolean;
+  onGhost(on: boolean): void;
   /** 音量 (0 = 出さない 〜 100)。onVolume は、動かすたびに呼ばれる (すぐ反映して保存する) */
   bgm: number;
   se: number;
@@ -74,6 +77,10 @@ export class SettingsScreen implements Screen {
         num,
       );
     };
+    const ghostSeg = h('div', { class: 'st-seg' });
+    for (const on of [true, false]) {
+      ghostSeg.appendChild(h('button', { class: `btn btn-ghost st-opt${on === opts.ghost ? ' on' : ''}`, text: on ? '出す' : '出さない', on: { click: () => opts.onGhost(on) } }));
+    }
     const when = opts.savedAt ? new Date(opts.savedAt).toLocaleString('ja-JP') : '未保存';
     let armed = false;
     let timer = 0;
@@ -104,6 +111,7 @@ export class SettingsScreen implements Screen {
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '音楽 (BGM)' }), volRow('bgm')),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '効果音' }), volRow('se'), h('small', { class: 'st-note', text: '音が出ない時は、端末の音量と消音 (マナーモード) を確かめてください' })),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'ヒント' }), hintSeg, h('small', { class: 'st-note', text: 'プレイ中に、看板の説明・敵の倒し方・しかけの説明を画面に出します。「出さない」なら、自分で試して見つけます' })),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'ゴースト' }), ghostSeg, h('small', { class: 'st-note', text: 'ステージのベストを出した走りを、半透明の自分が同じ道で走って見せます (ベストがあるステージだけ)' })),
         h(
           'div',
           { class: 'st-row' },

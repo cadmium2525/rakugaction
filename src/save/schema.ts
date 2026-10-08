@@ -9,6 +9,7 @@ import { hasAnyInk } from '../drawing/model';
 import { sanitizeDrawing } from '../drawing/sanitize';
 import { MAX_LEVEL, expForLevel } from '../progression/level';
 import { isQuality } from '../render/quality';
+import { sanitizeGhost } from '../timeattack/ghost';
 import type { Quality } from '../render/quality';
 import type { TimeAttackBest } from '../timeattack/run';
 
@@ -26,9 +27,11 @@ export interface SaveSettings {
   /** 音量 (0 = 出さない 〜 100)。BGM と効果音 */
   bgm: number;
   se: number;
+  /** ゴースト (ベストの走りを、半透明の自分で見せる) を出すか。既定は出す */
+  ghost: boolean;
 }
 
-export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false, bgm: 70, se: 70 };
+export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false, bgm: 70, se: 70, ghost: true };
 
 /**
  * 保存されていた音量を、0〜100 の目盛りにする。v0.19.0 だけは 4 段階 (0〜3) で保存していたので、1 / 2 / 3 は 小 / 中 / 大 = 40 / 70 / 100 として読む
@@ -94,7 +97,7 @@ const MIGRATIONS: Record<number, (raw: Obj) => Obj> = {
       allStagesRuns: 0,
       exp: 0,
     },
-    settings: { quality: 'auto', hints: false, bgm: 70, se: 70 },
+    settings: { quality: 'auto', hints: false, bgm: 70, se: 70, ghost: true },
   }),
   // v1 → v2: 各キャラクターのラクガキを新しい形式へ (人型の 6 パーツ → 胴体・頭・腕・脚のスロット。見た目と能力は変わらない)
   1: (raw) => {
@@ -197,6 +200,8 @@ function normalizeStages(raw: unknown, issues: string[]): Record<string, StageRe
     if (finite(v.rev) && Number.isInteger(v.rev) && v.rev >= 1 && v.rev <= 1000) out[id].rev = v.rev;
     const splits = bestMs !== null ? normalizeSplits(v.bestSplits) : null;
     if (splits) out[id].bestSplits = splits;
+    const ghost = bestMs !== null ? sanitizeGhost(v.ghost) : null;
+    if (ghost) out[id].ghost = ghost;
   }
   return out;
 }
@@ -256,7 +261,7 @@ export function normalizeSave(raw: Obj): NormalizeResult {
       exp: clampInt(profile.exp, 0, maxExp, 0),
     },
     // 音量は、あとから足した項目: 古いセーブに無ければ既定 (中)
-    settings: { quality, hints: settings.hints === true, bgm: sanitizeVolume(settings.bgm, DEFAULT_SETTINGS.bgm), se: sanitizeVolume(settings.se, DEFAULT_SETTINGS.se) },
+    settings: { quality, hints: settings.hints === true, bgm: sanitizeVolume(settings.bgm, DEFAULT_SETTINGS.bgm), se: sanitizeVolume(settings.se, DEFAULT_SETTINGS.se), ghost: settings.ghost !== false },
   };
   return { data, issues, recompute };
 }
