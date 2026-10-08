@@ -11,10 +11,10 @@ export default defineConfig({
     target: 'es2020',
     sourcemap: false,
     chunkSizeWarningLimit: 2500,
-    // 入口は 2 つ: ゲーム (index.html) と、管理者アプリ (admin/index.html → 配布物の /admin/)。
+    // 入口は 3 つ: ゲーム (index.html)・管理者アプリ (admin/index.html → /admin/)・音の道具 (daw/index.html → /daw/)。
     // 管理者アプリのコードは、ゲームの入口からは読まれない (立体化などの共通の部品だけを、同じファイルで使う)
     rollupOptions: {
-      input: { main: resolve(root, 'index.html'), admin: resolve(root, 'admin/index.html') },
+      input: { main: resolve(root, 'index.html'), admin: resolve(root, 'admin/index.html'), daw: resolve(root, 'daw/index.html') },
     },
   },
   server: { host: true, port: Number(process.env.PORT) || 5173, strictPort: Boolean(process.env.PORT) },

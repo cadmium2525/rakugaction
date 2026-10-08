@@ -57,6 +57,12 @@ interface TapPointer {
   button?: number;
 }
 
+/** ボタンが押された時に呼ぶもの (押した音)。アプリが起動時に入れる。無ければ何もしない */
+let tapHook: (() => void) | null = null;
+export function setTapHook(fn: (() => void) | null): void {
+  tapHook = fn;
+}
+
 /** 最後にタップを処理した時刻 (performance.now)。この直後の click は、同じ操作の二重の知らせ */
 let lastTapAt = -Infinity;
 let ghostGuardInstalled = false;
@@ -109,11 +115,13 @@ export function onTap(el: TapTarget, fn: (e: Event) => void): void {
     if (el.disabled || el.isConnected === false) return;
     if (!isTap(d, e, el.getBoundingClientRect())) return;
     lastTapAt = nowMs();
+    tapHook?.();
     fn(e);
   });
   el.addEventListener('click', (e) => {
     // タッチのタップは pointerup で処理済み。ここに来るのは、マウス・キーボード・el.click()
     if (nowMs() - lastTapAt <= GHOST_CLICK_MS && e.isTrusted) return;
+    tapHook?.();
     fn(e);
   });
 }

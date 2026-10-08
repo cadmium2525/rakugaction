@@ -46,12 +46,15 @@ import { TEST_ARENA } from '../stages/testArena';
 import { BirthScreen } from '../ui/birthScreen';
 import { DebugPanel } from '../ui/debugPanel';
 import { choiceDialog, nameDialog } from '../ui/dialog';
-import { h } from '../ui/dom';
+import { h, setTapHook } from '../ui/dom';
 import type { Screen } from '../ui/dom';
 import { EditorScreen } from '../ui/editor/editorScreen';
 import { HubScreen } from '../ui/hubScreen';
 import { ResultScreen } from '../ui/resultScreen';
 import { TitleScreen } from '../ui/titleScreen';
+import { AudioManager } from '../audio/audioManager';
+import type { BgmId } from '../audio/songs';
+import { BGM } from '../audio/songs';
 import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, DemoOverlay, IdleWatch, loadDemoDrawing } from './demo';
 import { PlayScene } from './playScene';
 import { Profile } from './profile';
@@ -135,6 +138,8 @@ export class App {
     DEMO_IDLE_MS,
     () => void this.startDemo(),
   );
+  /** 音 (BGM・効果音)。最初に画面を押した時から鳴る */
+  readonly audio = new AudioManager();
   /** デモの上の幕 (デモを流している間だけ) */
   private demo: DemoOverlay | null = null;
   private demoTimer = 0;
@@ -160,6 +165,7 @@ export class App {
     // セーブデータ: 読み込んでプロフィールを復元する。開発用のショートカット (?doodle=…) 起動では保存しない (?save=1 で保存する)
     await this.initSave();
     // ランキング設定 (public/ranking-config.json)。無い/無効なら未設定として扱う。?ranking=mock でメモリ上のモック (開発用)
+    this.audio.setLevels(this.settings.bgm, this.settings.se);
     this.ranking = await createRankingService({ mock: this.devMode && this.params.get('ranking') === 'mock' });
 
     const doodle = this.params.get('doodle');
@@ -196,6 +202,11 @@ export class App {
     document.addEventListener('pointerdown', () => lockLandscape(), { once: true });
     // ブラウザの拡大 (ピンチ・ダブルタップでページ全体がズームする) を、どの画面でも止める。以前は、プレイ中の gesturestart だけ止めていた
     installZoomGuard();
+    // 音: ブラウザは、画面を押すまで音を出せない。最初の操作で使えるようにする (そのあとは、止まっていた音の再開も兼ねる)
+    const unlock = (): void => this.audio.unlock();
+    document.addEventListener('pointerdown', unlock, true);
+    document.addEventListener('keydown', unlock, true);
+    setTapHook(() => this.audio.sfx('tap', 0.7));
   }
 
   /** 全画面にする/戻す (対応している端末だけ。iPhone の Safari は未対応)。成功したら横向きロックも試す。 */
@@ -304,6 +315,7 @@ export class App {
 
   showCharacters(): void {
     this.leaveGame();
+    this.audio.bgm('hub');
     this.setScreen(
       new CharacterListScreen({
         characters: this.profile.characters,
@@ -350,6 +362,14 @@ export class App {
         onFullscreen: () => void this.toggleFullscreen().then(() => this.showSettings(back)),
         onQuality: (q) => {
           this.setQualitySetting(q);
+          this.showSettings(back);
+        },
+        bgm: this.settings.bgm,
+        se: this.settings.se,
+        onVolume: (kind, level) => {
+          this.settings = { ...this.settings, [kind]: level };
+          this.audio.setLevels(this.settings.bgm, this.settings.se);
+          this.requestSave();
           this.showSettings(back);
         },
         hints: this.settings.hints,
@@ -437,6 +457,7 @@ export class App {
 
   showTitle(): void {
     this.leaveGame();
+    this.audio.bgm('title');
     this.setScreen(
       new TitleScreen({
         onPlay: () => (this.profile.selected ? void this.showHub() : this.showEditor()),
@@ -536,6 +557,7 @@ export class App {
 
   private openEditor(initial?: DrawingData, initialPartId?: string): void {
     this.leaveGame();
+    this.audio.bgm('hub');
     let warned = false;
     this.setScreen(
       new EditorScreen({
@@ -581,6 +603,7 @@ export class App {
       return;
     }
     this.analysis = built.analysis;
+    this.audio.jingle('birth');
     this.setScreen(
       new BirthScreen({
         host,
@@ -655,6 +678,7 @@ export class App {
       return;
     }
     this.leaveGame();
+    this.audio.bgm('hub');
     const host = this.ensureHost();
     this.setScreen(
       new HubScreen({
@@ -681,6 +705,11 @@ export class App {
   }
 
   /** ステージを始める (READY → GO → プレイ)。 */
+  /** ステージの曲を流す (そのステージの曲が無ければ、止める)。 */
+  private playStageBgm(id: string): void {
+    this.audio.bgm(id in BGM ? (id as BgmId) : null);
+  }
+
   async startStage(id: string): Promise<void> {
     const rec = this.profile.selected;
     const entry = getStageEntry(id);
@@ -689,6 +718,7 @@ export class App {
       return;
     }
     this.leaveGame();
+    this.playStageBgm(entry.id);
     this.setScreen(loadingScreen('ステージを読み込み中…'));
     const host = this.ensureHost();
     const session = await StageSession.create({
@@ -701,6 +731,7 @@ export class App {
       intro: entry.title,
       bestSplits: this.profile.stage(entry.id).bestSplits,
       hints: this.settings.hints,
+      audio: this.audio,
       onFinish: (r) => this.onStageFinished(entry.id, r),
       onQuit: () => void this.showHub(),
     });
@@ -792,6 +823,7 @@ export class App {
       return;
     }
     this.leaveGame();
+    this.playStageBgm(entry.id);
     this.setScreen(loadingScreen(`${entry.title}  読み込み中…`));
     const host = this.ensureHost();
     const no = run.index + 1;
@@ -807,6 +839,7 @@ export class App {
       intro: `${entry.title}  ${no}/${count}`,
       bestSplits: this.profile.stage(entry.id).bestSplits,
       hints: this.settings.hints,
+      audio: this.audio,
       clock: this.devClock ?? undefined,
       // HUD の 2 行目: ここまでの総タイム (このステージの経過を含む)
       subTime: () => `ALL STAGES ${no}/${count}   TOTAL ${formatTime(run.totalMs + (session?.timer.elapsedMs ?? 0))}`,
@@ -857,6 +890,7 @@ export class App {
 
   /** 走りの結果: ベスト更新・EXP・結果画面。 */
   private showTaResult(run: TimeAttackRun): void {
+    this.audio.jingle('finale');
     const result = run.result(this.parSec());
     const cmp = compareWithBest(result, this.profile.allStagesBest);
     // フラグ付きの走りは参考記録: ベストにも EXP にもしない
@@ -907,6 +941,7 @@ export class App {
   /** back = 「戻る」の行き先 (既定はステージ選択。タイトルから開いた時はタイトル)。 */
   showRanking(back: () => void = () => void this.showHub()): void {
     this.leaveGame();
+    this.audio.bgm('hub');
     this.setScreen(new RankingScreen({ service: this.ranking, root: this.root, onBack: back }));
   }
 

@@ -11,6 +11,8 @@ import type { StageDef } from '../stages/types';
 import { StageTimer } from '../timeattack/timer';
 import { Hud } from '../ui/hud';
 import { Minimap } from '../ui/minimap';
+import type { AudioManager } from '../audio/audioManager';
+import { soundsFor } from '../audio/eventSounds';
 import { PauseMenu } from '../ui/pauseMenu';
 import type { ObjectiveInfo } from '../ui/pauseMenu';
 import { missPenaltySec, returnSpeed } from '../timeattack/penalty';
@@ -71,6 +73,8 @@ export interface SessionDeps {
    * 試行錯誤で見つけるのもアクションゲームの楽しみで、説明が多いと画面が見づらい (ユーザー評価)。設定画面で出せる。
    */
   hints?: boolean;
+  /** 音 (効果音・ジングル)。無ければ鳴らさない (デモ・テスト) */
+  audio?: Pick<AudioManager, 'sfx' | 'jingle' | 'setDucked'>;
 }
 
 type Phase = 'ready' | 'playing' | 'goal' | 'done';
@@ -195,6 +199,7 @@ export class StageSession {
       Object.assign(si, this.zero);
     };
     this.hud.setBanner(this.deps.intro ?? 'READY?', 'ready');
+    this.deps.audio?.sfx('ready');
   }
 
   private enterPlaying(): void {
@@ -204,6 +209,7 @@ export class StageSession {
     this.input.reset();
     this.simAtPlay = this.scene.sim.time;
     this.timer.start();
+    this.deps.audio?.sfx('go');
   }
 
   /** 最初からやり直す (ステージを作り直し、READY から)。 */
@@ -218,6 +224,7 @@ export class StageSession {
   }
 
   private onPauseChange(paused: boolean): void {
+    this.deps.audio?.setDucked(paused);
     if (this.phase === 'goal' || this.phase === 'done') return;
     if (paused) {
       this.timer.pause();
@@ -267,6 +274,8 @@ export class StageSession {
   }
 
   private onEvents(events: readonly SimEvent[]): void {
+    const audio = this.deps.audio;
+    if (audio) for (const cue of soundsFor(events)) audio.sfx(cue.id, cue.volume);
     for (const e of events) {
       switch (e.type) {
         case 'hurt':
@@ -383,6 +392,7 @@ export class StageSession {
       splits: this.splits.slice(),
     };
     this.hud.setBanner('GOAL!', 'clear');
+    this.deps.audio?.jingle('clear');
     // 祝福ジャンプ (プレイヤーは操作不能)
     this.celebrateStep = 0;
     this.scene.inputOverride = (si) => {

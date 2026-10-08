@@ -33,7 +33,7 @@ export function makeSave(over: Partial<SaveData['profile']> = {}): SaveData {
     exp: 777,
     ...over,
   };
-  s.settings = { quality: 'medium', hints: true };
+  s.settings = { quality: 'medium', hints: true, bgm: 1, se: 3 };
   return s;
 }
 

@@ -12,7 +12,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "daw": "vitest run --config tools/daw/vitest.config.ts"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",

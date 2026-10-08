@@ -23,6 +23,10 @@ export interface SettingsOptions {
   /** プレイ中のヒント (看板の説明・敵の倒し方・しかけの説明) を出すか */
   hints: boolean;
   onHints(on: boolean): void;
+  /** 音量の段階 (0 = 出さない 〜 3 = 大) */
+  bgm: number;
+  se: number;
+  onVolume(kind: 'bgm' | 'se', level: number): void;
   /** セーブデータを全て消す (確認の後に呼ばれる) */
   onReset(): void;
   onBack(): void;
@@ -49,6 +53,12 @@ export class SettingsScreen implements Screen {
     for (const on of [false, true]) {
       hintSeg.appendChild(h('button', { class: `btn btn-ghost st-opt${on === opts.hints ? ' on' : ''}`, text: on ? '出す' : '出さない', on: { click: () => opts.onHints(on) } }));
     }
+    const VOL = ['出さない', '小', '中', '大'];
+    const volSeg = (kind: 'bgm' | 'se'): HTMLElement => {
+      const el = h('div', { class: 'st-seg' });
+      VOL.forEach((label, level) => el.appendChild(h('button', { class: `btn btn-ghost st-opt${level === opts[kind] ? ' on' : ''}`, text: label, on: { click: () => opts.onVolume(kind, level) } })));
+      return el;
+    };
     const when = opts.savedAt ? new Date(opts.savedAt).toLocaleString('ja-JP') : '未保存';
     let armed = false;
     let timer = 0;
@@ -76,6 +86,8 @@ export class SettingsScreen implements Screen {
         { class: 'st-card' },
         h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: '⚙ 設定' }), h('button', { class: 'btn btn-ghost', text: '← 戻る', on: { click: () => opts.onBack() } })),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '画質' }), seg, h('small', { class: 'st-note', text: `「自動」は現在「${QUALITY_LABEL[opts.autoQuality as QualitySetting] ?? opts.autoQuality}」です (端末の性能に合わせて選びます)` })),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '音楽 (BGM)' }), volSeg('bgm')),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '効果音' }), volSeg('se'), h('small', { class: 'st-note', text: '音が出ない時は、端末の音量と消音 (マナーモード) を確かめてください' })),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'ヒント' }), hintSeg, h('small', { class: 'st-note', text: 'プレイ中に、看板の説明・敵の倒し方・しかけの説明を画面に出します。「出さない」なら、自分で試して見つけます' })),
         h(
           'div',

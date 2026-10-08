@@ -23,9 +23,12 @@ export interface SaveSettings {
   quality: QualitySetting;
   /** プレイ中にヒント (看板の説明・敵の倒し方・しかけの説明) を出すか。既定は出さない */
   hints: boolean;
+  /** 音量の段階 (0 = 出さない / 1 = 小 / 2 = 中 / 3 = 大)。BGM と効果音 */
+  bgm: number;
+  se: number;
 }
 
-export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false };
+export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false, bgm: 2, se: 2 };
 
 export interface SaveProfile {
   characters: CharacterRecord[];
@@ -81,7 +84,7 @@ const MIGRATIONS: Record<number, (raw: Obj) => Obj> = {
       allStagesRuns: 0,
       exp: 0,
     },
-    settings: { quality: 'auto', hints: false },
+    settings: { quality: 'auto', hints: false, bgm: 2, se: 2 },
   }),
   // v1 → v2: 各キャラクターのラクガキを新しい形式へ (人型の 6 パーツ → 胴体・頭・腕・脚のスロット。見た目と能力は変わらない)
   1: (raw) => {
@@ -242,7 +245,8 @@ export function normalizeSave(raw: Obj): NormalizeResult {
       allStagesRuns: clampInt(profile.allStagesRuns, 0, 1_000_000, 0),
       exp: clampInt(profile.exp, 0, maxExp, 0),
     },
-    settings: { quality, hints: settings.hints === true },
+    // 音量は、あとから足した項目: 古いセーブに無ければ既定 (中)
+    settings: { quality, hints: settings.hints === true, bgm: clampInt(settings.bgm, 0, 3, DEFAULT_SETTINGS.bgm), se: clampInt(settings.se, 0, 3, DEFAULT_SETTINGS.se) },
   };
   return { data, issues, recompute };
 }
