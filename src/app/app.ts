@@ -426,6 +426,7 @@ export class App {
         onPlay: () => (this.profile.selected ? void this.showHub() : this.showEditor()),
         onDraw: () => this.showEditor(),
         onSettings: () => this.showSettings(() => this.showTitle()),
+        onRanking: this.ranking.available ? () => this.showRanking(() => this.showTitle()) : undefined,
         hasSave: this.profile.characters.length > 0,
         hasDraft: this.drafts.load() !== null,
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
@@ -830,9 +831,10 @@ export class App {
     screen?.setStatus(rankMessage(res.value));
   }
 
-  showRanking(): void {
+  /** back = 「戻る」の行き先 (既定はステージ選択。タイトルから開いた時はタイトル)。 */
+  showRanking(back: () => void = () => void this.showHub()): void {
     this.leaveGame();
-    this.setScreen(new RankingScreen({ service: this.ranking, root: this.root, onBack: () => void this.showHub() }));
+    this.setScreen(new RankingScreen({ service: this.ranking, root: this.root, onBack: back }));
   }
 
   /** 開発/QA 用: 実行中のステージをボットに自動プレイさせる (実描画・実 HUD・実結果画面を通した E2E 確認用)。 */

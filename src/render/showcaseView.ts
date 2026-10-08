@@ -141,9 +141,12 @@ export class ShowcaseView {
 
   /** 構図のずらし量 (画面幅に対する比)。正の値でキャラクターが左へ寄る (右側に UI を置く時)。 */
   private offsetX = 0;
+  /** キャラクターを映せる幅 (画面幅に対する比)。UI のパネルが画面の一部をふさぐ時に、残りの幅へ収める */
+  private fitWidth = 1;
 
-  setCompositionOffset(frac: number): void {
+  setCompositionOffset(frac: number, fitWidth = 1): void {
     this.offsetX = frac;
+    this.fitWidth = Math.max(0.2, Math.min(1, fitWidth));
     this.frame();
   }
 
@@ -153,7 +156,7 @@ export class ShowcaseView {
     const W = this.rig?.metrics?.width ?? H * 0.5;
     const tan = Math.tan((this.camera.fov * Math.PI) / 360);
     const dH = (H * 0.62 + 0.25) / tan;
-    const dW = (Math.max(W, 0.6) * 0.62) / (tan * Math.max(0.5, this.camera.aspect));
+    const dW = (Math.max(W, 0.6) * 0.62) / (tan * Math.max(0.3, this.camera.aspect * this.fitWidth));
     const d = Math.max(dH, dW) * 1.1;
     this.camera.position.set(0, H * 0.6, d);
     this.camera.lookAt(0, H * 0.46, 0);

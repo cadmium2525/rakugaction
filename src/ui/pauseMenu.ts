@@ -42,10 +42,12 @@ export class PauseMenu {
   private readonly box: HTMLElement;
   private readonly list: HTMLElement;
   private readonly checkpointBtn: HTMLButtonElement;
+  private readonly penaltyEl: HTMLElement;
 
   constructor(parent: HTMLElement, opts: PauseMenuOptions) {
     this.list = h('div', { class: 'pause-list' });
-    this.checkpointBtn = h('button', { class: 'btn btn-ghost', text: CHECKPOINT_LABEL, on: { click: () => opts.onCheckpoint() } });
+    this.penaltyEl = h('small', { class: 'pause-penalty' });
+    this.checkpointBtn = h('button', { class: 'btn btn-ghost pause-cp', on: { click: () => opts.onCheckpoint() } }, h('span', { text: CHECKPOINT_LABEL }), this.penaltyEl);
     this.box = h(
       'div',
       { class: 'pause-box' },
@@ -65,7 +67,9 @@ export class PauseMenu {
 
   /** 「チェックポイントから再開」に、タイムへ加わる秒数の見積りを添える (null なら添えない)。 */
   setCheckpointPenalty(sec: number | null): void {
-    this.checkpointBtn.textContent = sec === null ? CHECKPOINT_LABEL : `${CHECKPOINT_LABEL} (+${sec.toFixed(1)} 秒)`;
+    // 秒数は 2 行目に分ける (1 行に並べると、狭い画面でボタンの枠からはみ出す)
+    this.penaltyEl.textContent = sec === null ? '' : `タイム +${sec.toFixed(1)} 秒`;
+    this.checkpointBtn.classList.toggle('has-penalty', sec !== null);
   }
 
   /** 集めるアイテムの一覧を出す (null なら出さない)。取った物は ✓、まだの物は ○。 */

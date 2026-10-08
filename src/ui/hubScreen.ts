@@ -1,5 +1,6 @@
 import type { Profile } from '../app/profile';
 import type { CharacterRig } from '../character/rig';
+import { describeBuild } from '../character/statGen';
 import type { CharacterStats, StatKey } from '../character/stats';
 import type { LevelProgress } from '../progression/level';
 import type { RenderHost } from '../render/renderHost';
@@ -49,6 +50,7 @@ export class HubScreen implements Screen {
   private raf = 0;
   private last = 0;
   private disposed = false;
+  private readonly panel: HTMLElement;
 
   constructor(opts: HubOptions) {
     this.view = new ShowcaseView(opts.host);
@@ -94,21 +96,45 @@ export class HubScreen implements Screen {
       h('button', { class: 'btn btn-ghost wide', text: '← タイトル', on: { click: () => opts.onTitle() } }),
     );
 
+    // 横向きの低い画面では、能力の表はたたんでおく (開いたままだと、キャラクターに重なって隠す)。体型の名前の札を押すと開く
+    const build = h('button', { class: 'hub-build', attrs: { 'aria-expanded': 'false' } }, h('b', { text: describeBuild(opts.stats).label }), h('span', { text: '能力 ▾' }));
+    const toggle = (open: boolean): void => {
+      this.el.classList.toggle('stats-open', open);
+      build.setAttribute('aria-expanded', String(open));
+      (build.lastChild as HTMLElement).textContent = open ? 'とじる ▴' : '能力 ▾';
+    };
+    build.addEventListener('click', () => toggle(!this.el.classList.contains('stats-open')));
+    card.el.addEventListener('click', () => toggle(false));
+    this.panel = h('div', { class: 'hub-panel' }, h('div', { class: 'hub-title', text: 'ステージ選択' }), list, card.el, menu);
+
     this.el = h(
       'div',
       { class: 'screen screen-clear hub-screen' },
+      build,
       opts.onRename
         ? h('button', { class: 'hub-name hub-name-btn', attrs: { 'aria-label': `${opts.name} の名前を変える` }, on: { click: () => opts.onRename?.() } }, h('span', { text: opts.name }), h('span', { class: 'hub-name-edit', text: '✏️' }))
         : h('div', { class: 'hub-name', text: opts.name }),
       opts.level ? levelBadge(opts.level) : null,
-      h('div', { class: 'hub-panel' }, h('div', { class: 'hub-title', text: 'ステージ選択' }), list, card.el, menu),
+      this.panel,
     );
   }
 
   onShow(): void {
+    this.compose();
+    window.addEventListener('resize', this.compose);
     this.last = performance.now();
     this.raf = requestAnimationFrame(this.loop);
   }
+
+  /** キャラクターを、パネルにふさがれていない左側のまん中に、その幅へ収まる大きさで映す。 */
+  private readonly compose = (): void => {
+    const w = this.el.clientWidth;
+    const free = this.panel.getBoundingClientRect().left - this.el.getBoundingClientRect().left;
+    if (w <= 0 || free <= 0) return;
+    this.view.setCompositionOffset(0.5 - free / 2 / w, free / w);
+    // 左下の名前・レベルも、パネルの下へもぐらない幅にする
+    this.el.style.setProperty('--hub-free', `${Math.round(free)}px`);
+  };
 
   private readonly loop = (now: number): void => {
     if (this.disposed) return;
@@ -131,6 +157,7 @@ export class HubScreen implements Screen {
   dispose(): void {
     this.disposed = true;
     cancelAnimationFrame(this.raf);
+    window.removeEventListener('resize', this.compose);
     this.view.dispose();
     this.el.remove();
   }

@@ -2,6 +2,8 @@ import type { CharacterRecord } from '../character/record';
 import { describeBuild } from '../character/statGen';
 import { STAT_KEYS } from '../character/stats';
 import { MAX_CHARACTERS } from '../save/schema';
+import { renderThumbs } from './characterThumb';
+import type { ThumbJob } from './characterThumb';
 import { h, onTap } from './dom';
 import type { Screen } from './dom';
 
@@ -24,6 +26,8 @@ const SHORT: Record<(typeof STAT_KEYS)[number], string> = { hp: 'HP', power: 'PO
  */
 export class CharacterListScreen implements Screen {
   readonly el: HTMLElement;
+  private readonly thumbJobs: ThumbJob[] = [];
+  private stopThumbs: (() => void) | null = null;
 
   constructor(private readonly opts: CharacterListOptions) {
     const full = opts.characters.length >= MAX_CHARACTERS;
@@ -69,9 +73,20 @@ export class CharacterListScreen implements Screen {
       window.clearTimeout(timer);
       this.opts.onDelete(c.id);
     });
+    // 小さな姿 (3D を絵にしたもの)。できるまでは場所だけ空けておく
+    const thumb = h('img', { class: 'cl-thumb empty', attrs: { alt: '', draggable: 'false' } });
+    this.thumbJobs.push({
+      key: `${c.id}:${c.createdAt}`,
+      drawing: c.drawing,
+      done: (url) => {
+        thumb.src = url;
+        thumb.classList.remove('empty');
+      },
+    });
     return h(
       'div',
       { class: `cl-item${selected ? ' selected' : ''}` },
+      thumb,
       h(
         'div',
         { class: 'cl-info' },
@@ -85,7 +100,12 @@ export class CharacterListScreen implements Screen {
     );
   }
 
+  onShow(): void {
+    this.stopThumbs = renderThumbs(this.thumbJobs);
+  }
+
   dispose(): void {
+    this.stopThumbs?.();
     this.el.remove();
   }
 }

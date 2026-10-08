@@ -1512,3 +1512,192 @@
   line-height: 1.4;
   color: #7a6a4c;
 }
+
+/* ---------- PHASE 30a: 画面の直し ---------- */
+/* 一時停止ボタン: 記号を 2 本の棒で描く (文字の Ⅱ は、端末のフォントで幅と位置がずれる) */
+.hud-pause {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+}
+.hud-pause-bar {
+  display: block;
+  width: 5px;
+  height: 18px;
+  border-radius: 2px;
+  background: #fff;
+  pointer-events: none;
+}
+/* 一時停止メニュー: ボタンの文字は枠の中で折り返す。「チェックポイントから再開」の加算秒数は 2 行目 */
+.pause-btns .btn {
+  white-space: normal;
+  line-height: 1.25;
+  padding: 6px 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pause-cp {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+.pause-penalty {
+  font-size: 11px;
+  font-weight: 800;
+  color: #b0401f;
+}
+.pause-penalty:empty {
+  display: none;
+}
+.pause-box {
+  max-width: calc(100% - 16px);
+  max-height: calc(100% - 12px);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+@media (max-height: 360px) {
+  .pause-box {
+    gap: 6px;
+    padding: 10px 12px;
+  }
+  .pause-btns {
+    gap: 6px;
+  }
+  .pause-btns .btn {
+    min-height: 36px;
+    font-size: 13px;
+  }
+  .pause-btns .btn-big {
+    min-height: 42px;
+    font-size: 16px;
+  }
+  .pause-title {
+    font-size: 16px;
+  }
+}
+
+/* ハブ: 体型の名前の札 (横向きの低い画面でだけ出す)。押すと能力の表が開く */
+.hub-build {
+  display: none;
+}
+@media (max-height: 740px) and (orientation: landscape) {
+  .hub-build {
+    position: absolute;
+    left: calc(var(--safe-left) + 10px);
+    top: calc(var(--safe-top) + 10px);
+    z-index: 3;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-height: 36px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 2px solid #e6d8bb;
+    background: rgba(255, 255, 255, 0.94);
+    color: var(--ink);
+    font-family: inherit;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+  .hub-build b {
+    font-size: 14px;
+    font-weight: 900;
+    color: var(--accent);
+  }
+  .hub-build span {
+    font-size: 11px;
+    font-weight: 800;
+    color: #7a6a4c;
+  }
+  .hub-panel .stat-card {
+    display: none;
+    top: calc(var(--safe-top) + 52px);
+    max-height: calc(100% - 64px);
+    overflow-y: auto;
+  }
+  .hub-screen.stats-open .hub-panel .stat-card {
+    display: block;
+  }
+  .hub-panel .stat-card .sc-label {
+    display: none;
+  }
+}
+
+/* タイトル: ランキングと設定は横に並べる (低い画面で、ボタンが縦にあふれないように) */
+.title-menu {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: min(340px, 80vw);
+}
+.title-menu .btn {
+  grid-column: 1 / -1;
+  padding: 0 8px;
+}
+.title-menu .btn.half {
+  grid-column: auto;
+}
+@media (max-height: 360px) {
+  .title-screen {
+    gap: 8px;
+  }
+  .title-menu {
+    gap: 7px;
+  }
+  .title-menu .btn {
+    min-height: 42px;
+    font-size: 15px;
+  }
+}
+
+/* キャラクター一覧: 小さな姿 */
+.cl-thumb {
+  flex: 0 0 auto;
+  width: 54px;
+  height: 54px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #dfeeff, #fff6e0);
+  object-fit: contain;
+}
+.cl-thumb.empty {
+  visibility: hidden;
+}
+@media (max-width: 600px) {
+  .cl-thumb {
+    width: 44px;
+    height: 44px;
+  }
+  .cl-rename {
+    padding: 4px 6px;
+  }
+}
+/* ハブの左下 (名前・レベル) は、パネルにふさがれていない幅に収める */
+.hub-level,
+.hub-name {
+  max-width: calc(var(--hub-free, 48vw) - 26px);
+  box-sizing: border-box;
+}
+.hub-level {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.hub-level span {
+  white-space: nowrap;
+}
+.hub-lv-bar {
+  flex: 1 1 60px;
+  max-width: 110px;
+}
+.hub-name > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

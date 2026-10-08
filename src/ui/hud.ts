@@ -34,7 +34,8 @@ export class Hud {
     this.hintEl = h('div', { class: 'hud-hint' });
     this.flash = h('div', { class: 'hud-flash' });
     this.fade = h('div', { class: 'hud-fade' });
-    const pause = h('button', { class: 'hud-pause', text: 'Ⅱ', attrs: { 'aria-label': '一時停止' } });
+    // 記号は文字 (Ⅱ) ではなく 2 本の棒で描く (端末のフォントによって、幅や位置がずれるため)
+    const pause = h('button', { class: 'hud-pause', attrs: { 'aria-label': '一時停止', type: 'button' } }, h('span', { class: 'hud-pause-bar' }), h('span', { class: 'hud-pause-bar' }));
     pause.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       e.stopPropagation();
