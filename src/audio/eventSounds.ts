@@ -64,6 +64,15 @@ export function soundsFor(events: readonly SimEvent[]): SoundCue[] {
       case 'pickupAppear':
         add('starAppear');
         break;
+      case 'boss':
+        // 前ぶれ = 低い合図 / 当たり = 風を切る音か地ひびき / 効いた = 手ごたえ / 段階 = 合図 / 倒した = ゴールが開く音
+        if (e.what === 'windup') add('locked', 0.9);
+        else if (e.what === 'strike') add(e.move === 'slam' ? 'crumble' : 'attack', 1);
+        else if (e.what === 'hit') add('break', 0.8);
+        else if (e.what === 'phase') add('starAppear', 1);
+        else if (e.what === 'down') add('goalOpen', 1);
+        else if (e.what === 'wake') add('crumble', 1);
+        break;
       case 'goalLocked':
         add('locked');
         break;

@@ -194,6 +194,12 @@ export class PlayScene {
     else if (e.type === 'hurt') fx.hit(0.28, 0.09);
     else if (e.type === 'break') fx.hit(0.2, 0.06);
     else if (e.type === 'breakGuard') fx.hit(0.08, 0.03);
+    else if (e.type === 'boss') {
+      if (e.what === 'hit') fx.hit(0.12, 0.05);
+      else if (e.what === 'phase') fx.hit(0.22, 0.09);
+      else if (e.what === 'down') fx.hit(0.35, 0.12);
+      else if (e.what === 'strike') fx.hit(e.move === 'slam' ? 0.3 : 0.14);
+    }
     else if (e.type === 'attack') fx.punchFov(e.move === 'dive' ? 9 : e.move === 'tail' || e.move === 'gust' || e.move === 'kick' || e.move === 'upper' ? 6 : 4);
     else if (e.type === 'land' && e.impact >= 6) {
       const k = Math.min(1, (e.impact - 6) / 10);

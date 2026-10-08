@@ -1,3 +1,4 @@
+import { BOSS, Boss } from './boss';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { clamp, v3 } from '../core/math';
 import type { V3 } from '../core/math';
@@ -140,6 +141,8 @@ export class GameSim {
   private readonly staticColliders: RAPIER.Collider[] = [];
   /** 現在の攻撃で既に処理した対象 (同じ対象に多段ヒットさせない。複数の対象には当たる) */
   private readonly attackHits = new Set<string>();
+  /** ボス (ステージにいれば)。倒すまで、ゴールは開かない */
+  readonly boss: Boss | null;
   private readonly windOut = { x: 0, y: 0, z: 0 };
   /** 地形があるステージの地面の高さ (敵の足元用)。なければ undefined */
   private readonly ground: GroundFn | undefined;
@@ -151,6 +154,7 @@ export class GameSim {
     params: PlayerParams,
   ) {
     this.world = new R.World({ x: 0, y: 0, z: 0 });
+    this.boss = stage.boss ? new Boss(stage.boss) : null;
     this.world.timestep = FIXED_DT;
     this.ray = new R.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
     const terrain = stage.terrain;
@@ -388,6 +392,7 @@ export class GameSim {
       this.checkHazards();
     }
     if (player.attacking) this.checkAttackHits();
+    if (this.boss) this.stepBoss(dt);
     if (player.pos.y - player.params.height / 2 < this.stage.killY) {
       this.falls++;
       this.respawn('fall');
@@ -585,7 +590,13 @@ export class GameSim {
         Math.abs(p.pos.y - g.pos[1]) <= g.size[1] / 2 &&
         Math.abs(p.pos.z - g.pos[2]) <= g.size[2] / 2
       ) {
-        if (this.goalOpen) {
+        if (this.boss && !this.boss.defeated) {
+          // ボスを倒すまで、ゴールは開かない (星が足りない時は、今までどおり「あと N 個」を出す)
+          if (!this.goalOpen && this.goalLockedCooldown <= 0) {
+            this.goalLockedCooldown = GOAL_LOCKED_NOTICE;
+            this.events.push({ type: 'goalLocked', need: this.pickupsRequired - this.collected.size });
+          }
+        } else if (this.goalOpen) {
           this.goalReached = true;
           this.events.push({ type: 'goal' });
         } else if (this.goalLockedCooldown <= 0) {
@@ -749,6 +760,13 @@ export class GameSim {
       if (d - e.spec.radius > reach || Math.abs(e.pos.y - p.pos.y) > e.spec.height / 2 + hh + 0.5) continue;
       if (d < 0.3 || (dx * fx + dz * fz) / d >= 0) return true;
     }
+    const boss = this.boss;
+    if (boss && boss.active) {
+      const dx = boss.def.pos[0] - p.pos.x;
+      const dz = boss.def.pos[2] - p.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d - BOSS.radius <= reach && Math.abs(p.feetY - boss.def.pos[1]) < boss.def.height && (d < 0.3 || (dx * fx + dz * fz) / d >= 0)) return true;
+    }
     for (const b of this.breakables) {
       if (b.broken) continue;
       const dx = Math.max(Math.abs(p.pos.x - b.def.pos[0]) - b.def.size[0] / 2, 0);
@@ -762,7 +780,34 @@ export class GameSim {
     return false;
   }
 
+  /** ボスを 1 ステップ進める。技が当たったら、プレイヤーにダメージ (無敵の間は当たらない)。 */
+  private stepBoss(dt: number): void {
+    const b = this.boss;
+    if (!b) return;
+    const p = this.player;
+    const r = b.step(dt, { x: p.pos.x, feetY: p.feetY, z: p.pos.z, height: p.params.height }, !this.goalOpen);
+    for (const what of r.what) this.events.push({ type: 'boss', what, move: what === 'wake' ? undefined : b.move, hp: b.hp, maxHp: b.def.hp });
+    if (r.hit && this.invuln <= 0 && !this.goalReached) this.hurt({ pos: [b.def.pos[0], b.def.pos[1] + 1, b.def.pos[2]], damage: BOSS.damage });
+  }
+
+  /** ACTION がボスに届いているか (1 つの技につき 1 回)。届いていれば、攻撃力ぶん体力を減らす。 */
+  private checkBossHit(): void {
+    const b = this.boss;
+    if (!b || !b.active || this.attackHits.has(b.def.id)) return;
+    const p = this.player;
+    const dx = b.def.pos[0] - p.pos.x;
+    const dz = b.def.pos[2] - p.pos.z;
+    const d = Math.hypot(dx, dz);
+    if (d - BOSS.radius > p.attackReach) return;
+    if (p.feetY > b.def.pos[1] + b.def.height || p.feetY + p.params.height + p.attackTall < b.def.pos[1]) return;
+    if (d > 0.3 && (dx * Math.sin(p.yaw) + dz * Math.cos(p.yaw)) / d < p.attackArc) return;
+    this.attackHits.add(b.def.id);
+    const res = b.damage(p.params.attackPower);
+    if (res) this.events.push({ type: 'boss', what: res, hp: b.hp, maxHp: b.def.hp });
+  }
+
   private checkAttackHits(): void {
+    this.checkBossHit();
     const p = this.player;
     const reach = p.attackReach;
     const fx = Math.sin(p.yaw);
@@ -844,6 +889,11 @@ export class GameSim {
     }
     this.hp = this.maxHp;
     this.invuln = 1.0;
+    // ボス戦で倒れたら、ボスの体力も満タンに戻る (やり直し)
+    if (this.boss && this.boss.active && this.boss.hp < this.boss.def.hp) {
+      this.boss.reset();
+      this.events.push({ type: 'boss', what: 'reset', hp: this.boss.hp, maxHp: this.boss.def.hp });
+    }
     const dist = Math.hypot(this.player.pos.x - this.checkpoint.x, this.player.pos.z - this.checkpoint.z);
     this.player.placeFeet(this.checkpoint.x, this.checkpoint.y, this.checkpoint.z, this.player.yaw);
     this.events.push({ type: 'respawn', reason, dist });

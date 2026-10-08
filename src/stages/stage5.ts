@@ -299,9 +299,10 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
 
   // ===== 山頂 =====
   const y5 = Y(5);
-  for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, y5 + 2.2, 0], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'stone' });
-  k.push({ shape: 'box', pos: [0, y5 + 4.6, 0], size: [9.6, 0.9, 1.1], color: 0xd9573f });
-  sign(5, y5, -7, Math.PI + 0.3, ['ゴール'], { icon: 'star', hint: ['ラクガキ星を 5 個集めると、ゴールが開く'] });
+  // 門 (飾り) は、頂上の北の縁へ。まん中は、巨人 (ボス) の立つ場所で、倒すと、そこがゴールになる
+  for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, y5 + 2.2, RO[4] - 1.2], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'stone' });
+  k.push({ shape: 'box', pos: [0, y5 + 4.6, RO[4] - 1.2], size: [9.6, 0.9, 1.1], color: 0xd9573f });
+  sign(7.5, y5, -8, Math.PI + 0.3, ['塔の主'], { icon: 'warn', tone: 'warn', hint: ['ラクガキ星を 5 個集めると、巨人が目を覚ます。倒すと、ゴールが開く', '技の前ぶれを見て、離れるか跳んでよけ、すきに {action} を当てる'] });
 
   // ===== 飾り =====
   for (const [sx, sz] of [[-78, -78], [78, -78], [-78, 78], [78, 78]] as const) giantColumn(k.push, rng, sx, G, sz, 34, 2.6);
@@ -351,6 +352,8 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
     movers: k.movers,
     checkpoints: k.checkpoints,
     goal: { pos: [0, Y(5) + 3, 0], size: [5, 6, 5] },
+    // 塔の主 (ラクガキの巨人)。頂上のまん中に立つ。星 5 個で目を覚まし、倒すとゴールが開く
+    boss: { id: 'boss', pos: [0, Y(5), 0], height: 4.8, hp: 16, wakeRadius: 9 },
     pickups: k.pickups,
     objective: { kind: 'collect', required: 5, noun: 'ラクガキ星' },
     hazards: k.hazards,
@@ -363,7 +366,7 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
     winds: k.winds,
     ambient: { motes: { count: 50, color: 0xe6dcff, size: 0.1 }, butterflies: 0 },
     routes,
-    parTime: 125,
+    parTime: 140,
     missPenaltySec: 3,
     minimapHeightShade: true,
   };

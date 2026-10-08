@@ -1,3 +1,4 @@
+import { BOSS } from './boss';
 import { GROUND_WIND_FACTOR, WATER_JUMP_DEPTH } from './player';
 import { emptyInput } from '../input/types';
 import type { SimInput } from '../input/types';
@@ -27,6 +28,8 @@ export interface BotOptions {
   fight?: boolean;
 }
 
+/** ボスの技をよける時に、ここまで離れる (ボスからの水平距離 m。しっぽの届く 5.6m より外) */
+const BOSS_SAFE_R = 7.2;
 /** 通常ウェイポイントの到着半径 (m) */
 const DEFAULT_RADIUS = 1.0;
 /** ジャンプ用ウェイポイント: この距離まで近づいたら踏み切る (m) */
@@ -110,6 +113,7 @@ export class Bot {
 
     if (sim.deaths !== this.lastDeaths) this.onRespawn();
     if (sim.goalReached || this.idx >= this.route.length) return;
+    if (this.fightBoss(out)) return;
 
     // ジャンプ長押し (上昇中は押し続けて最大高さ)
     if (this.holdJump) {
@@ -317,6 +321,52 @@ export class Bot {
     const fall = Math.sqrt((2 * Math.max(0.1, apex - 0.8)) / (g * p.params.fallGravityMul));
     const airTime = v / g + fall;
     return Math.max(1.2, p.horizontalSpeed * airTime * 0.9);
+  }
+
+  /**
+   * ボスとの戦い (ボスが目を覚ましていて、同じ高さの近くにいる間)。道順をたどるのをやめて、次の決まりで動く:
+   *  - 前ぶれ・当たりの間 (パンチ・しっぽ): ボスからまっすぐ離れる (しっぽの届く 5.6m の外、7.2m まで)
+   *  - 地ひびきの輪が近づいたら、跳ぶ
+   *  - それ以外 (かまえ・すき・地ひびきの前ぶれ): 近づいて、届く距離で ACTION
+   * 人のうまい遊び方 (横へ回る・跳んでよけて殴り続ける) はしない: 「いちばん単純な方法でも倒せる」ことの確認。
+   */
+  private fightBoss(out: SimInput): boolean {
+    const sim = this.sim;
+    const b = sim.boss;
+    if (!b || !b.active) return false;
+    const p = sim.player;
+    const dx = p.pos.x - b.def.pos[0];
+    const dz = p.pos.z - b.def.pos[2];
+    const d = Math.hypot(dx, dz);
+    // ボスと同じ床 (頂上の台) に乗っている時だけ戦う (台へのぼる坂の途中では、道順をたどり続ける)
+    if (p.feetY < b.def.pos[1] - 0.4 || p.feetY > b.def.pos[1] + 3 || d > b.def.wakeRadius + 4.5) return false;
+    const ux = d > 0.3 ? dx / d : 0;
+    const uz = d > 0.3 ? dz / d : 1;
+    // 跳んでよける: しっぽ (届く所にいて、離れきれない時) と、地ひびきは、前ぶれの終わりぎわに跳ぶ (押し続けて、高く)。
+    // 輪が自分の所を通りすぎるまで、押し続ける
+    const left = b.state === 'windup' ? b.stateLength - b.t : Infinity;
+    const tailNear = b.move === 'tail' && d < BOSS.tailRadius + 0.8 && ((b.state === 'windup' && left <= 0.18) || b.state === 'strike');
+    const slamNow = b.move === 'slam' && b.state === 'windup' && left <= 0.14;
+    const ringComing = b.ringR >= 0 && b.ringR < d + 1.2;
+    if (tailNear || slamNow || ringComing) {
+      out.jumpPressed = p.grounded;
+      out.jumpHeld = true;
+    }
+    const danger = (b.state === 'windup' || b.state === 'strike') && b.move !== 'slam';
+    if (danger) {
+      if (d < BOSS_SAFE_R) {
+        out.moveX = ux;
+        out.moveZ = uz;
+      }
+      return true;
+    }
+    const reach = BOSS.radius + p.params.hitReach;
+    if (d > reach * 0.85) {
+      out.moveX = -ux;
+      out.moveZ = -uz;
+    }
+    if (d <= reach && p.attackCooldown <= 0 && p.attackTimer <= 0) out.actionPressed = true;
+    return true;
   }
 
   /**

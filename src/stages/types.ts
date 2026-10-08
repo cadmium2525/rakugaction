@@ -1,3 +1,4 @@
+import type { BossDef } from '../game/boss';
 import type { V3t } from '../core/math';
 import type { TerrainDef } from './terrain';
 
@@ -326,6 +327,8 @@ export interface StageDef {
   movers?: readonly MoverDef[];
   checkpoints?: readonly CheckpointDef[];
   goal?: GoalDef;
+  /** ボス (いれば、倒すまでゴールが開かない。星が足りない間は眠っている) */
+  boss?: BossDef;
   /** 集めるアイテムとクリア条件 (省略 = ゴールに着けばクリア) */
   pickups?: readonly PickupDef[];
   objective?: ObjectiveDef;

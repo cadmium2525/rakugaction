@@ -5,6 +5,8 @@ import { h } from './dom';
 export class Hud {
   readonly el: HTMLElement;
   private readonly hearts: HTMLElement;
+  private readonly bossEl: HTMLElement;
+  private readonly bossFill: HTMLElement;
   private readonly timeEl: HTMLElement;
   private readonly nameEl: HTMLElement;
   private readonly banner: HTMLElement;
@@ -46,7 +48,9 @@ export class Hud {
     this.swimEl = h('div', { class: 'hud-swim' }, h('span', { text: 'JUMP: 浮上' }), h('span', { text: 'ACTION: 潜水' }));
     this.waterTint = h('div', { class: 'hud-watertint' });
     this.pickupEl = h('div', { class: 'hud-pickups' });
-    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.pickupEl, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.hintEl, this.toastEl, this.fade);
+    this.bossFill = h('div', { class: 'hud-boss-fill' });
+    this.bossEl = h('div', { class: 'hud-boss' }, h('span', { class: 'hud-boss-name', text: '塔の主' }), h('div', { class: 'hud-boss-bar' }, this.bossFill));
+    this.el = h('div', { class: 'hud' }, this.waterTint, this.flash, this.hearts, this.pickupEl, this.bossEl, this.windEl, this.swimEl, h('div', { class: 'hud-center' }, this.nameEl, this.timeEl), pause, this.banner, this.hintEl, this.toastEl, this.fade);
     parent.appendChild(this.el);
   }
 
@@ -75,6 +79,12 @@ export class Hud {
    * 集めたアイテムの数。null で非表示。required = ゴールを開くのに必要な数 / total = ステージにある総数。
    * 必要な数に届くと色が変わる (以降は「ゴールへ」の合図)。
    */
+  /** ボスの体力バー (null で消す)。段階 (2/3・1/3) の目もり付き。 */
+  setBoss(info: { hp: number; maxHp: number } | null): void {
+    this.bossEl.classList.toggle('on', info !== null);
+    if (info) this.bossFill.style.width = `${Math.max(0, Math.min(100, (info.hp / info.maxHp) * 100))}%`;
+  }
+
   setPickups(info: { count: number; required: number; total: number; noun: string } | null): void {
     if (!info) {
       this.pickupEl.classList.remove('on');

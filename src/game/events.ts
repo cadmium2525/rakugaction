@@ -1,3 +1,4 @@
+import type { BossMove } from './boss';
 import type { MoveId } from './combo';
 
 /** シミュレーションが発行するイベント。描画/SE/UI/ロジックが購読する。 */
@@ -24,4 +25,9 @@ export type SimEvent =
   | { type: 'pickupAppear'; id: string }
   /** アイテムが足りないのでゴールが開かない (ゴールに触れた時。一定間隔で出る) */
   | { type: 'goalLocked'; need: number }
+  /**
+   * ボス: wake = 目を覚ました / windup = 技の前ぶれ / strike = 技が出た / hit = ACTION が効いた / phase = 段階が進んだ / down = 倒した / reset = やり直しで体力が戻った。
+   * hp / maxHp = ボスの体力
+   */
+  | { type: 'boss'; what: 'wake' | 'windup' | 'strike' | 'hit' | 'phase' | 'down' | 'reset'; move?: BossMove; hp: number; maxHp: number }
   | { type: 'goal' };

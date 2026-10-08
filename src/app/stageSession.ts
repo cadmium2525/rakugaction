@@ -384,6 +384,12 @@ export class StageSession {
           }
           break;
         }
+        case 'boss':
+          this.hud.setBoss(e.what === 'down' ? null : { hp: e.hp, maxHp: e.maxHp });
+          if (e.what === 'wake') this.hud.toast('塔の主が、目を覚ました', 2200);
+          else if (e.what === 'down') this.hud.toast('塔の主を倒した　ゴールが開きました', 2600);
+          else if (e.what === 'reset') this.hud.toast('塔の主の体力が、元に戻った', 2000);
+          break;
         case 'goal':
           if (this.phase === 'playing') this.onGoal();
           break;

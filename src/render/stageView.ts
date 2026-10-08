@@ -1,3 +1,4 @@
+import { BossView } from './bossView';
 import * as THREE from 'three';
 import { lerp } from '../core/math';
 import type { CrumbleState, GameSim } from '../game/sim';
@@ -63,6 +64,7 @@ export class StageView {
   private readonly windBeacons: WindBeacons | null = null;
   private readonly waterView: WaterView | null = null;
   private readonly enemyView: EnemyView | null = null;
+  private readonly bossView: BossView | null = null;
   private readonly signView: SignView | null = null;
 
   constructor(readonly stage: StageDef, sim: GameSim) {
@@ -162,6 +164,11 @@ export class StageView {
     if (sim.enemies.length > 0) {
       this.enemyView = new EnemyView(sim);
       this.group.add(this.enemyView.group);
+    }
+    // ボス
+    if (sim.boss) {
+      this.bossView = new BossView(sim.boss);
+      this.group.add(this.bossView.group);
     }
     // 破片
     this.debrisInst = new THREE.InstancedMesh(boxGeometry({ pos: [0, 0, 0], size: [0.32, 0.32, 0.32], style: 'wood' }, 'debris'), this.mat, StageView.MAX_DEBRIS);
@@ -355,6 +362,7 @@ export class StageView {
     this.windBeacons?.update(sim.time);
     this.waterView?.update(sim.time);
     this.enemyView?.update(sim, alpha, dt);
+    this.bossView?.update(dt);
     this.signView?.update(sim.player.pos.x, sim.player.pos.z);
     this.updateCrumbles(sim, dt);
     // 破片の更新 (1 つの InstancedMesh にまとめて書き戻す)
@@ -393,6 +401,11 @@ export class StageView {
     this.windBeacons?.dispose();
     this.waterView?.dispose();
     this.enemyView?.dispose();
+    // ボスは、自分で片づける。下の「残りのメッシュをまとめて片づける」処理に入らないよう、先に外す (ボスの立体は、材質が配列のメッシュを持つ)
+    if (this.bossView) {
+      this.group.remove(this.bossView.group);
+      this.bossView.dispose();
+    }
     this.signView?.dispose();
     this.debrisInst.geometry.dispose();
     this.debrisInst.dispose();

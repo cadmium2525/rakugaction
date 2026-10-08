@@ -1921,3 +1921,48 @@
 .pause-box.has-list .pause-help {
   grid-column: 1 / -1;
 }
+
+/* ---------- ボスの体力バー ---------- */
+.hud-boss {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--safe-top) + 58px);
+  transform: translateX(-50%);
+  width: min(360px, 46vw);
+  display: none;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+}
+.hud-boss.on {
+  display: flex;
+}
+.hud-boss-name {
+  white-space: nowrap;
+}
+.hud-boss-bar {
+  position: relative;
+  flex: 1;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: rgba(20, 28, 44, 0.6);
+  overflow: hidden;
+}
+/* 段階の目もり (2/3・1/3) */
+.hud-boss-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 33%, rgba(255, 255, 255, 0.7) 33% 33.8%, transparent 33.8% 66.2%, rgba(255, 255, 255, 0.7) 66.2% 67%, transparent 67%);
+}
+.hud-boss-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #ff5a4d, #ffb300);
+  transition: width 0.15s;
+}
