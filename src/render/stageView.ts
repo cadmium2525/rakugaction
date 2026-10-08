@@ -325,9 +325,9 @@ export class StageView {
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   }
 
+  /** 今の復活場所の旗だけを、ピンクにする (ほかは灰色に戻す。ミニマップの色と同じ意味にそろえる)。 */
   markCheckpoint(id: string): void {
-    const f = this.checkpointFlags.get(id);
-    if (f) (f.material as THREE.MeshBasicMaterial).color.setHex(0xff5a7a);
+    for (const [cid, f] of this.checkpointFlags) (f.material as THREE.MeshBasicMaterial).color.setHex(cid === id ? 0xff5a7a : 0x9aa7b8);
   }
 
   update(sim: GameSim, alpha: number, dt: number): void {

@@ -27,7 +27,7 @@ describe('STAGE 2 強風の谷 (フィールド型)', () => {
 
   it('ステージ定義が健全 (有限値/地面/ゴール/ルート/床に置く物/ルートの風域の id)', async () => {
     await validateStage(stage);
-    expect(stage.checkpoints!.length).toBeGreaterThanOrEqual(14);
+    expect(stage.checkpoints!.length).toBe(6);
     expect(stage.missPenaltySec).toBe(3);
   });
 
@@ -223,8 +223,8 @@ describe('STAGE 2 強風の谷 (フィールド型)', () => {
     }
   });
 
-  it('つり橋の途中 (2 つ目と 4 つ目の避難所) にチェックポイントがあり、落ちても、橋の頭まで戻らない', async () => {
-    for (const id of ['cp-bridge-s1', 'cp-bridge-s3', 'cp-bridge-n1', 'cp-bridge-n3']) {
+  it('つり橋の途中 (まん中の避難所) にチェックポイントが 1 本ずつあり、落ちても、橋の頭まで戻らない', async () => {
+    for (const id of ['cp-bridge-s2', 'cp-bridge-n2']) {
       const cp = stage.checkpoints!.find((c) => c.id === id)!;
       expect(cp, id).toBeDefined();
       const sim = await makeSim(stage);

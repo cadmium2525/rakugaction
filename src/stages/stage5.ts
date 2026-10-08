@@ -191,7 +191,6 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   });
 
   // ===== 広場: スタート・練習の敵 =====
-  k.checkpoint('cp0', 0, SPAWN_Z);
   sign(6, G, SPAWN_Z, Math.PI + 0.2, ['出発'], {
     icon: 'star',
     hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) で、塔のてっぺんのゴールが開く', '塔は 4 階。階ごとに、長い坂と、体に合った近道がある'],
@@ -207,7 +206,6 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
   // だれでものぼれる長い坂 (西から。上の端が柱の上面)
   k.boxes.push(rampX(vp.x - vp.w / 2 - VENT_RAMP, G, vp.x - vp.w / 2, vp.h, vp.z, vp.w, 2, 'stone'));
   sign(vp.x + 5, G, vp.z - 4, Math.PI + 0.4, ['風の柱'], { icon: 'jump', hint: ['柱の上に星がある。西の長い坂 (34m) を、だれでものぼれる', '南の上昇気流には、走って入って {jump} を押し続けると、軽め〜標準のキャラは一気に跳び乗れる'] });
-  k.checkpoint('cp0b', -20, -62);
 
   // 高い台 (広場の南): 上に星。だれでものぼれる段 (北がわ。3 段)
   {
@@ -301,7 +299,6 @@ export function buildStage5(opts: { ventVel?: number } = {}): StageDef {
 
   // ===== 山頂 =====
   const y5 = Y(5);
-  k.checkpoint('cp5', ARRIVE_X, -(RO[4] + 2.5), 3, y5);
   for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, y5 + 2.2, 0], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'stone' });
   k.push({ shape: 'box', pos: [0, y5 + 4.6, 0], size: [9.6, 0.9, 1.1], color: 0xd9573f });
   sign(5, y5, -7, Math.PI + 0.3, ['ゴール'], { icon: 'star', hint: ['ラクガキ星を 5 個集めると、ゴールが開く'] });

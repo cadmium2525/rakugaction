@@ -172,7 +172,6 @@ export function buildStage3(): StageDef {
   }
 
   // ===== A: スタートの前庭 (陸) =====
-  k.checkpoint('cp0', 0, SPAWN_Z);
   k.sign(5, SPAWN_Z, Math.PI + 0.2, ['出発'], {
     icon: 'star',
     hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) でゴールが開く', '水の中: {jump} で浮き、{action} で潜る。体が小さいほど速く泳げる'],
@@ -185,7 +184,6 @@ export function buildStage3(): StageDef {
   k.enemy('blob', 20, -60, 32, -56, { speed: 1.4 });
 
   // ===== B: 大広間 (水没) =====
-  k.checkpoint('cp1', 0, -38);
   k.sign(4, -38, Math.PI + 0.2, ['大広間'], {
     icon: 'warn',
     hint: ['大広間は水の底。浜から水に入って、泳いで渡る', '左右の通路は、水に入らずに通れる (道は長い)'],
@@ -224,7 +222,6 @@ export function buildStage3(): StageDef {
   k.sign(12, -37, Math.PI, ['浮島'], { icon: 'jump', hint: ['広間の東寄りに、水面から出た石の台がある。上に星がある', '水面近くで {jump} (連打) して、台に乗ろう'] });
 
   // ===== 西の通路: 展望の塔 =====
-  k.checkpoint('cp2', -41, -28);
   const stairBase = G - 0.5;
   for (let i = 0; i < TOWER.n; i++) {
     const top = G + TOWER.rise * (i + 1);
@@ -238,8 +235,6 @@ export function buildStage3(): StageDef {
   k.sign(-38, -31, Math.PI + 0.4, ['展望の塔'], { icon: 'jump', hint: ['階段を 6 段のぼった塔の上に、星がある。水には入らない', '{jump} でのぼろう'] });
 
   // ===== 東の通路: 池の石柱 =====
-  k.checkpoint('cp3', 41, -28);
-  k.checkpoint('cp4', 49, 6);
   for (const x of [POOL.x0 - 1, POOL.x1 + 1]) tallWall(x, (POOL.z0 + POOL.z1) / 2, 2, POOL.z1 - POOL.z0, HF - 0.8, G + 1.2, 'stone');
   // 池の北の端は、低い縁の壁でふさぐ (池へは、南の浜から入る)
   tallWall((POOL.x0 + POOL.x1) / 2, POOL.z1 - 0.5, POOL.x1 - POOL.x0 + 4, 2, HF - 0.8, G + 1.2, 'stone');
@@ -325,8 +320,6 @@ export function buildStage3(): StageDef {
     hint: ['青い石の封印は、攻撃力 (POWER) が 133 以上のキャラだけが {action} で壊せる近道', '左右の通用口は、だれでも通れる (遠回り)'],
   });
   for (const sx of [-1, 1]) brazier(k.push, sx * (GATE.side + GATE.sideW / 2 + 2), k.g(sx * (GATE.side + GATE.sideW / 2 + 2), GATE.z - 2), GATE.z - 2, 1.0);
-  k.checkpoint('cp9', 0, GATE.z - 6);
-  k.checkpoint('cp10', 0, SANCTUM.z1 + 2);
   const goalY = k.g(0, SANCTUM.goalZ);
   for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, goalY + 2.2, SANCTUM.goalZ], size: [0.9, 4.4, 0.9], color: 0xe9dfc2, style: 'stone' });
   k.push({ shape: 'box', pos: [0, goalY + 4.6, SANCTUM.goalZ], size: [9.6, 0.9, 1.1], color: 0x3fb7b0 });

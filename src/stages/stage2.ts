@@ -186,7 +186,6 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
     icon: 'star',
     hint: ['{move} で移動 ／ {jump} でジャンプ', 'ラクガキ星 5 個 (全 8 個) で、北のゴールが開く。谷を渡れるのは、つり橋だけ'],
   });
-  k.checkpoint('cp0', 0, -42);
   // そよ風 (ためし): 強さが脈打つ。体が軽いほど流される
   k.wind('breeze', 0, -38, 24, 14, 0, 8, [4, 0, 0], { pulse: { period: 4, min: 0.4 } });
   k.sign(5, -36, 0.3, ['そよ風'], { icon: 'warn', hint: ['風が吹いている。体が軽いほど流される', '重いキャラは、風にあまり流されない'] });
@@ -201,7 +200,6 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
 
   // ===== 南の岸 西: 谷口の広場 (カタマルの守る星) =====
   keepOut(GATE.x, GATE.z, GATE.r + 3);
-  k.checkpoint('cp1', GATE.x + 10, GATE.z + 1);
   const gateStar = k.star('谷口の広場', GATE.x, GATE.z, 1.35, undefined, { id: 'star-gate' });
   gateStar.appearAfter = GATE_GUARDS.map((g) => k.enemy(g.kind, ...g.pts, g.o).id);
   k.sign(GATE.x + 8, GATE.z + 5, 0.5, ['谷口の広場'], {
@@ -213,7 +211,6 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
 
   // ===== 南の岸 東: 風見の丘 =====
   keepOut(VANE.x, VANE.z, 20);
-  k.checkpoint('cp2', 28, -45);
   windVane(k.push, VANE.x + 1.8, k.g(VANE.x + 1.8, VANE.z + 1.4), VANE.z + 1.4, 0.8, 1.15);
   windmill(k.push, VANE.x - 4.6, k.g(VANE.x - 4.6, VANE.z - 2.2), VANE.z - 2.2, 0.5);
   k.star('風見の丘', VANE.x, VANE.z, 1.35, undefined, { id: 'star-vane' });
@@ -267,7 +264,6 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
   // 風の回廊 (向かい風の通路)
   keepOut(36, HALL.cz, 22);
   hall(k, scale);
-  k.checkpoint('cp5', HALL.x0 - 3, HALL.cz);
   k.star('風の回廊', HALL.x1 - 3, HALL.cz, 1.35, undefined, { id: 'star-hall' }); // 最後の区画 (風) の先の、風のない奥
   k.sign(HALL.x0 - 1, HALL.cz + 5.5, -0.8, ['風の回廊'], {
     icon: 'warn',
@@ -284,8 +280,6 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
   // ===== 北の岸: 突風の広場 (チェイサー + カタマルの守る星) とゴール =====
   keepOut(GUST.x, GUST.z, GUST.r + 3);
   k.checkpoint('cp7', 0, 104);
-  // 広場の入口 (チェイサーの追いかける範囲の外。復活してすぐ追われないように)
-  k.checkpoint('cp8', -8, 108);
   const gustStar = k.star('突風の広場', GUST.x, GUST.z, 1.35, undefined, { id: 'star-gust' });
   gustStar.appearAfter = GUST_GUARDS.map((g) => k.enemy(g.kind, ...g.pts, g.o).id);
   k.sign(GUST.x + 8, GUST.z - 6, -0.3, ['要注意'], {
@@ -295,7 +289,6 @@ export function buildStage2(opts: { crosswind?: number; windScale?: number } = {
   });
   ring(k, rng, GUST.x, GUST.z, 14, 6, 1.0);
   keepOut(0, 118, 14);
-  k.checkpoint('cp9', 5, 112);
   const goalY = k.g(0, 118);
   for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, goalY + 2.2, 118], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'brick' });
   k.push({ shape: 'box', pos: [0, goalY + 4.6, 118], size: [9.6, 0.9, 1.1], color: 0xd9573f });
@@ -431,8 +424,8 @@ function bridge(k: FieldKit, b: BridgeDef, wind: number, scale: number): void {
       // 橋脚 (谷の底へのびる柱。飾り)
       k.push({ shape: 'box', pos: [b.x, -22, zc], size: [2.6, 44, 2.2], color: CANYON.rock[3] });
       k.push({ shape: 'box', pos: [b.x, -16, zc], size: [3.4, 1.2, 2.8], color: CANYON.strata[1] });
-      // 途中のチェックポイント: 2 つ目と 4 つ目の避難所
-      if (i === 1 || i === 3) k.checkpoints.push({ id: `cp-bridge-${b.id.toLowerCase()}${i}`, pos: [b.x, 0, zc], radius: 3 });
+      // 途中のチェックポイント: まん中 (3 つ目) の避難所に 1 本だけ (橋 1 本に 2 本あると、落ちても失う物がほとんど無い)
+      if (i === 2) k.checkpoints.push({ id: `cp-bridge-${b.id.toLowerCase()}${i}`, pos: [b.x, 0, zc], radius: 3 });
     }
   }
   // 枝橋 (2 つ目の避難所から横へ): デッキ → 途中の足場 → デッキ → 星のある先の足場

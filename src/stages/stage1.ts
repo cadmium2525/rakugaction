@@ -144,13 +144,11 @@ export function buildStage1(): StageDef {
   keepOut(0, 2, 15);
   const hubStar = k.star('風車の丘', 3.6, -7.2, 1.35, undefined, { id: 'star-hub' }); // 風車の前
   k.checkpoint('cp0', 0, -32);
-  k.checkpoint('cp1', 4, 12);
   hubStar.appearAfter = HUB_GUARDS.map((g) => k.enemy(g.kind, ...g.pts, g.o).id);
   k.sign(-4, -24, 3.0, ['風車の丘'], { icon: 'star', hint: ['星は光の柱が目印。ミニマップにも出る', '敵がいる場所の星は、敵を全員倒すと現れる'] });
 
   // ===== 南東: ピョンタの花畑 =====
   keepOut(32, -62, 17);
-  k.checkpoint('cp2', 15, -63);
   const meadowStar = k.star('ピョンタの花畑', 32, -62, 1.35, undefined, { id: 'star-meadow' });
   meadowStar.appearAfter = MEADOW_GUARDS.map((g) => k.enemy(g.kind, ...g.pts, g.o).id);
   k.sign(20, -69, -0.5, ['ピョンタ'], { icon: 'jump', hint: ['ピョンタ: 跳ねながら動く。踏みつけるか {action} で倒せる', '花畑の 4 体を全員倒すと、星が現れる'] });
@@ -218,12 +216,10 @@ export function buildStage1(): StageDef {
 
   // ===== 北東: 浮島の階段 =====
   keepOut(62, 38, 22);
-  k.checkpoint('cp8', 56, 26);
   floatingSteps(k);
   k.sign(52, 30, -1.2, ['浮島'], { icon: 'jump', hint: ['浮島を渡った先に星がある', '高く・遠くへ跳べるキャラ向け (助走をつけて端から跳べば、ほかのキャラでも届くことがある)'] });
 
   // ===== 北: ゴール =====
-  k.checkpoint('cp9', 5, 78);
   keepOut(0, 90, 14);
   const goalY = k.g(0, 90);
   // ゴールの門 (飾り)

@@ -119,7 +119,6 @@ export function buildStage4(): StageDef {
   const wall = (x0: number, x1: number, z0: number, z1: number, h: number, foot = 0): void => void k.box([(x0 + x1) / 2, G + (h - foot) / 2, (z0 + z1) / 2], [x1 - x0, h + foot, z1 - z0], 'stone');
 
   // ===== 南の前庭 (スタート) =====
-  k.checkpoint('cp0', 0, SPAWN_Z);
   k.sign(5, SPAWN_Z, Math.PI + 0.2, ['出発'], {
     icon: 'star',
     hint: ['{move} で移動 ／ {jump} でジャンプ。ラクガキ星 5 個 (全 8 個) でゴールが開く', '赤茶色の床は、乗ると崩れる。止まらずに渡ろう'],
@@ -129,7 +128,6 @@ export function buildStage4(): StageDef {
     brazier(k.push, sx * 14, G, -60);
   }
   k.enemy('blob', 20, -62, 30, -58, { speed: 1.4 });
-  k.checkpoint('cp1', 0, -54);
 
   // ===== 崩れる大広間 =====
   const p = PIT.hall;
@@ -187,7 +185,6 @@ export function buildStage4(): StageDef {
     icon: 'action',
     hint: ['正面の大きな木箱は、攻撃力が標準以上のキャラが {action} で壊せる', '壊せないキャラは、うしろの崩れる橋から入れる (庭の北側)'],
   });
-  k.checkpoint('cp5', 28, -10);
   // うしろの橋 (北から南へ)
   for (const tl of VAULT_TILES()) crumble(V.bridgeX, (tl.lo + tl.hi) / 2, 4.2, V.bridgeLen, G, DELAY.vaultBridge, { respawn: 2 });
   k.sign(40, 38, Math.PI + 0.3, ['宝物庫のうしろ'], { icon: 'arrow', hint: ['崩れる橋をわたると、宝物庫のうしろの扉に着く', '橋は渡るとすぐ崩れる。止まらずに、まっすぐ'] });
@@ -253,7 +250,6 @@ export function buildStage4(): StageDef {
   // ===== 崩れる橋と、奥の院 =====
   for (const tl of BRIDGE_TILES()) crumble(BRIDGE.x, (tl.lo + tl.hi) / 2, BRIDGE.w, BRIDGE.len, G, DELAY.north);
   k.sign(6, 96, Math.PI + 0.2, ['崩れる橋'], { icon: 'warn', tone: 'warn', hint: ['奥の院へ渡る唯一の橋。乗ると崩れるので、止まらずに一気に渡る', 'ラクガキ星を 5 個集めると、ゴールが開く'] });
-  k.checkpoint('cp11', 0, 124);
   for (const sx of [-4.2, 4.2]) k.push({ shape: 'box', pos: [sx, G + 2.2, GOAL_Z], size: [0.9, 4.4, 0.9], color: 0xe9c08a, style: 'stone' });
   k.push({ shape: 'box', pos: [0, G + 4.6, GOAL_Z], size: [9.6, 0.9, 1.1], color: 0xd9573f });
   k.sign(8, GOAL_Z - 8, Math.PI + 0.4, ['ゴール'], { icon: 'star', hint: ['ラクガキ星を 5 個集めると、ゴールが開く'] });
