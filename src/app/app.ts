@@ -56,7 +56,7 @@ import { TitleScreen } from '../ui/titleScreen';
 import { AudioManager } from '../audio/audioManager';
 import type { BgmId } from '../audio/songs';
 import { BGM } from '../audio/songs';
-import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, DemoOverlay, IdleWatch, loadDemoDrawing } from './demo';
+import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, DemoOverlay, IdleWatch, demoDriver, loadDemoDrawing } from './demo';
 import { PlayScene } from './playScene';
 import { Profile } from './profile';
 import { StageSession } from './stageSession';
@@ -526,7 +526,8 @@ export class App {
       return;
     }
     const bot = new Bot(session.scene.sim, route);
-    session.botInput = (si) => bot.next(si);
+    // はじめに技 (コンボ → 幅跳び) を見せてから、ボットに任せる
+    session.botInput = demoDriver(session.scene.sim, bot);
     session.setControlsVisible(false);
     this.session = session;
     this.setScreen(null);

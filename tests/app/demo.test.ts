@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch } from '../../src/app/demo';
+import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch, demoDriver } from '../../src/app/demo';
 import type { IdleEnv } from '../../src/app/demo';
 import { CharacterAnimator, WING_RUN_HZ } from '../../src/character/animator';
 import { buildCharacter } from '../../src/character/builder';
-import { runBot } from '../../src/game/bot';
+import { Bot } from '../../src/game/bot';
 import { comboFor, limbsOf } from '../../src/game/combo';
 import { statsToParams } from '../../src/game/params';
 import { GameSim } from '../../src/game/sim';
+import { emptyInput } from '../../src/input/types';
 import { decodeLook } from '../../src/ranking/look';
 import { getStageEntry } from '../../src/stages/registry';
 import { rapier } from '../helpers/headless';
@@ -113,8 +114,21 @@ describe('デモ: 赤いドラゴンが STAGE 1 を遊ぶ', () => {
     const combo = comboFor(limbsOf(d));
     expect(combo).toEqual(['punch', 'punch', 'kick', 'tail', 'gust']);
     const sim = new GameSim(await rapier(), stage, { ...statsToParams(a.stats, a.traits), combo });
-    const r = runBot(sim, route!, { maxTime: 300 });
+    // 本物のデモと同じ操作 (demoDriver): はじめにコンボを最後まで出し、走り出しで幅跳びを 1 回、あとはボット
+    const drive = demoDriver(sim, new Bot(sim, route!));
+    const input = emptyInput();
+    const moves: string[] = [];
+    let steps = 0;
+    while (!sim.goalReached && steps < 60 * 300) {
+      drive(input);
+      sim.step(input);
+      for (const e of sim.drainEvents([])) if (e.type === 'attack' && steps < 60 * 8) moves.push(e.move ?? 'tackle');
+      steps++;
+    }
+    const r = { cleared: sim.goalReached, time: steps / 60, deaths: sim.deaths, falls: sim.falls };
     sim.dispose();
+    // 見せ場: コンボの 5 つの技が順に出て、そのあと幅跳び
+    expect(moves.slice(0, 6)).toEqual(['punch', 'punch', 'kick', 'tail', 'gust', 'dive']);
     expect(r.cleared, JSON.stringify(r)).toBe(true);
     expect(r.deaths).toBe(0);
     expect(r.falls).toBe(0);

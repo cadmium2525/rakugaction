@@ -1,4 +1,5 @@
 import type { DrawingData } from '../drawing/model';
+import type { SimInput } from '../input/types';
 import { decodeLook } from '../ranking/look';
 import { h } from '../ui/dom';
 
@@ -10,6 +11,48 @@ export const DEMO_MAX_SEC = 130;
 export const DEMO_STAGE_ID = 'stage1';
 export const DEMO_ROUTE = 'main';
 
+/** デモの見せ場: 走り出してから、幅跳びを 1 回見せるまでの時間 (秒) */
+export const DEMO_DIVE_AFTER = 0.7;
+
+/** デモの操作に必要な、世界とボットの機能だけ (テストで本物を渡す) */
+export interface DemoSim {
+  player: { attacking: boolean; attackSerial: number; grounded: boolean; params: { combo?: readonly unknown[] } };
+}
+
+/**
+ * デモの操作: はじめに技を見せてから、ボットに任せる (DOM に依存しない。テストも、これと同じ操作でゴールまで走らせる)。
+ *  1. スタート地点で、その場のコンボを最後まで出す (ドラゴンなら パンチ → パンチ → キック → しっぽ回転 → はばたき)
+ *  2. 走り出して少ししたら、幅跳びを 1 回 (前の近くに敵がいれば、その場の技になる = それでもよい)
+ *  3. あとは、ボットが本道をゴールまで走る
+ */
+export function demoDriver(sim: DemoSim, bot: { next(out: SimInput): void }): (out: SimInput) => void {
+  const comboLen = Math.max(1, sim.player.params.combo?.length ?? 1);
+  const serial0 = sim.player.attackSerial;
+  let stage: 'combo' | 'run' | 'bot' = 'combo';
+  let runSteps = 0;
+  return (out) => {
+    if (stage === 'combo') {
+      out.moveX = 0;
+      out.moveZ = 0;
+      out.jumpPressed = false;
+      out.jumpHeld = false;
+      out.actionHeld = false;
+      const done = sim.player.attackSerial - serial0 >= comboLen;
+      // 押しつづける (出せる時にだけ、次の技が出る)。最後の技が終わったら、走り出す
+      out.actionPressed = !done;
+      if (done && !sim.player.attacking) stage = 'run';
+      return;
+    }
+    bot.next(out);
+    if (stage === 'run') {
+      runSteps++;
+      if (runSteps >= Math.round(DEMO_DIVE_AFTER * 60) && sim.player.grounded && !sim.player.attacking) {
+        out.actionPressed = true;
+        stage = 'bot';
+      }
+    }
+  };
+}
 /** 操作を見張る対象 (テストで差し替えられるように、必要な機能だけの型にしてある) */
 export interface IdleEnv {
   addEventListener(type: string, fn: () => void, opts?: { capture?: boolean; passive?: boolean }): void;
