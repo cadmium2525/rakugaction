@@ -16,7 +16,7 @@ import type { StageDef, WaypointDef } from './types';
  *   ★ チェイサーの広場 (西)   戦う: 広場の敵 4 体 (チェイサー 2 体 + 番人 2 体) を倒すと現れる
  *   ★ 池の中の小島           跳ぶ・泳ぐ (飛び石 / 泳ぎ)
  *   ★ 崖の上 (南西)          登る (外周をぐるぐる回る道をたどる。崖は直登できない)
- *   ★ トゲ畑の先 (北)        すき間をぬう (ゴールへの道の途中)
+ *   ★ トゲの迷路 (北)        通路をたどる (星は迷路のまん中。ゴールへの道の途中)
  *   ★ 木箱の遺跡 (北西)      攻撃力が標準以上のビルドだけ (木箱の壁を壊す)
  *   ★ 浮島の階段 (北東)      高く・遠くへ跳べるビルドだけ
  * 敵のいる 3 か所の星は、敵を全員倒すまで現れない (駆け抜けて星だけ取ることはできない)。
@@ -54,8 +54,8 @@ function buildTerrain() {
   tb.plateau(58, -22, 30, 0.5, 16).bowl(58, -22, 22, 18, 4.8).hill(60, -22, 7, 7, 4.7).plateau(60, -22, 3, 0.25, 3.5);
   // 遺跡の台地 (北西): 高さ 3.0 の平らな台地
   tb.plateau(-54, 46, 16, 3.0, 12);
-  // トゲ畑の台地 (北): 高さ 2.4。奥に小さなこぶ (星)
-  tb.plateau(18, 50, 16, 2.4, 12).hill(18, 70, 7, 7, 2.2);
+  // トゲの迷路の台地 (北): 高さ 2.4 の平ら (迷路は 30.6 × 25.2m)
+  tb.plateau(18, 53, 19, 2.4, 12);
   // 浮島の階段の足元: 岩の丘 (北東)。上は平ら
   tb.hill(62, 34, 15, 15, 6.0).plateau(62, 34, 4.5, 6.0, 6);
   // 広場 (西): 平ら
@@ -77,7 +77,7 @@ function buildTerrain() {
   road([[-8, 0], [-22, -4], [-38, -8], [-48, -12]]); // → 広場
   road([[-6, 8], [-18, 18], [-30, 26], [-42, 30], [-54, 32]]); // → 遺跡
   road([[6, 10], [12, 24], [16, 36], [18, 42]]); // → トゲ畑
-  road([[18, 62], [18, 70], [12, 80], [4, 86], [0, 88]]); // → ゴール
+  road([[18, 67], [16, 74], [12, 80], [4, 86], [0, 88]]); // → ゴール
   road([[14, 28], [30, 32], [46, 34], [58, 34]]); // → 浮島の階段
   // 島の外側を崖にして雲海へ落とす
   tb.island(ISLAND.x, ISLAND.z, ISLAND.r, [
@@ -210,9 +210,9 @@ export function buildStage1(): StageDef {
   // ===== 北: トゲ畑 =====
   keepOut(18, 52, 20);
   k.checkpoint('cp7', 18, 38);
-  spikeField(k, rng);
-  k.star('トゲ畑の先', 18, 70, 1.35, undefined, { id: 'star-spikes' });
-  k.sign(14, 40, 0.5, ['トゲ'], { icon: 'warn', tone: 'warn', hint: ['トゲの床は触れるとダメージ', 'すき間を縫って進むか、ジャンプで飛び越える'] });
+  spikeField(k);
+  k.star('トゲの迷路', spikeCell(...SPIKE_PATH[SPIKE_STAR])[0], spikeCell(...SPIKE_PATH[SPIKE_STAR])[1], 1.35, undefined, { id: 'star-spikes' });
+  k.sign(14, 40, 0.5, ['トゲ'], { icon: 'warn', tone: 'warn', hint: ['トゲの床は触れるとダメージ', '星は迷路のまん中。トゲのない通路をたどる'] });
 
   // ===== 北東: 浮島の階段 =====
   keepOut(62, 38, 22);
@@ -339,21 +339,27 @@ function ruins(k: FieldKit): void {
   }
 }
 
-/** トゲ畑の配置 (ボットのルートも同じ値でレーンを通る) */
-const SPIKES = { cx: 18, rows: 5, z0: 42, dz: 4.4, slots: 8, dx: 3.4, laneHalf: 2.7 };
-/** r 行目のレーンの中心 x (トゲのないすき間) */
-const spikeLane = (r: number): number => SPIKES.cx + 4.0 * Math.sin(r * 1.1 + 0.4);
+/**
+ * トゲ畑 = トゲの迷路 (7 行 × 9 列のマス。1 マス 3.4 × 3.6m)。通路のマス (SPIKE_FREE) 以外は、すき間なくトゲの床。
+ * 星は、迷路のまん中 (3 行目のまん中のマス)。南の入口からも、北の出口 (ゴール側) からも、通路を 4 マスぶんたどらないと届かない。
+ * 以前は、星がトゲ畑の「先」(北のこぶ) にあり、裏 (ゴール側) から回れば、トゲを 1 つも通らずに取れた (ユーザーの指摘, 2026-10-08)。
+ * トゲの床どうしにも 1m のすき間があって、迷路になっていなかった。東西の外側には、トゲを 2 マスぶん (6.8m) 置いて、横から 1 跳びで入れないようにしてある。
+ */
+const SPIKES = { cx: 18, rows: 7, z0: 42, dz: 3.6, slots: 9, dx: 3.4 };
+/** 行ごとの、通路 (トゲのない) マスの列 */
+const SPIKE_FREE: readonly (readonly number[])[] = [[4], [4, 5, 6], [6], [2, 3, 4, 5, 6], [2], [2, 3, 4], [4]];
+/** 通路の道順 (行, 列): 南の入口 → 東へ → まん中の行を西へ (途中に星) → 北の出口 */
+const SPIKE_PATH: readonly (readonly [number, number])[] = [[0, 4], [1, 4], [1, 6], [2, 6], [3, 6], [3, 4], [3, 2], [4, 2], [5, 2], [5, 4], [6, 4]];
+/** 星のあるマス (SPIKE_PATH の何番目か) */
+const SPIKE_STAR = 5;
+const spikeCell = (r: number, c: number): readonly [number, number] => [SPIKES.cx + (c - (SPIKES.slots - 1) / 2) * SPIKES.dx, SPIKES.z0 + r * SPIKES.dz];
 
-/** トゲ畑: 平らな台地に、すき間 (レーン) をぬうようにトゲの床が散らばる。レーンの外も、トゲのない所は通れる。 */
-function spikeField(k: FieldKit, rng: Rng): void {
-  const { cx, rows, z0, dz, slots, dx, laneHalf } = SPIKES;
-  const x0 = cx - ((slots - 1) * dx) / 2;
-  for (let r = 0; r < rows; r++) {
-    for (let s = 0; s < slots; s++) {
-      const x = x0 + s * dx;
-      if (Math.abs(x - spikeLane(r)) < laneHalf) continue;
-      if (!rng.chance(0.78)) continue;
-      k.hazard(x, z0 + r * dz, 2.4, 2.0, 0.7);
+function spikeField(k: FieldKit): void {
+  for (let r = 0; r < SPIKES.rows; r++) {
+    for (let c = 0; c < SPIKES.slots; c++) {
+      if (SPIKE_FREE[r].includes(c)) continue;
+      const [x, z] = spikeCell(r, c);
+      k.hazard(x, z, SPIKES.dx, SPIKES.dz, 0.7);
     }
   }
 }
@@ -412,14 +418,17 @@ function buildRoutes(k: FieldKit): Record<string, WaypointDef[]> {
   const hubToPlaza = [W(2, 2), W(-8, 0), W(-22, -4), W(-38, -8), W(-48, -12), clearAt(-60, -13, 'star-plaza'), S(-62, -14)];
   const plazaToHub = [W(-48, -12), W(-38, -8), W(-22, -4), W(-8, 0)];
   // 風車の丘 → トゲ畑の入口
-  const hubToSpikes = [W(2, 2), W(4, 12), W(12, 24), W(16, 36), W(spikeLane(0), SPIKES.z0 - 3)];
+  const hubToSpikes = [W(2, 2), W(4, 12), W(12, 24), W(16, 36), W(spikeCell(0, 4)[0], SPIKES.z0 - 3)];
   const lanes: WaypointDef[] = [];
-  for (let r = 0; r < SPIKES.rows; r++) lanes.push(k.wp(spikeLane(r), SPIKES.z0 + r * SPIKES.dz, { radius: 1.3 }));
-  const spikesToGoal = [...lanes, W(18, 64), S(18, 70), W(12, 80), W(4, 86), k.wp(0, 90, { radius: 1.5 })];
+  // 迷路の通路を、マスのまん中を通ってたどる (星のマスは、星のウェイポイント)
+  const cellWp = (i: number): WaypointDef => (i === SPIKE_STAR ? S(...spikeCell(...SPIKE_PATH[i])) : k.wp(...spikeCell(...SPIKE_PATH[i]), { radius: 0.9 }));
+  SPIKE_PATH.forEach((_, i) => lanes.push(cellWp(i)));
+  const toGoal = [W(18, 68), W(12, 80), W(4, 86), k.wp(0, 90, { radius: 1.5 })];
+  const spikesToGoal = [...lanes, ...toGoal];
   // 風車の丘 → 木箱の遺跡 (往復)
   const hubToRuins = [W(2, 2), W(-6, 8), W(-18, 18), W(-30, 26), W(-42, 30), W(-54, 31.5, 1.0)];
   const crate: WaypointDef[] = [k.wp(-54, 33.3, { radius: 0.7, action: true }), W(-54, 38, 1.2), S(-54, 48), W(-54, 38, 1.2), W(-54, 31, 1.5)];
-  const ruinsToSpikes = [W(-30, 36), W(0, 36, 3), W(14, 37), W(spikeLane(0), SPIKES.z0 - 3)];
+  const ruinsToSpikes = [W(-30, 36), W(0, 36, 3), W(14, 37), W(spikeCell(0, 4)[0], SPIKES.z0 - 3)];
   // 風車の丘 → 浮島の階段 (跳べるビルド)
   const hubToSteps = [W(2, 2), W(4, 12), W(14, 28), W(30, 32), W(46, 34), W(58, 34), W(62, 36.5, 1.0)];
   const topY = k.g(62, 34);
@@ -432,8 +441,11 @@ function buildRoutes(k: FieldKit): Record<string, WaypointDef[]> {
   }
   steps.push(k.wp(62, stepZ(2), { radius: 1.0 }));
   steps[steps.length - 1].pos = [62, topY + 4.2, stepZ(2)];
-  // 浮島の最上段から西へ飛び降り、トゲ畑の北側を回って星 (18,70) へ (トゲ畑は通らない)
-  const stepsToStar = [k.wp(55, stepZ(2), { radius: 3 }), W(40, 68, 3), W(28, 70, 2), S(18, 70), W(12, 80), W(4, 86), k.wp(0, 90, { radius: 1.5 })];
+  // 浮島の最上段から西へ飛び降り、迷路の北の出口から入って、まん中の星まで通路をたどり、同じ道を戻ってゴールへ
+  const fromNorth = [];
+  for (let i = SPIKE_PATH.length - 1; i >= SPIKE_STAR; i--) fromNorth.push(cellWp(i));
+  for (let i = SPIKE_STAR + 1; i < SPIKE_PATH.length; i++) fromNorth.push(cellWp(i));
+  const stepsToStar = [k.wp(55, stepZ(2), { radius: 3 }), W(40, 70, 3), W(26, 70, 2), W(18, 68), ...fromNorth, ...toGoal];
 
   // 崖の丘: 入口 → 渦巻きの道を 2 周 (外側のレーンを通る = トゲマルをかわす) → 頂上の星 → 外側へ飛び降りて入口へ
   const toCliff = [W(-2, -52, 3), W(-14, -53, 3), W(-28, -58, 2.5), W(-38, -63, 1.5)];

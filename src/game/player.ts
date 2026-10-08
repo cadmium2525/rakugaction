@@ -1,3 +1,5 @@
+import { COMBO_CHAIN_AT, COMBO_WINDOW, DIVE_MIN_INPUT, DIVE_RECOVER, DIVE_SPEED, DIVE_UP, MOVES } from './combo';
+import type { MoveId } from './combo';
 import type RAPIER from '@dimforge/rapier3d-compat';
 import { angleDelta, clamp, v3, v3IsFinite, wrapPi } from '../core/math';
 import type { V3 } from '../core/math';
@@ -20,6 +22,11 @@ export interface PlayerEnv {
   windZ: number;
   /** プレイヤーがいる水域の水面の高さ (水域の外では -Infinity)。 */
   waterSurface: number;
+  /**
+   * 前の、手の届く近さに、攻撃の相手 (敵・木箱) がいるか。いる時の ACTION は、走っていても、その場の技 (コンボ) になる。
+   * いない時だけ、走りながらの ACTION が幅跳びになる (敵の目の前で、敵を跳び越して崖へ飛び出さない)。
+   */
+  targetNear?: boolean;
 }
 
 /** スタン中に使う空入力 */
@@ -68,6 +75,9 @@ export interface CarryInfo {
  * プレイヤー操作。Rapier の KinematicCharacterController で壁/坂/段差を処理し、
  * 速度・ジャンプ・慣性などは自前のモデルで制御する (能力値 → PlayerParams が挙動を決める)。
  */
+/** パーツの無い体・テスト用のビルドのコンボ: 体当たりだけ (作り替える前の ACTION と同じ) */
+const DEFAULT_COMBO: readonly MoveId[] = ['tackle'];
+
 export class PlayerController {
   readonly pos: V3;
   readonly prevPos: V3;
@@ -91,6 +101,15 @@ export class PlayerController {
   /** ACTION (ダッシュ攻撃) の残り時間 / 次に出せるまでの時間 */
   attackTimer = 0;
   attackCooldown = 0;
+  /** いま出している技 / その長さ (秒) / 出した回数 (当たり判定を、技ごとに数え直すため) */
+  attackMove: MoveId = 'tackle';
+  attackLength = 0;
+  attackSerial = 0;
+  /** コンボの何発目を次に出すか / つなげられる残り時間 (秒) */
+  comboIndex = 0;
+  comboWindow = 0;
+  /** 幅跳びの残り時間 (秒)。この間は、速さを保って低く跳ぶ (向きは変えられない) */
+  diveTimer = 0;
   /** 被ダメージで操作不能な残り時間 */
   stunTimer = 0;
   /** 水中 (胸まで浸かっている) か / 体のどれだけが水に浸かっているか (0..1) */
@@ -208,7 +227,16 @@ export class PlayerController {
       // 被弾中は入力を受け付けない (ジャンプ/移動/攻撃)
       input = STUN_INPUT;
     }
-    if (input.actionPressed && this.attackCooldown <= 0 && this.attackTimer <= 0) this.startAttack(push);
+    if (this.comboWindow > 0) {
+      this.comboWindow -= dt;
+      if (this.comboWindow <= 0) this.comboIndex = 0;
+    }
+    if (input.actionPressed && this.attackCooldown <= 0 && (this.attackTimer <= 0 || this.canChain())) {
+      const im = Math.hypot(Number.isFinite(input.moveX) ? input.moveX : 0, Number.isFinite(input.moveZ) ? input.moveZ : 0);
+      // 走りながら (地面の上・水の外で、スティックを倒していて、前に相手がいない・コンボの途中でない) なら幅跳び。それ以外は、その場の技 (コンボ)
+      if (im >= DIVE_MIN_INPUT && this.grounded && !this.swimming && this.attackTimer <= 0 && !env.targetNear && this.comboIndex === 0) this.startDive(input, im, push);
+      else this.startAttack(push);
+    }
 
     // --- タイマー ---
     this.jumpBuffer = input.jumpPressed ? p.jumpBufferTime : Math.max(0, this.jumpBuffer - dt);
@@ -241,7 +269,10 @@ export class PlayerController {
     const accel = bottomWalk ? p.accel * BOTTOM_WALK_ACCEL : swimming ? p.swimAccel : this.grounded ? p.accel : p.airAccel;
     const tx = ix * maxSp;
     const tz = iz * maxSp;
-    if (il > 0.01) {
+    if (this.diveTimer > 0) {
+      // 幅跳び中: 速さと向きを保つ (入力では曲がらない・減速しない)。時間が来るか、水に入ったら終わり
+      this.diveTimer = swimming ? 0 : Math.max(0, this.diveTimer - dt);
+    } else if (il > 0.01) {
       let ax = tx - this.vel.x;
       let az = tz - this.vel.z;
       const dl = Math.hypot(ax, az);
@@ -385,6 +416,11 @@ export class PlayerController {
         this.landCount++;
         if (impact > 4 && !swimming) this.landingTimer = LANDING_TIME;
         push({ type: 'land', impact });
+        // 幅跳びは、着地で終わる (攻撃の判定も、そこまで)
+        if (this.diveTimer > 0 || this.attackMove === 'dive') {
+          this.diveTimer = 0;
+          if (this.attackMove === 'dive') this.attackTimer = 0;
+        }
       }
       if (this.vel.y < 0) this.vel.y = 0;
       this.jumping = false;
@@ -404,20 +440,94 @@ export class PlayerController {
     }
   }
 
-  /** ACTION 開始: 向いている方向へ短く踏み込む (ダッシュ攻撃)。当たり判定は GameSim が判定する。 */
+  /** コンボの途中で、次の技を出せるか (今の技が、だいたい終わっている)。 */
+  private canChain(): boolean {
+    const combo = this.params.combo;
+    if (!combo || combo.length < 2 || this.attackMove === 'dive' || this.comboIndex === 0) return false;
+    return this.attackTimer <= this.attackLength * (1 - COMBO_CHAIN_AT);
+  }
+
+  /**
+   * その場の ACTION: コンボの次の技を出す (向いている方向へ、技ごとの強さで踏み込む)。当たり判定は GameSim がする。
+   * コンボが 1 つ (体当たりだけ) の体は、作り替える前と同じ動きになる。
+   */
   private startAttack(push: (e: SimEvent) => void): void {
     const p = this.params;
-    this.attackTimer = p.attackDuration;
-    this.attackCooldown = p.attackCooldown;
-    const fx = Math.sin(this.yaw);
-    const fz = Math.cos(this.yaw);
-    const along = this.vel.x * fx + this.vel.z * fz;
-    if (along < p.lungeSpeed) {
-      const add = p.lungeSpeed - along;
-      this.vel.x += fx * add;
-      this.vel.z += fz * add;
+    const combo = p.combo && p.combo.length > 0 ? p.combo : DEFAULT_COMBO;
+    const step = this.comboIndex < combo.length ? this.comboIndex : 0;
+    const move = combo[step];
+    const spec = MOVES[move];
+    const last = step === combo.length - 1;
+    this.attackMove = move;
+    this.attackLength = p.attackDuration * spec.dur;
+    this.attackTimer = this.attackLength;
+    this.attackSerial++;
+    // 締めの技のあとは、ふつうの待ち時間。途中の技は、すぐ次へつなげられる
+    this.attackCooldown = last ? Math.max(p.attackCooldown, this.attackLength) : 0;
+    this.comboIndex = last ? 0 : step + 1;
+    this.comboWindow = last ? 0 : this.attackLength + COMBO_WINDOW;
+    const lunge = p.lungeSpeed * spec.lunge;
+    if (lunge > 0) {
+      const fx = Math.sin(this.yaw);
+      const fz = Math.cos(this.yaw);
+      const along = this.vel.x * fx + this.vel.z * fz;
+      if (along < lunge) {
+        const add = lunge - along;
+        this.vel.x += fx * add;
+        this.vel.z += fz * add;
+      }
     }
-    push({ type: 'attack' });
+    push(move === 'tackle' && combo.length === 1 ? { type: 'attack' } : { type: 'attack', move, step });
+  }
+
+  /**
+   * 幅跳び (走りながら ACTION): スティックの向きへ、走るより速く・ふつうのジャンプより低く跳ぶ。跳んでいる体は、体当たりと同じ攻撃になる。
+   * **届く距離は、ふつうのジャンプ (押しっぱなし) を超えない** (速さ 1.5 倍 × 滞空 0.55 倍 ≈ 0.83 倍)。
+   * 体型によって届く・届かないが変わる場所 (浮島・穴の近道) を、幅跳びで越えられるようにはしない。速く進むための技。
+   */
+  private startDive(input: SimInput, im: number, push: (e: SimEvent) => void): void {
+    const p = this.params;
+    const dx = input.moveX / im;
+    const dz = input.moveZ / im;
+    this.yaw = Math.atan2(dx, dz);
+    const sp = Math.max(this.horizontalSpeed, p.maxSpeed * DIVE_SPEED);
+    this.vel.x = dx * Math.min(sp, p.maxSpeed * DIVE_SPEED);
+    this.vel.z = dz * Math.min(sp, p.maxSpeed * DIVE_SPEED);
+    this.vel.y = p.jumpVelocity * DIVE_UP;
+    this.grounded = false;
+    this.coyote = 0;
+    this.jumpBuffer = 0;
+    this.jumping = true; // 空中ジャンプはできない
+    this.jumpCut = true; // 高さは変えられない
+    this.mode = 'air';
+    const air = (2 * p.jumpVelocity * DIVE_UP) / p.gravity;
+    this.diveTimer = air;
+    this.attackMove = 'dive';
+    this.attackLength = air;
+    this.attackTimer = air;
+    this.attackSerial++;
+    this.attackCooldown = air + DIVE_RECOVER;
+    this.comboIndex = 0;
+    this.comboWindow = 0;
+    push({ type: 'attack', move: 'dive' });
+  }
+
+  /** 今の技の、届く距離 (m)・当たる向き (前方向との内積の下限)・上下に余分に届く高さ (m) */
+  get attackReach(): number {
+    return this.params.hitReach * MOVES[this.attackMove].reach;
+  }
+
+  get attackArc(): number {
+    return MOVES[this.attackMove].arc;
+  }
+
+  get attackTall(): number {
+    return MOVES[this.attackMove].tall;
+  }
+
+  /** 今の技の進み具合 (0 = 出した瞬間 〜 1 = 終わり) */
+  get attackProgress(): number {
+    return this.attackLength > 0 ? 1 - this.attackTimer / this.attackLength : 1;
   }
 
   get attacking(): boolean {
@@ -456,6 +566,9 @@ export class PlayerController {
   /** 被ダメージの硬直を開始する。 */
   stun(): void {
     this.stunTimer = STUN_TIME;
+    this.diveTimer = 0;
+    this.comboIndex = 0;
+    this.comboWindow = 0;
   }
 
   /** 接地中の水平移動を止める (リスポーン/ゴール演出用)。 */

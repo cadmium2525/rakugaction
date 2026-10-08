@@ -16,6 +16,7 @@ import { soundsFor } from '../audio/eventSounds';
 import { GhostView } from '../render/ghostView';
 import { GhostRecorder } from '../timeattack/ghost';
 import type { GhostData } from '../timeattack/ghost';
+import { comboText } from '../game/combo';
 import { PauseMenu } from '../ui/pauseMenu';
 import type { ObjectiveInfo } from '../ui/pauseMenu';
 import { missPenaltySec, returnSpeed } from '../timeattack/penalty';
@@ -158,6 +159,7 @@ export class StageSession {
       },
       onRestart: () => (deps.onRestart ? deps.onRestart() : void this.restart()),
       restartLabel: deps.restartLabel,
+      combo: comboText(deps.params.combo ?? ['tackle']),
       onQuit: () => deps.onQuit(),
       quitLabel: deps.quitLabel,
     });

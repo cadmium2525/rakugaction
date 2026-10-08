@@ -194,7 +194,7 @@ export class PlayScene {
     else if (e.type === 'hurt') fx.hit(0.28, 0.09);
     else if (e.type === 'break') fx.hit(0.2, 0.06);
     else if (e.type === 'breakGuard') fx.hit(0.08, 0.03);
-    else if (e.type === 'attack') fx.punchFov(5);
+    else if (e.type === 'attack') fx.punchFov(e.move === 'dive' ? 9 : e.move === 'tail' || e.move === 'gust' || e.move === 'kick' || e.move === 'upper' ? 6 : 4);
     else if (e.type === 'land' && e.impact >= 6) {
       const k = Math.min(1, (e.impact - 6) / 10);
       const p = this.sim.player.pos;

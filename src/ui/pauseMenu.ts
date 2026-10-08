@@ -12,6 +12,8 @@ export interface PauseMenuOptions {
   restartLabel?: string;
   /** 「やめる」の表示名 (ハブへ戻る/タイムアタックをやめる 等) */
   quitLabel?: string;
+  /** ACTION のコンボ (あれば、操作のおさらいに出す) */
+  combo?: string;
 }
 
 /** ポーズ画面に出す、集めるアイテムの一覧。 */
@@ -60,6 +62,8 @@ export class PauseMenu {
         h('button', { class: 'btn btn-ghost', text: opts.restartLabel ?? '↻ 最初からやり直す', on: { click: () => opts.onRestart() } }),
         h('button', { class: 'btn btn-ghost', text: opts.quitLabel ?? '⌂ ステージを終了', on: { click: () => opts.onQuit() } }),
       ),
+      // 操作のおさらい (技の出し方は、ここでいつでも見られる。プレイ中の画面には出さない)
+      opts.combo ? h('div', { class: 'pause-help' }, h('div', {}, h('b', { text: 'ACTION 連打' }), h('span', { text: opts.combo })), h('div', {}, h('b', { text: '走りながら ACTION' }), h('span', { text: '幅跳び (低く速く跳ぶ)' }))) : null,
     );
     this.el = h('div', { class: 'pause-menu', attrs: { hidden: '' } }, this.box);
     parent.appendChild(this.el);

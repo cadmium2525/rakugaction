@@ -1,8 +1,11 @@
+import type { MoveId } from './combo';
+
 /** シミュレーションが発行するイベント。描画/SE/UI/ロジックが購読する。 */
 export type SimEvent =
   | { type: 'jump' }
   | { type: 'land'; impact: number }
-  | { type: 'attack' }
+  /** ACTION を出した。move = 技 (省略 = 体当たり)。'dive' = 走りながらの幅跳び。step = コンボの何発目か (0 始まり) */
+  | { type: 'attack'; move?: MoveId; step?: number }
   | { type: 'hurt'; hp: number; maxHp: number }
   /** チェックポイントで HP が全回復した */
   | { type: 'heal'; hp: number; maxHp: number }

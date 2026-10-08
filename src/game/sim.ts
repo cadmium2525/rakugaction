@@ -100,6 +100,9 @@ const GOAL_LOCKED_NOTICE = 2.5;
  * ゲームシミュレーション本体。Rapier + プレイヤー + ステージギミックを保持する。
  * DOM/WebGL に依存しないので Node 上でヘッドレス実行できる (自動テスト/ボット)。
  */
+/** 「前に相手がいる」とみなす、届く距離からの余裕 (m)。踏み込めば届く近さ。ボットが ACTION を押す距離 (届く距離 + 0.9m) より広くしてある */
+const TARGET_MARGIN = 1.4;
+
 export class GameSim {
   readonly world: RAPIER.World;
   readonly player: PlayerController;
@@ -365,9 +368,11 @@ export class GameSim {
     const waters = this.stage.waters;
     if (waters && waters.length > 0) this.env.waterSurface = waterSurfaceAt(waters, player.pos.x, player.pos.y, player.pos.z, nextTime);
     const standing = player.standingCollider >= 0 ? this.moverByCollider.get(player.standingCollider) : undefined;
-    const wasAttacking = player.attackTimer > 0;
+    this.env.targetNear = input.actionPressed ? this.targetAhead() : false;
+    const serial = player.attackSerial;
     player.step(dt, input, this.env, standing ? standing.delta : null, this.pushEvent);
-    if (!wasAttacking && player.attackTimer > 0) this.attackHits.clear();
+    // 新しい技を出したら、当たった相手の記録を消す (コンボの 1 発ごとに、同じ相手にもう一度当たる)
+    if (player.attackSerial !== serial) this.attackHits.clear();
     this.world.step();
 
     this.time = nextTime;
@@ -500,8 +505,8 @@ export class GameSim {
       const horiz = Math.hypot(dx, dz);
 
       // ACTION: 前方で届く範囲にいる敵
-      if (p.attacking && !this.attackHits.has(e.def.id) && horiz - er <= p.params.hitReach && Math.abs(dy) <= eh + hh) {
-        const front = horiz < 0.3 || (-dx * fx - dz * fz) / horiz >= 0.2;
+      if (p.attacking && !this.attackHits.has(e.def.id) && horiz - er <= p.attackReach && dy >= -(eh + hh + p.attackTall) && dy <= eh + hh) {
+        const front = horiz < 0.3 || (-dx * fx - dz * fz) / horiz >= p.attackArc;
         if (front) {
           this.attackHits.add(e.def.id);
           if (p.params.attackPower + 1e-6 >= e.spec.toughness) {
@@ -726,9 +731,40 @@ export class GameSim {
   }
 
   /** ACTION の当たり判定: 前方の壊せる箱。攻撃力が足りれば壊す。 */
+  /**
+   * 前の、手の届く近さ (届く距離 + TARGET_MARGIN) に、敵か木箱がいるか。ACTION を押したステップだけ調べる。
+   * いれば、走っていても幅跳びにせず、その場の技を出す (PlayerEnv.targetNear)。
+   */
+  private targetAhead(): boolean {
+    const p = this.player;
+    const reach = p.params.hitReach + TARGET_MARGIN;
+    const hh = p.params.height / 2;
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    for (const e of this.enemies) {
+      if (e.defeated) continue;
+      const dx = e.pos.x - p.pos.x;
+      const dz = e.pos.z - p.pos.z;
+      const d = Math.hypot(dx, dz);
+      if (d - e.spec.radius > reach || Math.abs(e.pos.y - p.pos.y) > e.spec.height / 2 + hh + 0.5) continue;
+      if (d < 0.3 || (dx * fx + dz * fz) / d >= 0) return true;
+    }
+    for (const b of this.breakables) {
+      if (b.broken) continue;
+      const dx = Math.max(Math.abs(p.pos.x - b.def.pos[0]) - b.def.size[0] / 2, 0);
+      const dy = Math.max(Math.abs(p.pos.y - b.def.pos[1]) - b.def.size[1] / 2, 0);
+      const dz = Math.max(Math.abs(p.pos.z - b.def.pos[2]) - b.def.size[2] / 2, 0);
+      if (Math.hypot(dx, dy, dz) > reach) continue;
+      const tx = b.def.pos[0] - p.pos.x;
+      const tz = b.def.pos[2] - p.pos.z;
+      if ((tx * fx + tz * fz) / (Math.hypot(tx, tz) || 1) >= 0) return true;
+    }
+    return false;
+  }
+
   private checkAttackHits(): void {
     const p = this.player;
-    const reach = p.params.hitReach;
+    const reach = p.attackReach;
     const fx = Math.sin(p.yaw);
     const fz = Math.cos(p.yaw);
     for (const b of this.breakables) {
@@ -745,7 +781,7 @@ export class GameSim {
       const tx = b.def.pos[0] - p.pos.x;
       const tz = b.def.pos[2] - p.pos.z;
       const tl = Math.hypot(tx, tz) || 1;
-      if ((tx * fx + tz * fz) / tl < 0.2) continue;
+      if ((tx * fx + tz * fz) / tl < p.attackArc) continue;
       if (p.params.attackPower + 1e-6 >= b.def.toughness) {
         b.broken = true;
         this.world.removeCollider(b.collider, true);

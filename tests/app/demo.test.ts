@@ -4,6 +4,7 @@ import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch } from
 import type { IdleEnv } from '../../src/app/demo';
 import { buildCharacter } from '../../src/character/builder';
 import { runBot } from '../../src/game/bot';
+import { comboFor, limbsOf } from '../../src/game/combo';
 import { statsToParams } from '../../src/game/params';
 import { GameSim } from '../../src/game/sim';
 import { decodeLook } from '../../src/ranking/look';
@@ -107,7 +108,10 @@ describe('デモ: 赤いドラゴンが STAGE 1 を遊ぶ', () => {
     const stage = getStageEntry(DEMO_STAGE_ID)!.build();
     const route = stage.routes?.[DEMO_ROUTE];
     expect(route).toBeDefined();
-    const sim = new GameSim(await rapier(), stage, statsToParams(a.stats, a.traits));
+    // 本物のデモと同じ: コンボは、ドラゴンの絵のパーツ (腕 2・足 2・しっぽ・つばさ) から決まる
+    const combo = comboFor(limbsOf(d));
+    expect(combo).toEqual(['punch', 'punch', 'kick', 'tail', 'gust']);
+    const sim = new GameSim(await rapier(), stage, { ...statsToParams(a.stats, a.traits), combo });
     const r = runBot(sim, route!, { maxTime: 300 });
     sim.dispose();
     expect(r.cleared, JSON.stringify(r)).toBe(true);

@@ -58,6 +58,9 @@ export class PlayerView {
         landCount: p.landCount,
         landImpact: p.lastLandImpact,
         attacking: p.attacking,
+        attackMove: p.attackMove,
+        attackProgress: p.attackProgress,
+        attackStep: p.attackSerial,
       });
     }
 

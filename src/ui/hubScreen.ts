@@ -21,6 +21,8 @@ export interface HubOptions {
   onRename?(): void;
   /** 表示する能力 (プレイヤーレベル補正後) */
   stats: CharacterStats;
+  /** ACTION のコンボ (例: "パンチ → パンチ → キック") */
+  combo?: string;
   /** 補正で増えた分 (能力カードに +N と表示) */
   statBonus?: Partial<Record<StatKey, number>>;
   /** プレイヤーのレベル/EXP の進み具合 */
@@ -60,6 +62,7 @@ export class HubScreen implements Screen {
 
     const card = new StatCard();
     card.setStats(opts.stats, opts.statBonus);
+    card.setAction(opts.combo ?? '');
     card.reveal();
 
     const list = h('div', { class: 'hub-stages' });

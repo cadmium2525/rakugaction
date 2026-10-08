@@ -1878,3 +1878,46 @@
     min-height: 34px;
   }
 }
+
+/* ACTION のコンボ (能力カードの下・一時停止の操作のおさらい) */
+.sc-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed #e0d2b4;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5a4a2c;
+  line-height: 1.35;
+}
+.sc-action:empty {
+  display: none;
+}
+.sc-action b {
+  font-weight: 900;
+  color: var(--accent);
+}
+.pause-help {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5a4a2c;
+  line-height: 1.35;
+}
+.pause-help > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+.pause-help b {
+  font-weight: 900;
+  color: var(--accent);
+}
+.pause-box.has-list .pause-help {
+  grid-column: 1 / -1;
+}

@@ -31,6 +31,8 @@ export function soundsFor(events: readonly SimEvent[]): SoundCue[] {
         break;
       case 'attack':
         add('attack', 0.9);
+        // 幅跳びは、跳ぶ音も重ねる
+        if (e.move === 'dive') add('jump', 0.7);
         break;
       case 'hurt':
         add('hurt');

@@ -11,6 +11,8 @@ export interface BirthOptions {
   host: RenderHost;
   rig: CharacterRig;
   stats: CharacterStats;
+  /** ACTION のコンボ (例: "パンチ → パンチ → キック") */
+  combo?: string;
   /** 初期のなまえ */
   name: string;
   onRetry(): void;
@@ -39,6 +41,7 @@ export class BirthScreen implements Screen {
     // 能力カードを右に出すので、キャラクターは少し左寄りに見せる
     this.view.setCompositionOffset(0.16);
     this.card.setStats(opts.stats);
+    this.card.setAction(opts.combo ?? '');
 
     this.banner = h('div', { class: 'birth-banner', text: 'キャラクター誕生' });
     this.nameInput = h('input', { class: 'name-input', attrs: { type: 'text', maxlength: String(NAME_MAX), value: opts.name, enterkeyhint: 'done', autocomplete: 'off', 'aria-label': 'キャラクター名', placeholder: '名前を入力' } });

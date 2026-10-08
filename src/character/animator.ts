@@ -15,8 +15,12 @@ export interface AnimInput {
   landCount: number;
   /** 直近の着地衝撃 (m/s) */
   landImpact: number;
-  /** ACTION (ダッシュ攻撃) 中 */
+  /** ACTION 中 */
   attacking?: boolean;
+  /** 出している技 (省略 = 体当たり)・進み具合 (0..1)・コンボの何発目か */
+  attackMove?: string;
+  attackProgress?: number;
+  attackStep?: number;
 }
 
 export type AnimState = 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'land' | 'attack';
@@ -29,6 +33,8 @@ interface BodyPose {
   squashXZ: number;
   headX: number;
   headZ: number;
+  /** 体のひねり (rad。たて軸まわり)。パンチのひねり・しっぽ回転 */
+  spin: number;
 }
 
 /** 外から見える現在のポーズ (デバッグ/テスト用)。左/右の脚・腕は、最初に見つかった左右 1 本ずつの値。 */
@@ -43,8 +49,8 @@ export interface PoseView extends BodyPose {
   armRZ: number;
 }
 
-const newBodyPose = (): BodyPose => ({ bodyY: 0, lean: 0, squashY: 1, squashXZ: 1, headX: 0, headZ: 0 });
-const BODY_KEYS: (keyof BodyPose)[] = ['bodyY', 'lean', 'squashY', 'squashXZ', 'headX', 'headZ'];
+const newBodyPose = (): BodyPose => ({ bodyY: 0, lean: 0, squashY: 1, squashXZ: 1, headX: 0, headZ: 0, spin: 0 });
+const BODY_KEYS: (keyof BodyPose)[] = ['bodyY', 'lean', 'squashY', 'squashXZ', 'headX', 'headZ', 'spin'];
 
 /** 手足が地面から離れていてほしい最小の余裕 (m) */
 const GROUND_CLEARANCE = 0.03;
@@ -369,18 +375,102 @@ export class CharacterAnimator {
         break;
       }
       case 'attack': {
-        // 両腕を前へ突き出し、体を前傾 (パンチ/ダッシュ)。腕が無いキャラは、体をより大きく前傾して突進する
-        for (const a of this.arms) {
-          a.tx = (-1.55 - 0.1 * a.part.side) * armScale;
-          a.tz = a.rest + a.part.side * 0.12;
-        }
-        for (const l of this.legs) l.tx = (l.group === 0 ? -0.55 : 0.45) * legScale;
-        g.lean = this.arms.length > 0 ? 0.28 : 0.4;
-        g.headX = -0.12;
-        g.squashY = 0.96;
-        g.squashXZ = 1.04;
+        const move = inp.attackMove ?? 'tackle';
+        const k = clamp(inp.attackProgress ?? 0, 0, 1);
+        // 振りの山 (0 → 1 → 0): 技のまん中で、いちばん伸びる
+        const swing = Math.sin(Math.min(1, k * 1.25) * Math.PI);
+        const n = this.arms.length;
+        // コンボの何発目かで、振る腕を変える (1 発目 = 最初の腕、2 発目 = 次の腕 …)
+        const hitArm = n > 0 ? (inp.attackStep ?? 0) % n : -1;
+        const restArms = (): void => {
+          for (const a of this.arms) {
+            a.tx = 0.45 * armScale;
+            a.tz = a.rest + a.part.side * 0.2;
+          }
+        };
+        for (const l of this.legs) l.tx = (l.group === 0 ? -0.3 : 0.3) * legScale;
         for (const w of this.wings) w.tz = w.part.side * 0.1;
         for (const tl of this.tails) tl.tx = 0.3;
+        g.headX = -0.12;
+        g.squashY = 0.97;
+        g.squashXZ = 1.03;
+        if (move === 'punch' || move === 'hook') {
+          // 1 本だけ前へ突き出す (フックは、横から回す)。ほかの腕は引く
+          restArms();
+          const a = this.arms[hitArm];
+          if (a) {
+            a.tx = (-1.6 * swing + 0.3 * (1 - swing)) * armScale;
+            a.tz = a.rest + a.part.side * (move === 'hook' ? 1.1 * (1 - swing) + 0.1 : 0.05);
+            if (move === 'hook') a.ty = -a.part.side * 0.9 * swing;
+          }
+          g.lean = 0.2 * swing;
+          g.spin = (a ? -a.part.side : 0) * (move === 'hook' ? 0.5 : 0.22) * swing;
+        } else if (move === 'upper') {
+          // 下から上へ振り上げる。体も伸び上がる
+          restArms();
+          const a = this.arms[hitArm];
+          if (a) {
+            a.tx = (0.6 - 3.3 * Math.min(1, k * 1.6)) * armScale;
+            a.tz = a.rest;
+          }
+          g.lean = -0.12 * swing;
+          g.squashY = 1 + 0.12 * swing;
+          g.squashXZ = 1 - 0.06 * swing;
+          g.bodyY = 0.12 * swing;
+          g.headX = -0.3 * swing;
+        } else if (move === 'kick') {
+          // 片足を前へ振り上げ、体は後ろへ反る。腕は広げてつり合いを取る
+          for (const a of this.arms) {
+            a.tx = 0.3 * armScale;
+            a.tz = a.rest + a.part.side * 0.7;
+          }
+          this.legs.forEach((l, i) => {
+            l.tx = (i === 0 ? -1.5 * swing : 0.25) * legScale;
+          });
+          g.lean = -0.3 * swing;
+        } else if (move === 'tail') {
+          // その場で 1 回転 (しっぽを横へ伸ばして、なぎ払う)
+          restArms();
+          g.spin = k * Math.PI * 2;
+          for (const tl of this.tails) {
+            tl.tx = -0.2;
+            tl.ty = 0.5;
+          }
+          g.squashY = 0.94;
+          g.squashXZ = 1.06;
+        } else if (move === 'gust') {
+          // つばさを大きく広げて、前へあおぐ (2 回)。体は後ろへ反ってから前へ
+          restArms();
+          const flap = Math.sin(k * Math.PI * 4);
+          for (const w of this.wings) {
+            w.tz = w.part.side * (0.55 + 0.75 * flap);
+            w.tx = -0.5 * Math.max(0, flap);
+          }
+          g.lean = -0.18 + 0.3 * k;
+        } else if (move === 'dive') {
+          // 幅跳び: 体を前へ大きく倒して、腕は前・脚は後ろへ伸ばす
+          for (const a of this.arms) {
+            a.tx = (-2.0 - 0.1 * a.part.side) * armScale;
+            a.tz = a.rest + a.part.side * 0.1;
+          }
+          for (const l of this.legs) l.tx = 0.9 * legScale;
+          g.lean = 0.85;
+          g.squashY = 1.05;
+          g.squashXZ = 0.97;
+          g.headX = -0.5;
+          for (const w of this.wings) w.tz = w.part.side * 0.9;
+          for (const tl of this.tails) tl.tx = -0.4;
+        } else {
+          // 体当たり: 両腕を前へ突き出し、体を前傾。腕が無いキャラは、体をより大きく前傾して突進する
+          for (const a of this.arms) {
+            a.tx = (-1.55 - 0.1 * a.part.side) * armScale;
+            a.tz = a.rest + a.part.side * 0.12;
+          }
+          for (const l of this.legs) l.tx = (l.group === 0 ? -0.55 : 0.45) * legScale;
+          g.lean = this.arms.length > 0 ? 0.28 : 0.4;
+          g.squashY = 0.96;
+          g.squashXZ = 1.04;
+        }
         smooth = 34;
         break;
       }
@@ -405,6 +495,8 @@ export class CharacterAnimator {
     for (const o of this.orns) o.tz = o.part.side * 0.04 + Math.sin(this.t * 2.1 + o.jitter) * 0.05 + g.headZ;
 
     const p = this.pose;
+    // しっぽ回転 (1 回転 = 2π) のあとは、回った向きのまま 0 として扱う (逆回りで戻らない)
+    if (g.spin < Math.PI && p.spin > Math.PI) p.spin -= Math.PI * 2;
     for (const key of BODY_KEYS) p[key] = damp(p[key], g[key], smooth, dt);
     for (const l of [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns]) {
       l.rx = damp(l.rx, l.tx, smooth, dt);
@@ -423,6 +515,7 @@ export class CharacterAnimator {
     // (ダッシュ攻撃の前傾は、四足の突進が見えるよう少し強く)
     const leanK = rig.bodyView === 'side' ? (this.state === 'attack' ? 0.55 : 0.25) : 1;
     rig.body.rotation.x = p.lean * leanK;
+    rig.body.rotation.y = p.spin;
     for (const h of this.heads) h.part.pivot.rotation.set(p.headX, 0, p.headZ);
     for (const a of this.arms) a.part.pivot.rotation.set(a.rx, a.ry, a.rz);
     // 体を前傾させると脚も一緒に倒れるので、脚は逆回転で着地させる

@@ -9,6 +9,7 @@ import { TEST_BUILDS, getBuild } from '../character/stats';
 import { cloneDrawing } from '../drawing/model';
 import type { DrawingData } from '../drawing/model';
 import { sanitizeDrawing } from '../drawing/sanitize';
+import { comboFor, comboText, limbsOf } from '../game/combo';
 import { statsToParams } from '../game/params';
 import type { PlayerParams } from '../game/params';
 import { InputManager } from '../input/manager';
@@ -504,7 +505,7 @@ export class App {
     const { Bot } = await import('../game/bot');
     if (!onTitle()) return;
     this.leaveGame();
-    const params = statsToParams(analysis.stats, analysis.traits);
+    const params = { ...statsToParams(analysis.stats, analysis.traits), combo: comboFor(limbsOf(drawing)) };
     const end = (): void => this.showTitle();
     const session = await StageSession.create({
       host: this.ensureHost(),
@@ -616,6 +617,7 @@ export class App {
         host,
         rig: built.rig,
         stats: built.analysis.stats,
+        combo: comboText(comboFor(limbsOf(drawing))),
         name: describeBuild(built.analysis.stats).label,
         onRetry: () => this.showEditor(this.drawing ?? undefined),
         onPlay: (name) => {
@@ -662,7 +664,8 @@ export class App {
   }
 
   private paramsOf(rec: CharacterRecord): PlayerParams {
-    return statsToParams(this.effectiveStats(rec), rec.traits, levelBonus(this.profile.level).hearts);
+    // ACTION のコンボは、絵に描いたパーツで決まる (腕・足・しっぽ・つばさ)
+    return { ...statsToParams(this.effectiveStats(rec), rec.traits, levelBonus(this.profile.level).hearts), combo: comboFor(limbsOf(rec.drawing)) };
   }
 
   /** レベル補正で増えた能力値 (能力カードの +N 表示用)。 */
@@ -696,6 +699,7 @@ export class App {
         name: rec.name,
         onRename: () => void this.renameCharacter(rec.id).then((changed) => changed && void this.showHub()),
         stats: this.effectiveStats(rec),
+        combo: comboText(comboFor(limbsOf(rec.drawing))),
         statBonus: this.statBonusOf(rec),
         level: this.profile.progress,
         onPlayStage: (id) => void this.startStage(id),

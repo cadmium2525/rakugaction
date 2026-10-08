@@ -1,3 +1,4 @@
+import type { MoveId } from './combo';
 import { clamp } from '../core/math';
 import type { CharacterStats, CharacterTraits } from '../character/stats';
 import { DEFAULT_TRAITS } from '../character/stats';
@@ -55,6 +56,8 @@ export interface PlayerParams {
   attackCooldown: number;
   lungeSpeed: number;
   hitReach: number;
+  /** 止まって ACTION を連打した時のコンボ (技の並び)。ラクガキのパーツで決まる (combo.ts)。省略 = 体当たりだけ */
+  combo?: readonly MoveId[];
   /** 最大 HP */
   maxHp: number;
   /** ダメージ軽減係数 (0..1 に収める。1 = 被ダメ 100%) */

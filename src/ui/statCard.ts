@@ -28,6 +28,7 @@ export class StatCard {
   readonly el: HTMLElement;
   private readonly labelEl: HTMLElement;
   private readonly tagEl: HTMLElement;
+  private readonly actionEl: HTMLElement;
   private readonly rows = new Map<StatKey, { fill: HTMLElement; value: HTMLElement; plus: HTMLElement }>();
 
   constructor() {
@@ -50,7 +51,8 @@ export class StatCard {
       );
       this.rows.set(k, { fill, value, plus });
     }
-    this.el = h('div', { class: 'stat-card' }, this.labelEl, this.tagEl, bars);
+    this.actionEl = h('div', { class: 'sc-action' });
+    this.el = h('div', { class: 'stat-card' }, this.labelEl, this.tagEl, bars, this.actionEl);
   }
 
   /** stats = 表示する値 (レベル補正後でもよい)。bonus = そのうち補正で増えた分 (あれば +N と表示)。 */
@@ -66,6 +68,13 @@ export class StatCard {
       r.plus.textContent = b > 0 ? `+${b}` : '';
       r.fill.style.setProperty('--w', `${Math.max(4, Math.min(100, (stats[k] / BAR_MAX) * 100))}%`);
     }
+  }
+
+  /** ACTION のコンボ (描いたパーツで決まる技の並び) を出す。空なら出さない。 */
+  setAction(combo: string): void {
+    this.actionEl.replaceChildren();
+    if (!combo) return;
+    this.actionEl.append(h('b', { text: 'ACTION' }), h('span', { text: combo }));
   }
 
   /** バーを伸ばす。 */
