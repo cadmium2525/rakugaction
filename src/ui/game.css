@@ -1966,3 +1966,28 @@
   background: linear-gradient(90deg, #ff5a4d, #ffb300);
   transition: width 0.15s;
 }
+
+/* ---------- タイトル画面の背景 (生成 AI で作った絵。art/title.png → scripts/make-art.py → public/title-bg.webp) ---------- */
+.title-screen {
+  /* 絵が読み込めない時 (オフラインの初回など) は、今までの色のまま */
+  background:
+    radial-gradient(ellipse 46% 62% at 50% 52%, rgba(255, 250, 238, 0.82) 0%, rgba(255, 250, 238, 0.5) 55%, rgba(255, 250, 238, 0) 100%),
+    url('/title-bg.webp') center / cover no-repeat,
+    linear-gradient(180deg, #bfe3ff 0%, #fff6e0 100%);
+}
+/* ロゴと説明は、空の上でも読めるように、白いふちを付ける */
+.title-screen .title-logo {
+  text-shadow:
+    0 0 14px #fff,
+    3px 3px 0 #fff,
+    -2px -2px 0 #fff,
+    2px -2px 0 #fff,
+    -2px 2px 0 #fff,
+    5px 6px 0 rgba(255, 122, 61, 0.3);
+}
+.title-screen .title-sub {
+  color: #4a3b22;
+  text-shadow:
+    0 0 8px #fff,
+    0 0 3px #fff;
+}
