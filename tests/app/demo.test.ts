@@ -117,3 +117,20 @@ describe('デモ: 赤いドラゴンが STAGE 1 を遊ぶ', () => {
     expect(r.time + 10).toBeLessThan(DEMO_MAX_SEC);
   }, 120_000);
 });
+
+describe('ボットの操作は、計算 1 回ごとに決める', () => {
+  /**
+   * 不具合 (2026-10-08、ユーザーが実機で発見): デモが 1 か所で長く止まった。ボットの操作を「描画 1 コマに 1 回」決めていたので、
+   * 1 コマに計算が 0 回 (120Hz の画面) の時に「ジャンプを押した」が捨てられ、池の飛び石で 120 秒以上止まった (ブラウザで 120fps にして再現)。
+   * ここのテストは計算 1 回ごとに操作を呼ぶので、気づけなかった。描画の速さを 20〜120fps に変えて、どれも同じ 94.5 秒でゴールすることをブラウザで確かめた。
+   */
+  it('PlayScene は、overridePerStep の時、固定ステップの繰り返しの中で inputOverride を呼ぶ。ボットを入れた StageSession は、それを立てる', () => {
+    const scene = readFileSync(new URL('../../src/app/playScene.ts', import.meta.url), 'utf8');
+    const loop = scene.slice(scene.indexOf('for (let i = 0; i < (this.holdSim ? 0 : st.steps); i++)'));
+    expect(loop.indexOf('if (this.inputOverride && this.overridePerStep) this.inputOverride(si);')).toBeGreaterThan(0);
+    expect(loop.indexOf('if (this.inputOverride && this.overridePerStep) this.inputOverride(si);')).toBeLessThan(loop.indexOf('this.sim.step(si);'));
+    expect(scene).toContain('if (!this.overridePerStep) this.inputOverride(si);');
+    const session = readFileSync(new URL('../../src/app/stageSession.ts', import.meta.url), 'utf8');
+    expect(session).toContain('this.scene.overridePerStep = this.botInput !== null;');
+  });
+});

@@ -7,7 +7,8 @@ import { SFX } from '../../src/audio/sfx';
 import { BGM, JINGLE, PATCH } from '../../src/audio/songs';
 import { midiToHz, renderSong, renderTrack, SAMPLE_RATE, softClip } from '../../src/audio/synth';
 import type { Patch, Song } from '../../src/audio/synth';
-import { DEFAULT_SETTINGS } from '../../src/save/schema';
+import { bgmGain, seGain } from '../../src/audio/audioManager';
+import { DEFAULT_SETTINGS, sanitizeVolume } from '../../src/save/schema';
 
 /**
  * 音は耳で確かめられないので、波形と楽譜を数字で確かめる (`npm run daw` の報告書と同じ物差し)。
@@ -261,8 +262,26 @@ describe('ゲームのイベント → 効果音', () => {
 });
 
 describe('音量の設定', () => {
-  it('既定は、BGM・効果音とも「中」(2)', () => {
-    expect(DEFAULT_SETTINGS.bgm).toBe(2);
-    expect(DEFAULT_SETTINGS.se).toBe(2);
+  it('0〜100 の目盛り。既定は 70。0 で無音、上げるほど大きく、BGM は効果音より小さい', () => {
+    expect(DEFAULT_SETTINGS.bgm).toBe(70);
+    expect(DEFAULT_SETTINGS.se).toBe(70);
+    expect(bgmGain(0)).toBe(0);
+    expect(seGain(0)).toBe(0);
+    for (let v = 5; v <= 100; v += 5) {
+      expect(bgmGain(v)).toBeGreaterThan(bgmGain(v - 5));
+      expect(seGain(v)).toBeGreaterThanOrEqual(seGain(v - 5));
+      expect(bgmGain(v)).toBeLessThan(seGain(v));
+    }
+    expect(seGain(100)).toBeLessThanOrEqual(1);
+    expect(bgmGain(999)).toBe(bgmGain(100));
+  });
+
+  it('保存の読み込み: 範囲の外は丸める。v0.19.0 の 4 段階 (1 / 2 / 3) は 40 / 70 / 100 として読む', () => {
+    expect(sanitizeVolume(55, 70)).toBe(55);
+    expect(sanitizeVolume(-5, 70)).toBe(0);
+    expect(sanitizeVolume(250, 70)).toBe(100);
+    expect(sanitizeVolume('x', 70)).toBe(70);
+    expect(sanitizeVolume(undefined, 70)).toBe(70);
+    expect([0, 1, 2, 3].map((v) => sanitizeVolume(v, 70))).toEqual([0, 40, 70, 100]);
   });
 });

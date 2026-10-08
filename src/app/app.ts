@@ -369,8 +369,9 @@ export class App {
         onVolume: (kind, level) => {
           this.settings = { ...this.settings, [kind]: level };
           this.audio.setLevels(this.settings.bgm, this.settings.se);
+          // 効果音の大きさは、鳴らして確かめられるようにする
+          if (kind === 'se') this.audio.sfx('star');
           this.requestSave();
-          this.showSettings(back);
         },
         hints: this.settings.hints,
         onHints: (on) => {
@@ -954,7 +955,10 @@ export class App {
     if (!wp) return;
     const bot = new Bot(s.scene.sim, wp);
     s.botInput = (si) => bot.next(si);
-    if (s.phase === 'playing') s.scene.inputOverride = s.botInput;
+    if (s.phase === 'playing') {
+      s.scene.inputOverride = s.botInput;
+      s.scene.overridePerStep = true;
+    }
   }
 
   // ===== 開発用アリーナ =====

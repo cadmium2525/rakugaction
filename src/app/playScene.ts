@@ -31,6 +31,11 @@ export class PlayScene {
   sim!: GameSim;
   camera = new FollowCamera();
   paused = false;
+  /**
+   * inputOverride を、描画 1 コマごとではなく、計算 (固定ステップ) 1 回ごとに呼ぶか。ボットの時は true:
+   * 描画の速さ (30 / 60 / 120Hz・コマ落ち) によって、1 コマに進む計算の回数が変わっても、同じ動きになる。
+   */
+  overridePerStep = false;
   /** 実時間でのステージ内経過 (ポーズ中は進まない) */
   private raf = 0;
   private lastT = 0;
@@ -132,7 +137,7 @@ export class PlayScene {
     if (!this.paused) {
       const si = this.simInput;
       if (this.inputOverride) {
-        this.inputOverride(si);
+        if (!this.overridePerStep) this.inputOverride(si);
       } else {
         this.camera.stickToWorld(raw.stickX, raw.stickY, this.world);
         si.moveX = this.world.x;
@@ -151,6 +156,8 @@ export class PlayScene {
           this.pendingJump = false;
           this.pendingAction = false;
         }
+        // ボットの操作は、計算 1 回ごとに決める (1 コマに計算が 0 回・2 回の時に、押した瞬間の入力が消えたり重なったりしないように)
+        if (this.inputOverride && this.overridePerStep) this.inputOverride(si);
         this.sim.step(si);
       }
       if (st.steps > 0 && !this.holdSim) {

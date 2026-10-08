@@ -1748,3 +1748,32 @@
 .is-demo .hud-pause {
   display: none;
 }
+
+/* 設定: 音量 (− つまみ ＋ 数字) */
+.st-vol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.st-vol-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  min-height: 40px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+}
+.st-vol-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 36px;
+  accent-color: var(--accent);
+  touch-action: pan-y;
+}
+.st-vol-num {
+  flex: 0 0 auto;
+  width: 34px;
+  text-align: right;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}

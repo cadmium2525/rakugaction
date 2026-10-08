@@ -5,9 +5,13 @@ import type { BgmId, JingleId } from './songs';
 import { renderSong, SAMPLE_RATE } from './synth';
 import type { Song } from './synth';
 
-/** 音量の段階 (設定の値 0〜3) → 実際の大きさ。BGM は効果音より小さくして、効果音が埋もれないようにする */
-export const BGM_GAIN: readonly number[] = [0, 0.22, 0.4, 0.62];
-export const SE_GAIN: readonly number[] = [0, 0.4, 0.7, 1];
+/**
+ * 音量 (設定の値 0〜100) → 実際の大きさ。耳の感じ方に合わせて 2 乗で効かせる (目盛りを半分にすると、半分くらいの大きさに聞こえる)。
+ * BGM は効果音より小さくして、効果音が埋もれないようにする (目盛り 70 で BGM 0.39 / 効果音 0.59)。
+ */
+const clampVol = (v: number): number => Math.max(0, Math.min(100, Number.isFinite(v) ? v : 0));
+export const bgmGain = (v: number): number => 0.8 * (clampVol(v) / 100) ** 2;
+export const seGain = (v: number): number => Math.min(1, 1.2 * (clampVol(v) / 100) ** 2);
 /** 同じ効果音を続けて鳴らす時の、最短の間隔 (秒)。重なって大きくなりすぎるのを防ぐ */
 const SFX_MIN_GAP = 0.045;
 /** 一時停止中の BGM の大きさ (ふだんに対する比) */
@@ -29,8 +33,8 @@ export class AudioManager {
   private seBus: GainNode | null = null;
   /** ジングル (クリアなどの短い曲) 用。大きさは BGM の設定に合わせるが、一時停止では小さくしない */
   private jingleBus: GainNode | null = null;
-  private bgmLevel = 2;
-  private seLevel = 2;
+  private bgmLevel = 70;
+  private seLevel = 70;
   private ducked = false;
   private wantBgm: BgmId | null = null;
   private playingBgm: BgmId | null = null;
@@ -81,10 +85,10 @@ export class AudioManager {
     else void this.ctx.resume().catch(() => undefined);
   };
 
-  /** 音量の段階 (0 = 出さない 〜 3 = 大) を決める。 */
+  /** 音量 (0 = 出さない 〜 100) を決める。 */
   setLevels(bgm: number, se: number): void {
-    this.bgmLevel = Math.max(0, Math.min(3, Math.round(bgm)));
-    this.seLevel = Math.max(0, Math.min(3, Math.round(se)));
+    this.bgmLevel = clampVol(bgm);
+    this.seLevel = clampVol(se);
     this.applyVolumes();
     // BGM を「出さない」から戻した時は、流すはずだった曲を始める
     if (this.bgmLevel > 0 && this.wantBgm && this.playingBgm !== this.wantBgm) this.startBgm(this.wantBgm);
@@ -100,9 +104,9 @@ export class AudioManager {
   private applyVolumes(): void {
     if (!this.ctx || !this.bgmBus || !this.seBus) return;
     const t = this.ctx.currentTime;
-    this.bgmBus.gain.setTargetAtTime(BGM_GAIN[this.bgmLevel] * (this.ducked ? PAUSE_DUCK : 1), t, 0.08);
-    this.seBus.gain.setTargetAtTime(SE_GAIN[this.seLevel], t, 0.02);
-    this.jingleBus?.gain.setTargetAtTime(Math.min(1, BGM_GAIN[this.bgmLevel] * 1.5), t, 0.02);
+    this.bgmBus.gain.setTargetAtTime(bgmGain(this.bgmLevel) * (this.ducked ? PAUSE_DUCK : 1), t, 0.08);
+    this.seBus.gain.setTargetAtTime(seGain(this.seLevel), t, 0.02);
+    this.jingleBus?.gain.setTargetAtTime(Math.min(1, bgmGain(this.bgmLevel) * 1.5), t, 0.02);
   }
 
   private toBuffer(song: Song): AudioBuffer | null {

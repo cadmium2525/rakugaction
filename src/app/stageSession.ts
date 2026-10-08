@@ -194,6 +194,7 @@ export class StageSession {
     this.splits = [];
     this.sealHinted.clear();
     this.timer.reset();
+    this.scene.overridePerStep = false;
     this.scene.holdSim = true; // READY → GO のあいだは世界の時計を止める (GO の瞬間が、いつも時刻 0)
     this.scene.inputOverride = (si) => {
       Object.assign(si, this.zero);
@@ -206,6 +207,7 @@ export class StageSession {
     this.phase = 'playing';
     this.scene.holdSim = false;
     this.scene.inputOverride = this.botInput;
+    this.scene.overridePerStep = this.botInput !== null;
     this.input.reset();
     this.simAtPlay = this.scene.sim.time;
     this.timer.start();

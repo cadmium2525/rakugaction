@@ -23,12 +23,22 @@ export interface SaveSettings {
   quality: QualitySetting;
   /** プレイ中にヒント (看板の説明・敵の倒し方・しかけの説明) を出すか。既定は出さない */
   hints: boolean;
-  /** 音量の段階 (0 = 出さない / 1 = 小 / 2 = 中 / 3 = 大)。BGM と効果音 */
+  /** 音量 (0 = 出さない 〜 100)。BGM と効果音 */
   bgm: number;
   se: number;
 }
 
-export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false, bgm: 2, se: 2 };
+export const DEFAULT_SETTINGS: SaveSettings = { quality: 'auto', hints: false, bgm: 70, se: 70 };
+
+/**
+ * 保存されていた音量を、0〜100 の目盛りにする。v0.19.0 だけは 4 段階 (0〜3) で保存していたので、1 / 2 / 3 は 小 / 中 / 大 = 40 / 70 / 100 として読む
+ * (今の目盛りは 5 きざみなので、1〜3 という値は、今の保存からは出てこない)。
+ */
+export function sanitizeVolume(raw: unknown, def: number): number {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return def;
+  if (raw === 1 || raw === 2 || raw === 3) return [40, 70, 100][raw - 1];
+  return Math.round(Math.max(0, Math.min(100, raw)));
+}
 
 export interface SaveProfile {
   characters: CharacterRecord[];
@@ -84,7 +94,7 @@ const MIGRATIONS: Record<number, (raw: Obj) => Obj> = {
       allStagesRuns: 0,
       exp: 0,
     },
-    settings: { quality: 'auto', hints: false, bgm: 2, se: 2 },
+    settings: { quality: 'auto', hints: false, bgm: 70, se: 70 },
   }),
   // v1 → v2: 各キャラクターのラクガキを新しい形式へ (人型の 6 パーツ → 胴体・頭・腕・脚のスロット。見た目と能力は変わらない)
   1: (raw) => {
@@ -246,7 +256,7 @@ export function normalizeSave(raw: Obj): NormalizeResult {
       exp: clampInt(profile.exp, 0, maxExp, 0),
     },
     // 音量は、あとから足した項目: 古いセーブに無ければ既定 (中)
-    settings: { quality, hints: settings.hints === true, bgm: clampInt(settings.bgm, 0, 3, DEFAULT_SETTINGS.bgm), se: clampInt(settings.se, 0, 3, DEFAULT_SETTINGS.se) },
+    settings: { quality, hints: settings.hints === true, bgm: sanitizeVolume(settings.bgm, DEFAULT_SETTINGS.bgm), se: sanitizeVolume(settings.se, DEFAULT_SETTINGS.se) },
   };
   return { data, issues, recompute };
 }

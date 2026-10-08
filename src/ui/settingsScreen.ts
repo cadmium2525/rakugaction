@@ -23,10 +23,10 @@ export interface SettingsOptions {
   /** プレイ中のヒント (看板の説明・敵の倒し方・しかけの説明) を出すか */
   hints: boolean;
   onHints(on: boolean): void;
-  /** 音量の段階 (0 = 出さない 〜 3 = 大) */
+  /** 音量 (0 = 出さない 〜 100)。onVolume は、動かすたびに呼ばれる (すぐ反映して保存する) */
   bgm: number;
   se: number;
-  onVolume(kind: 'bgm' | 'se', level: number): void;
+  onVolume(kind: 'bgm' | 'se', value: number): void;
   /** セーブデータを全て消す (確認の後に呼ばれる) */
   onReset(): void;
   onBack(): void;
@@ -53,11 +53,26 @@ export class SettingsScreen implements Screen {
     for (const on of [false, true]) {
       hintSeg.appendChild(h('button', { class: `btn btn-ghost st-opt${on === opts.hints ? ' on' : ''}`, text: on ? '出す' : '出さない', on: { click: () => opts.onHints(on) } }));
     }
-    const VOL = ['出さない', '小', '中', '大'];
-    const volSeg = (kind: 'bgm' | 'se'): HTMLElement => {
-      const el = h('div', { class: 'st-seg' });
-      VOL.forEach((label, level) => el.appendChild(h('button', { class: `btn btn-ghost st-opt${level === opts[kind] ? ' on' : ''}`, text: label, on: { click: () => opts.onVolume(kind, level) } })));
-      return el;
+    // 音量: 0〜100 の目盛り (つまみ) と、5 ずつ動かす − / ＋。動かすたびに、その場で音量を変える (画面は作り直さない)
+    const volRow = (kind: 'bgm' | 'se'): HTMLElement => {
+      let value = opts[kind];
+      const num = h('span', { class: 'st-vol-num', text: String(value) });
+      const range = h('input', { class: 'st-vol-range', attrs: { type: 'range', min: '0', max: '100', step: '5', value: String(value), 'aria-label': kind === 'bgm' ? '音楽の音量' : '効果音の音量' } });
+      const set = (v: number, fromRange = false): void => {
+        value = Math.max(0, Math.min(100, Math.round(v / 5) * 5));
+        num.textContent = String(value);
+        if (!fromRange) range.value = String(value);
+        opts.onVolume(kind, value);
+      };
+      range.addEventListener('input', () => set(Number(range.value), true));
+      return h(
+        'div',
+        { class: 'st-vol' },
+        h('button', { class: 'btn btn-ghost st-vol-btn', text: '−', attrs: { 'aria-label': '小さくする' }, on: { click: () => set(value - 5) } }),
+        range,
+        h('button', { class: 'btn btn-ghost st-vol-btn', text: '＋', attrs: { 'aria-label': '大きくする' }, on: { click: () => set(value + 5) } }),
+        num,
+      );
     };
     const when = opts.savedAt ? new Date(opts.savedAt).toLocaleString('ja-JP') : '未保存';
     let armed = false;
@@ -86,8 +101,8 @@ export class SettingsScreen implements Screen {
         { class: 'st-card' },
         h('div', { class: 'cl-head' }, h('div', { class: 'cl-title', text: '⚙ 設定' }), h('button', { class: 'btn btn-ghost', text: '← 戻る', on: { click: () => opts.onBack() } })),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '画質' }), seg, h('small', { class: 'st-note', text: `「自動」は現在「${QUALITY_LABEL[opts.autoQuality as QualitySetting] ?? opts.autoQuality}」です (端末の性能に合わせて選びます)` })),
-        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '音楽 (BGM)' }), volSeg('bgm')),
-        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '効果音' }), volSeg('se'), h('small', { class: 'st-note', text: '音が出ない時は、端末の音量と消音 (マナーモード) を確かめてください' })),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '音楽 (BGM)' }), volRow('bgm')),
+        h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '効果音' }), volRow('se'), h('small', { class: 'st-note', text: '音が出ない時は、端末の音量と消音 (マナーモード) を確かめてください' })),
         h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: 'ヒント' }), hintSeg, h('small', { class: 'st-note', text: 'プレイ中に、看板の説明・敵の倒し方・しかけの説明を画面に出します。「出さない」なら、自分で試して見つけます' })),
         h(
           'div',
