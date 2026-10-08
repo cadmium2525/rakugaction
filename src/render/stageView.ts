@@ -363,6 +363,8 @@ export class StageView {
     this.waterView?.update(sim.time);
     this.enemyView?.update(sim, alpha, dt);
     this.bossView?.update(dt);
+    // ボスが立っている間は、ゴールの光 (輪と柱) を出さない (ボスに重なって、色が飛ぶ)。倒すと現れる
+    if (this.goal && sim.boss) this.goal.visible = sim.boss.defeated;
     this.signView?.update(sim.player.pos.x, sim.player.pos.z);
     this.updateCrumbles(sim, dt);
     // 破片の更新 (1 つの InstancedMesh にまとめて書き戻す)

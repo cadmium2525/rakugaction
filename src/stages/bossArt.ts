@@ -2,64 +2,76 @@ import type { DrawingData, DrawOp } from '../drawing/model';
 import { newSlot } from '../drawing/model';
 
 /**
- * 塔の主「ラクガキの巨人」の絵。プレイヤーのキャラクターと同じく、ペンの線と塗りだけで描いたラクガキで、同じ道具 (buildCharacter) で立体になる。
- * 石の色の太い体・大きなこぶしの腕・短い足・長いしっぽ・角。顔は、怒った目と口の「もよう」。
+ * 塔の主「星よみの守り神」の絵。プレイヤーのキャラクターと同じく、ペンの線と塗りだけで描いたラクガキで、同じ道具 (buildCharacter) で立体になる。
+ * 夜空の色 (濃い藍) の細長い体に、金のふちどりと、光る水色のもよう。胸に光る核、仮面の顔に細い目、三日月の角、先が三日月の刃になった長いしっぽ。
+ * はじめの版 (石の色のずんぐりした巨人) は、「かっこよさと神秘的な感じが足りない」というユーザー評価で描き直した (2026-10-09)。
  * 座標は、パーツごとの紙 (0..1。y は下が大きい)。
  */
-const INK = '#2b2f3a';
-const STONE = '#8d98b3';
-const STONE_D = '#66708c';
-const BELLY = '#d9c8a0';
-const HORN = '#f2e6c8';
-const EYE = '#ffd23f';
-const MOUTH = '#b3362b';
+const INK = '#0d1030';
+const NIGHT = '#232a6e';
+const NIGHT_D = '#161a48';
+const GLOW = '#6ef3ff';
+const GOLD = '#f5cf6b';
+const MASK = '#ece8ff';
 
 const pen = (color: string, width: number, pts: number[]): DrawOp => ({ kind: 'pen', color, width, pts });
 const fill = (color: string, x: number, y: number): DrawOp => ({ kind: 'fill', color, x, y });
 /** 閉じた輪郭 + 塗り */
-const shape = (color: string, pts: number[], seed: readonly [number, number], w = 0.035): DrawOp[] => [pen(INK, w, [...pts, pts[0], pts[1]]), fill(color, seed[0], seed[1])];
-const ellipse = (cx: number, cy: number, rx: number, ry: number, n = 36): number[] => {
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const a = (i / n) * Math.PI * 2;
-    out.push(cx + Math.cos(a) * rx, cy + Math.sin(a) * ry);
-  }
-  return out;
-};
+const shape = (color: string, pts: number[], seed: readonly [number, number], w = 0.03, ink = INK): DrawOp[] => [pen(ink, w, [...pts, pts[0], pts[1]]), fill(color, seed[0], seed[1])];
 
 export function bossDrawing(): DrawingData {
-  // 胴体: 肩が広く、腰がすぼまった台形。腹に明るい色の板
+  // 胴体: とがった肩当て → 細い腰 → 広がるすそ (衣のような形)。胸に、ひし形の光る核。金の帯と、すその光るもよう
   const body = [
-    ...shape(STONE, [0.18, 0.14, 0.82, 0.14, 0.9, 0.3, 0.78, 0.86, 0.22, 0.86, 0.1, 0.3], [0.5, 0.25]),
-    ...shape(BELLY, ellipse(0.5, 0.58, 0.19, 0.22), [0.5, 0.58], 0.025),
-    pen(STONE_D, 0.03, [0.3, 0.3, 0.7, 0.3]),
+    ...shape(NIGHT, [0.5, 0.08, 0.66, 0.12, 0.92, 0.1, 0.8, 0.26, 0.64, 0.34, 0.6, 0.52, 0.76, 0.9, 0.5, 0.84, 0.24, 0.9, 0.4, 0.52, 0.36, 0.34, 0.2, 0.26, 0.08, 0.1, 0.34, 0.12], [0.5, 0.2]),
+    ...shape(GLOW, [0.5, 0.2, 0.58, 0.31, 0.5, 0.42, 0.42, 0.31], [0.5, 0.31], 0.022, GOLD),
+    pen(GOLD, 0.03, [0.4, 0.52, 0.5, 0.56, 0.6, 0.52]),
+    pen(GLOW, 0.02, [0.5, 0.6, 0.5, 0.8]),
+    pen(GLOW, 0.018, [0.4, 0.66, 0.34, 0.84]),
+    pen(GLOW, 0.018, [0.6, 0.66, 0.66, 0.84]),
+    pen(GOLD, 0.025, [0.14, 0.14, 0.3, 0.2]),
+    pen(GOLD, 0.025, [0.86, 0.14, 0.7, 0.2]),
   ];
-  // 頭: 角ばった丸。小さめ (体が大きく見える)
-  const head = shape(STONE, [0.24, 0.3, 0.76, 0.3, 0.84, 0.52, 0.72, 0.8, 0.28, 0.8, 0.16, 0.52], [0.5, 0.55]);
-  // 腕: 太い腕の先に、大きなこぶし
-  const arms = [...shape(STONE, [0.38, 0.06, 0.62, 0.06, 0.66, 0.6, 0.34, 0.6], [0.5, 0.3]), ...shape(STONE_D, ellipse(0.5, 0.76, 0.24, 0.19), [0.5, 0.76])];
-  // 足: 短くて太い。足先は広い
-  const legs = [...shape(STONE_D, [0.36, 0.1, 0.64, 0.1, 0.66, 0.66, 0.34, 0.66], [0.5, 0.35]), ...shape(STONE, [0.24, 0.66, 0.76, 0.66, 0.8, 0.9, 0.2, 0.9], [0.5, 0.78])];
-  // しっぽ: 根もとが太く、先が細い (横向きの絵。右が後ろ)
-  const tail = shape(STONE, [0.1, 0.34, 0.45, 0.36, 0.78, 0.5, 0.94, 0.72, 0.9, 0.78, 0.7, 0.66, 0.42, 0.6, 0.1, 0.62], [0.3, 0.48]);
-  // 角: 上へ曲がった 2 本
-  const horns = shape(HORN, [0.36, 0.9, 0.3, 0.4, 0.5, 0.1, 0.62, 0.42, 0.64, 0.9], [0.48, 0.6], 0.03);
-  // 顔 (もよう): つり上がった目と、への字の口
+  // 頭: 下がとがった仮面。白に近いうす紫
+  const head = shape(MASK, [0.5, 0.18, 0.72, 0.26, 0.78, 0.5, 0.64, 0.74, 0.5, 0.88, 0.36, 0.74, 0.22, 0.5, 0.28, 0.26], [0.5, 0.5]);
+  // 腕: 細くて長い。金のうで輪と、先のとがった大きな手 (つめは水色)
+  const arms = [
+    ...shape(NIGHT, [0.42, 0.04, 0.58, 0.04, 0.6, 0.5, 0.4, 0.5], [0.5, 0.25]),
+    ...shape(GOLD, [0.36, 0.5, 0.64, 0.5, 0.64, 0.58, 0.36, 0.58], [0.5, 0.54], 0.022),
+    ...shape(NIGHT_D, [0.36, 0.58, 0.64, 0.58, 0.72, 0.78, 0.62, 0.96, 0.5, 0.82, 0.38, 0.96, 0.28, 0.78], [0.5, 0.7]),
+    pen(GLOW, 0.02, [0.5, 0.1, 0.5, 0.44]),
+  ];
+  // 足: すらりと長い。ひざに金、すねに光る線
+  const legs = [
+    ...shape(NIGHT_D, [0.4, 0.06, 0.6, 0.06, 0.62, 0.42, 0.38, 0.42], [0.5, 0.25]),
+    ...shape(GOLD, [0.36, 0.42, 0.64, 0.42, 0.6, 0.52, 0.4, 0.52], [0.5, 0.47], 0.022),
+    ...shape(NIGHT, [0.4, 0.52, 0.6, 0.52, 0.62, 0.82, 0.74, 0.94, 0.3, 0.94, 0.38, 0.82], [0.5, 0.7]),
+    pen(GLOW, 0.02, [0.5, 0.58, 0.5, 0.8]),
+  ];
+  // しっぽ: 細長くうねって、先は三日月の刃 (横向きの絵。右が後ろ)
+  const tail = [
+    ...shape(NIGHT, [0.06, 0.4, 0.3, 0.38, 0.52, 0.46, 0.7, 0.58, 0.72, 0.66, 0.5, 0.58, 0.3, 0.52, 0.06, 0.54], [0.2, 0.46]),
+    ...shape(GOLD, [0.68, 0.56, 0.84, 0.4, 0.96, 0.5, 0.9, 0.72, 0.74, 0.86, 0.84, 0.66, 0.82, 0.56, 0.72, 0.68], [0.9, 0.56], 0.022),
+    pen(GLOW, 0.018, [0.12, 0.47, 0.34, 0.46, 0.56, 0.54]),
+  ];
+  // 角: 内へ巻く三日月 (金)
+  const horns = shape(GOLD, [0.44, 0.92, 0.3, 0.6, 0.34, 0.3, 0.56, 0.08, 0.5, 0.34, 0.54, 0.6, 0.62, 0.9], [0.44, 0.6], 0.025);
+  // 顔 (もよう): 細くつり上がった光る目 2 つと、ひたいの印
   const face = [
-    ...shape(EYE, [0.24, 0.36, 0.44, 0.44, 0.42, 0.54, 0.26, 0.5], [0.34, 0.47], 0.025),
-    ...shape(EYE, [0.76, 0.36, 0.56, 0.44, 0.58, 0.54, 0.74, 0.5], [0.66, 0.47], 0.025),
-    pen(MOUTH, 0.05, [0.34, 0.74, 0.5, 0.67, 0.66, 0.74]),
+    ...shape(GLOW, [0.2, 0.46, 0.44, 0.52, 0.42, 0.58, 0.24, 0.55], [0.33, 0.53], 0.02, NIGHT_D),
+    ...shape(GLOW, [0.8, 0.46, 0.56, 0.52, 0.58, 0.58, 0.76, 0.55], [0.67, 0.53], 0.02, NIGHT_D),
+    ...shape(GOLD, [0.5, 0.2, 0.56, 0.3, 0.5, 0.4, 0.44, 0.3], [0.5, 0.3], 0.02, NIGHT_D),
+    pen(NIGHT_D, 0.02, [0.5, 0.66, 0.5, 0.82]),
   ];
   return {
     v: 2,
     parts: [
       { ...newSlot('body', 'body'), ops: body },
-      { ...newSlot('head', 'head', { scale: 0.62 }), ops: head },
-      { ...newSlot('arms', 'arm', { pair: true, scale: 0.95 }), ops: arms },
-      { ...newSlot('legs', 'leg', { pair: true, scale: 0.7 }), ops: legs },
-      { ...newSlot('tail', 'tail', { view: 'side', scale: 1.25 }), ops: tail },
-      { ...newSlot('horns', 'ornament', { pair: true, scale: 0.4 }), ops: horns },
-      { ...newSlot('face', 'decal', { scale: 0.5 }), ops: face },
+      { ...newSlot('head', 'head', { scale: 0.5 }), ops: head },
+      { ...newSlot('arms', 'arm', { pair: true, scale: 1.05 }), ops: arms },
+      { ...newSlot('legs', 'leg', { pair: true, scale: 0.95 }), ops: legs },
+      { ...newSlot('tail', 'tail', { view: 'side', scale: 1.5 }), ops: tail },
+      { ...newSlot('horns', 'ornament', { pair: true, scale: 0.45 }), ops: horns },
+      { ...newSlot('face', 'decal', { scale: 0.46 }), ops: face },
     ],
   };
 }

@@ -27,6 +27,12 @@ export class BossView {
   private lands = 0;
   private wasRing = false;
   private downT = 0;
+  private t = 0;
+  /** 頭の上の光の輪と、体のまわりを回る光の結晶 (目を覚ましている間だけ) */
+  private readonly halo: THREE.Mesh;
+  private readonly orbs: THREE.Mesh[] = [];
+  private readonly orbMat = new THREE.MeshBasicMaterial({ color: 0x6ef3ff, transparent: true, opacity: 0.9 });
+  private readonly aura = new THREE.Group();
 
   constructor(private readonly boss: Boss) {
     const [x, y, z] = boss.def.pos;
@@ -59,11 +65,45 @@ export class BossView {
     this.warn.rotation.x = -Math.PI / 2;
     this.warn.position.set(x, y + 0.06, z);
     this.group.add(this.ring, this.warn);
+    // 神秘の飾り: 金の光の輪 (頭の上で、かたむいて回る) と、水色の結晶 5 つ (体のまわりを回る)
+    const H = boss.def.height;
+    this.halo = new THREE.Mesh(new THREE.TorusGeometry(H * 0.3, H * 0.016, 8, 48), new THREE.MeshBasicMaterial({ color: 0xf5cf6b, transparent: true, opacity: 0.95 }));
+    // 頭のうしろに立つ、大きな光の輪 (後光)
+    this.halo.position.set(0, H * 0.92, -H * 0.1);
+    this.aura.add(this.halo);
+    const orbGeo = new THREE.OctahedronGeometry(H * 0.045, 0);
+    for (let i = 0; i < 5; i++) {
+      const m = new THREE.Mesh(orbGeo, this.orbMat);
+      this.orbs.push(m);
+      this.aura.add(m);
+    }
+    this.aura.position.set(x, y, z);
+    this.group.add(this.aura);
   }
 
   update(dt: number): void {
     const b = this.boss;
     const rig = this.rig;
+    this.t += dt;
+    // 光の輪と結晶: 眠っている間・倒れたあとは出さない。段階が進むほど、速く回り、色が赤に寄る
+    this.aura.visible = b.active;
+    if (b.active) {
+      const H = b.def.height;
+      const ph = b.phase;
+      const sp = ph === 1 ? 0.7 : ph === 2 ? 1.2 : 2.0;
+      // 後光は、体の向きについて回る (いつも頭のうしろ)。ゆっくり脈を打つ
+      this.aura.rotation.y = b.yaw;
+      const pulse = 1 + Math.sin(this.t * 1.8) * 0.05;
+      this.halo.scale.set(pulse, pulse, 1);
+      this.halo.rotation.z = this.t * 0.5;
+      (this.halo.material as THREE.MeshBasicMaterial).color.setHex(ph === 3 ? 0xff9a6b : 0xf5cf6b);
+      this.orbMat.color.setHex(ph === 3 ? 0xff7a8a : ph === 2 ? 0xb9a2ff : 0x6ef3ff);
+      this.orbs.forEach((m, i) => {
+        const a = this.t * sp + (i / this.orbs.length) * Math.PI * 2;
+        m.position.set(Math.cos(a) * H * 0.42, H * (0.45 + 0.22 * Math.sin(a * 0.5 + i)), Math.sin(a) * H * 0.42);
+        m.rotation.set(this.t * 1.3 + i, this.t * 0.9, 0);
+      });
+    }
     // 輪
     this.ring.visible = b.ringR >= 0;
     if (b.ringR >= 0) {
@@ -100,9 +140,14 @@ export class BossView {
     this.anim.update(dt, { speed: 0, maxSpeed: 7, grounded: true, vy: 0, landCount: this.lands, landImpact: 14, attacking, attackMove: moveName, attackProgress: progress, attackStep: 0 });
     // 色: 眠り = 暗い / 前ぶれ = 赤くなっていく / 殴られた = 白
     if (b.flinch > 0) this.tint.setRGB(0.9, 0.9, 0.9);
-    else if (b.state === 'windup') this.tint.setRGB(0.55 * b.progress, 0.06 * b.progress, 0.03 * b.progress);
-    else this.tint.setRGB(0, 0, 0);
-    const dim = b.state === 'sleep' ? 0.45 : 1;
+    else if (b.state === 'windup') this.tint.setRGB(0.05 + 0.33 * b.progress, 0.05, 0.1);
+    else if (b.state === 'sleep') this.tint.setRGB(0, 0, 0);
+    else {
+      // ふだん: 体が、水色にゆっくり明滅する (光るもようが、呼吸しているように見える)
+      const k = 0.5 + 0.5 * Math.sin(this.t * 2.2);
+      this.tint.setRGB(0.01 + 0.02 * k, 0.03 + 0.05 * k, 0.06 + 0.08 * k);
+    }
+    const dim = b.state === 'sleep' ? 0.4 : 1;
     for (const m of this.mats) {
       m.emissive.copy(this.tint);
       m.color.setScalar(dim);
@@ -125,6 +170,10 @@ export class BossView {
     (this.ring.material as THREE.Material).dispose();
     this.warn.geometry.dispose();
     (this.warn.material as THREE.Material).dispose();
+    this.halo.geometry.dispose();
+    (this.halo.material as THREE.Material).dispose();
+    this.orbs[0]?.geometry.dispose();
+    this.orbMat.dispose();
     this.shadow.geometry.dispose();
     (this.shadow.material as THREE.Material).dispose();
   }

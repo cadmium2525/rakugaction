@@ -82,7 +82,7 @@ export interface SessionDeps {
   /** ベストの走りの道 (あれば、半透明の自分が同じ道を走る)。無ければ出さない */
   ghost?: GhostData | null;
   /** 音 (効果音・ジングル)。無ければ鳴らさない (デモ・テスト) */
-  audio?: Pick<AudioManager, 'sfx' | 'jingle' | 'setDucked'>;
+  audio?: Pick<AudioManager, 'sfx' | 'jingle' | 'setDucked' | 'bgm'>;
 }
 
 type Phase = 'ready' | 'playing' | 'goal' | 'done';
@@ -386,8 +386,14 @@ export class StageSession {
         }
         case 'boss':
           this.hud.setBoss(e.what === 'down' ? null : { hp: e.hp, maxHp: e.maxHp });
-          if (e.what === 'wake') this.hud.toast('塔の主が、目を覚ました', 2200);
-          else if (e.what === 'down') this.hud.toast('塔の主を倒した　ゴールが開きました', 2600);
+          if (e.what === 'wake') {
+            this.hud.toast('塔の主が、目を覚ました', 2200);
+            this.deps.audio?.bgm('boss');
+          } else if (e.what === 'down') {
+            this.hud.toast('塔の主を倒した　ゴールが開きました', 2600);
+            // ボスの曲を止める (このあと、ゴールのジングル)
+            this.deps.audio?.bgm(null);
+          }
           else if (e.what === 'reset') this.hud.toast('塔の主の体力が、元に戻った', 2000);
           break;
         case 'goal':

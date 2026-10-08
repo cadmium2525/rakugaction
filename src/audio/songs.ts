@@ -312,9 +312,48 @@ const stage5 = buildBgm({
   drums: 'march',
 });
 
-export type BgmId = 'title' | 'hub' | 'stage1' | 'stage2' | 'stage3' | 'stage4' | 'stage5';
+/** ボス (塔の主): ミのフリギア旋法。半音の暗さ (ミ → ファ) と、鈴の分散和音で、神秘的に。刻みは速く、重い */
+const boss = buildBgm({
+  name: 'boss',
+  bpm: 150,
+  key: { tonic: 4, scale: 'phrygian' },
+  prog: [
+    ['Em', 4], ['F', 4], ['Em', 4], ['Dm', 4], ['Em', 4], ['F', 4], ['G', 4], ['F', 4],
+    ['Am', 4], ['G', 4], ['F', 4], ['Em', 4], ['Am', 4], ['G', 4], ['F', 2], ['Em', 2], ['Em', 4],
+  ],
+  leadPatch: PATCH.leadBig,
+  lead: [
+    'l8 q7 v13 o5 e4 b4 >e4. <b',
+    'o6 f4 c d c4 <a4',
+    'o5 b4 >e4 g4. e',
+    'o6 f4 d4 <a2',
+    'o6 e4 g4 b4. g',
+    'o6 a4 f4 c4. f',
+    'o6 g4 d4 <b4. >d',
+    'o6 f2 <a2',
+    'q8 o6 e4. c <a4 >c4',
+    'o6 d4. <b g4 b4',
+    'o6 c4. <a f4 a4',
+    'o5 b2 g4 e4',
+    'o6 e4. c a4 e4',
+    'o6 g4. d <b4 >d4',
+    'q7 o6 f c <a >c e <b g b',
+    'o6 e2. r4',
+  ],
+  bass: 'gallop',
+  bassPatch: PATCH.bassSquare,
+  arp: 'updown8',
+  arpPatch: PATCH.bell,
+  leadGain: 1.3,
+  arpBase: 64,
+  arpGain: 0.55,
+  drums: 'tense',
+  pad: true,
+  echo: { beats: 0.75, fb: 0.3, mix: 0.2 },
+});
+export type BgmId = 'title' | 'hub' | 'stage1' | 'stage2' | 'stage3' | 'stage4' | 'stage5' | 'boss';
 
-export const BGM: Record<BgmId, Bgm> = { title, hub, stage1, stage2, stage3, stage4, stage5 };
+export const BGM: Record<BgmId, Bgm> = { title, hub, stage1, stage2, stage3, stage4, stage5, boss };
 
 // ---------- ジングル (1 回だけ鳴る短い曲) ----------
 
