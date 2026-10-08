@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch } from '../../src/app/demo';
 import type { IdleEnv } from '../../src/app/demo';
-import { CharacterAnimator } from '../../src/character/animator';
+import { CharacterAnimator, WING_RUN_HZ } from '../../src/character/animator';
 import { buildCharacter } from '../../src/character/builder';
 import { runBot } from '../../src/game/bot';
 import { comboFor, limbsOf } from '../../src/game/combo';
@@ -167,6 +167,9 @@ describe('デモのドラゴンは、走っている間、よく動いて見え�
       return r ? ((r[1] - r[0]) * 180) / Math.PI : 0;
     };
     expect(deg('wing:z'), 'つばさ').toBeGreaterThan(45);
+    // はばたきは、ゆったり (毎秒 2 回まで。足に合わせて毎秒 7 回近くにしたら、せわしないと言われた)
+    expect(WING_RUN_HZ).toBeLessThanOrEqual(2);
+    expect(WING_RUN_HZ).toBeGreaterThanOrEqual(1);
     expect(deg('leg:x'), '脚').toBeGreaterThan(60);
     expect(deg('arm:x'), '腕').toBeGreaterThan(50);
     expect(deg('tail:y'), 'しっぽ').toBeGreaterThan(25);

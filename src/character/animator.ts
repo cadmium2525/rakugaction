@@ -56,6 +56,8 @@ const BODY_KEYS: (keyof BodyPose)[] = ['bodyY', 'lean', 'squashY', 'squashXZ', '
 const GROUND_CLEARANCE = 0.03;
 /** 標準的な脚/腕の長さ (m)。これより長いと振れ角を抑える。 */
 const REF_LIMB = 0.62;
+/** 走っている時の、つばさのはばたきの速さ (1 秒あたりの回数) */
+export const WING_RUN_HZ = 1.5;
 
 /** 1 つの関節 (ピボット) の状態。 */
 interface Limb {
@@ -326,11 +328,12 @@ export class CharacterAnimator {
         g.headX = -g.lean * 0.7;
         g.headZ = Math.sin(this.phase) * 0.05 * frac;
         g.squashY = 1 + Math.cos(this.phase * 2) * 0.012;
-        // つばさ: 1 歩に 1 回、大きくはばたく (左右いっしょ)。以前は ±7° ほどで、大きなつばさほど止まって見えた
-        const flap = Math.sin(this.phase * 2);
+        // つばさ: 足の速さとは別に、ゆったり大きくはばたく (毎秒 1.5 回。左右いっしょ)。
+        // 以前は ±7° ほどで止まって見え、足に合わせた時 (毎秒 7 回近く) は、せわしなかった (ユーザー評価)
+        const flap = Math.sin(this.t * Math.PI * 2 * WING_RUN_HZ);
         for (const w of this.wings) {
-          w.tz = w.part.side * (0.3 + flap * (0.26 + runT * 0.24));
-          w.tx = -0.12 * runT + flap * 0.08;
+          w.tz = w.part.side * (0.3 + flap * (0.24 + runT * 0.22));
+          w.tx = -0.12 * runT + flap * 0.06;
         }
         for (const tl of this.tails) {
           tl.ty = Math.sin(this.phase + tl.jitter) * (0.3 + runT * 0.3);
