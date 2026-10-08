@@ -52,6 +52,7 @@ import { EditorScreen } from '../ui/editor/editorScreen';
 import { HubScreen } from '../ui/hubScreen';
 import { ResultScreen } from '../ui/resultScreen';
 import { TitleScreen } from '../ui/titleScreen';
+import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, DemoOverlay, IdleWatch, loadDemoDrawing } from './demo';
 import { PlayScene } from './playScene';
 import { Profile } from './profile';
 import { StageSession } from './stageSession';
@@ -128,6 +129,15 @@ export class App {
   private requestSaveSoon = false;
   /** 縦持ち検知 (プレイ中に縦になったら自動ポーズ) */
   orientation: OrientationGuard | null = null;
+  /** タイトルで操作が無い時間の見張り (一定時間でデモを流す) */
+  private readonly idle = new IdleWatch(
+    { addEventListener: (t, fn, o) => window.addEventListener(t, fn, o), removeEventListener: (t, fn, o) => window.removeEventListener(t, fn, o), setTimeout: (fn, ms) => window.setTimeout(fn, ms), clearTimeout: (id) => window.clearTimeout(id) },
+    DEMO_IDLE_MS,
+    () => void this.startDemo(),
+  );
+  /** デモの上の幕 (デモを流している間だけ) */
+  private demo: DemoOverlay | null = null;
+  private demoTimer = 0;
 
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
@@ -159,6 +169,10 @@ export class App {
     else if (this.params.has('stage') && this.devMode) await this.devStage(this.params.get('stage') || 'stage1');
     else if (this.params.has('ta') && this.devMode) await this.devTimeAttack();
     else if (this.params.has('hub') && this.devMode) await this.devHub();
+    else if (this.params.has('demo') && this.devMode) {
+      this.showTitle();
+      await this.startDemo();
+    }
     else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') || 'normal');
     else if (this.params.has('editor')) this.showEditor();
     else this.showTitle();
@@ -411,6 +425,8 @@ export class App {
   // ===== 画面遷移 =====
 
   private setScreen(s: Screen | null): void {
+    // デモの見張りはタイトルだけ (showTitle が、画面を出したあとで動かす)
+    this.idle.stop();
     this.screen?.dispose();
     this.screen = s;
     if (s) {
@@ -432,6 +448,63 @@ export class App {
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
       }),
     );
+    this.idle.start();
+  }
+
+  /**
+   * デモ: 赤いドラゴン (見本のキャラクター) が、STAGE 1 を自動で遊ぶ。タイトルでしばらく操作が無い時に流す。
+   * 録画ではなく、本物のステージをその場で動かす (操作はボット)。記録・経験値・セーブには何も残さない。
+   * 画面を押す・ゴールする・時間切れで、タイトルへ戻る。絵やボットを読み込めない時は、何もしない (タイトルのまま)。
+   */
+  async startDemo(): Promise<void> {
+    const entry = getStageEntry(DEMO_STAGE_ID);
+    const onTitle = (): boolean => this.screen instanceof TitleScreen && this.session === null;
+    if (!entry || !onTitle()) return;
+    const drawing = await loadDemoDrawing('./');
+    if (!drawing || !onTitle()) {
+      if (onTitle()) this.idle.start();
+      return;
+    }
+    let analysis: ReturnType<typeof buildCharacter>['analysis'];
+    try {
+      analysis = buildCharacter(drawing).analysis;
+    } catch (e) {
+      // 見本の絵を立体にできない端末では、デモを流さないだけ
+      console.warn('demo character failed', e);
+      return;
+    }
+    const { Bot } = await import('../game/bot');
+    if (!onTitle()) return;
+    this.leaveGame();
+    const params = statsToParams(analysis.stats, analysis.traits);
+    const end = (): void => this.showTitle();
+    const session = await StageSession.create({
+      host: this.ensureHost(),
+      root: this.root,
+      viewEl: this.viewEl,
+      stage: entry.build(),
+      params,
+      makeRig: () => buildCharacter(drawing, { targetHeight: params.height }).rig,
+      intro: 'DEMO PLAY',
+      hints: false,
+      onFinish: end,
+      onQuit: end,
+    });
+    const route = session.scene.sim.stage.routes?.[DEMO_ROUTE];
+    if (!route) {
+      session.dispose();
+      this.showTitle();
+      return;
+    }
+    const bot = new Bot(session.scene.sim, route);
+    session.botInput = (si) => bot.next(si);
+    session.setControlsVisible(false);
+    this.session = session;
+    this.setScreen(null);
+    this.demo = new DemoOverlay(this.root, end);
+    this.root.classList.add('is-demo');
+    this.demoTimer = window.setTimeout(end, DEMO_MAX_SEC * 1000);
+    session.start();
   }
 
   /**
@@ -915,6 +988,10 @@ export class App {
 
   /** ゲームシーン一式を破棄する (WebGL ホストは残す)。 */
   private leaveGame(): void {
+    this.demo?.dispose();
+    this.demo = null;
+    this.root.classList.remove('is-demo');
+    window.clearTimeout(this.demoTimer);
     this.session?.dispose();
     this.session = null;
     this.debug?.dispose();

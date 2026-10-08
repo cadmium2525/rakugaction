@@ -1701,3 +1701,50 @@
   white-space: nowrap;
   min-width: 0;
 }
+
+/* ---------- デモ (タイトルで放置すると流れる) ---------- */
+.demo-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(var(--safe-top) + 64px) 16px calc(var(--safe-bottom) + 18px);
+  box-sizing: border-box;
+  cursor: pointer;
+  touch-action: none;
+}
+.demo-tag {
+  padding: 4px 16px;
+  border-radius: 999px;
+  background: rgba(20, 28, 44, 0.6);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  animation: demo-blink 1.6s ease-in-out infinite;
+}
+.demo-note {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(20, 28, 44, 0.6);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+@keyframes demo-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-tag {
+    animation: none;
+  }
+}
+/* デモ中は押せないので、一時停止ボタンを出さない */
+.is-demo .hud-pause {
+  display: none;
+}
