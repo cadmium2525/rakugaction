@@ -288,11 +288,17 @@ describe('四足の動き: 足並みと接地', () => {
     d.parts.push(mk('a', 'L', 0.75), mk('b', 'R', 0.75), mk('c', 'L', 0.25), mk('d', 'R', 0.25));
     const { rig } = buildCharacter(d, { targetHeight: H });
     const anim = new CharacterAnimator(rig);
-    for (let i = 0; i < 40; i++) anim.update(DT, inp({ speed: MAX_SPEED * 0.4 }));
-    const rx = new Map(rig.parts.filter((p) => p.kind === 'leg').map((p) => [p.slotId, p.pivot.rotation.x]));
-    expect(rx.get('a')!).toBeCloseTo(rx.get('d')!, 2); // 前左と後ろ右
-    expect(rx.get('b')!).toBeCloseTo(rx.get('c')!, 2); // 前右と後ろ左
-    expect(Math.abs(rx.get('a')! - rx.get('b')!)).toBeGreaterThan(0.1); // 前左と前右は逆位相
+    // 1 コマだけを見ると、ちょうど脚がそろう瞬間に当たることがある → 40 コマぶん見て、いちばん開いた時で確かめる
+    let spread = 0;
+    for (let i = 0; i < 80; i++) {
+      anim.update(DT, inp({ speed: MAX_SPEED * 0.4 }));
+      if (i < 40) continue;
+      const rx = new Map(rig.parts.filter((p) => p.kind === 'leg').map((p) => [p.slotId, p.pivot.rotation.x]));
+      expect(rx.get('a')!).toBeCloseTo(rx.get('d')!, 2); // 前左と後ろ右
+      expect(rx.get('b')!).toBeCloseTo(rx.get('c')!, 2); // 前右と後ろ左
+      spread = Math.max(spread, Math.abs(rx.get('a')! - rx.get('b')!));
+    }
+    expect(spread).toBeGreaterThan(0.1); // 前左と前右は逆位相
   });
 
   it('短い脚に、下へ長く垂れる前向きのしっぽ: 歩いても走っても地面に潜らない (正面の絵のしっぽは腰から真下へ伸びる)', () => {

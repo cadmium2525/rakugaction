@@ -291,7 +291,7 @@ export class CharacterAnimator {
         for (const a of this.arms) a.tz = a.rest + a.part.side * (0.08 + sway * 0.03);
         g.headZ = Math.sin(this.t * 1.3) * 0.03;
         g.headX = Math.sin(this.t * 1.7) * 0.02;
-        for (const w of this.wings) w.tz = w.part.side * (0.15 + Math.sin(this.t * 2.6 + w.jitter) * 0.05);
+        for (const w of this.wings) w.tz = w.part.side * (0.18 + Math.sin(this.t * 2.6 + w.jitter) * 0.11);
         for (const tl of this.tails) {
           tl.ty = Math.sin(this.t * 1.9 + tl.jitter) * 0.18;
           tl.tx = Math.sin(this.t * 1.2) * 0.05;
@@ -320,16 +320,24 @@ export class CharacterAnimator {
         }
         g.lean = (0.06 + runT * 0.16) * clamp(frac, 0.3, 1);
         // 体の上下 (1 周期に 2 回)
-        g.bodyY = Math.abs(Math.cos(this.phase)) * (0.018 + runT * 0.02) * this.legLen * 1.5;
+        g.bodyY = Math.abs(Math.cos(this.phase)) * (0.018 + runT * 0.02) * this.legLen * 2.6;
+        // 肩のひねり: 脚と逆向きに、体を少しねじる (正面向きの体だけ。横向きの四足は、ねじると不自然)
+        g.spin = this.rig.bodyView === 'side' ? 0 : -Math.sin(this.phase) * (0.05 + runT * 0.09);
         g.headX = -g.lean * 0.7;
         g.headZ = Math.sin(this.phase) * 0.05 * frac;
         g.squashY = 1 + Math.cos(this.phase * 2) * 0.012;
-        for (const w of this.wings) w.tz = w.part.side * (0.2 + Math.sin(this.phase * 2 + w.jitter) * (0.1 + runT * 0.15));
+        // つばさ: 1 歩に 1 回、大きくはばたく (左右いっしょ)。以前は ±7° ほどで、大きなつばさほど止まって見えた
+        const flap = Math.sin(this.phase * 2);
+        for (const w of this.wings) {
+          w.tz = w.part.side * (0.3 + flap * (0.26 + runT * 0.24));
+          w.tx = -0.12 * runT + flap * 0.08;
+        }
         for (const tl of this.tails) {
-          tl.ty = Math.sin(this.phase + tl.jitter) * (0.25 + runT * 0.25);
+          tl.ty = Math.sin(this.phase + tl.jitter) * (0.3 + runT * 0.3);
           tl.tx = -0.1 - runT * 0.15;
         }
-        smooth = 18;
+        // 走りの振りは速い (毎秒 3 往復ほど)。なめらかにしすぎると、振れ幅が 6 割に削られる → 速く追わせる
+        smooth = 42;
         break;
       }
       case 'jump': {
@@ -498,10 +506,17 @@ export class CharacterAnimator {
     // しっぽ回転 (1 回転 = 2π) のあとは、回った向きのまま 0 として扱う (逆回りで戻らない)
     if (g.spin < Math.PI && p.spin > Math.PI) p.spin -= Math.PI * 2;
     for (const key of BODY_KEYS) p[key] = damp(p[key], g[key], smooth, dt);
-    for (const l of [...this.legs, ...this.arms, ...this.tails, ...this.wings, ...this.orns]) {
+    // しっぽと飾りは、ゆっくり追わせる (長いしっぽを速く振ると、地面に潜らないようにする補正が追いつかない)
+    const slow = Math.min(smooth, 18);
+    for (const l of [...this.legs, ...this.arms, ...this.wings]) {
       l.rx = damp(l.rx, l.tx, smooth, dt);
       l.ry = damp(l.ry, l.ty, smooth, dt);
       l.rz = damp(l.rz, l.tz, smooth, dt);
+    }
+    for (const l of [...this.tails, ...this.orns]) {
+      l.rx = damp(l.rx, l.tx, slow, dt);
+      l.ry = damp(l.ry, l.ty, slow, dt);
+      l.rz = damp(l.rz, l.tz, slow, dt);
     }
     this.apply(dt);
   }

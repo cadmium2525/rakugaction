@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch } from '../../src/app/demo';
 import type { IdleEnv } from '../../src/app/demo';
+import { CharacterAnimator } from '../../src/character/animator';
 import { buildCharacter } from '../../src/character/builder';
 import { runBot } from '../../src/game/bot';
 import { comboFor, limbsOf } from '../../src/game/combo';
@@ -136,5 +137,39 @@ describe('ボットの操作は、計算 1 回ごとに決める', () => {
     expect(scene).toContain('if (!this.overridePerStep) this.inputOverride(si);');
     const session = readFileSync(new URL('../../src/app/stageSession.ts', import.meta.url), 'utf8');
     expect(session).toContain('this.scene.overridePerStep = this.botInput !== null;');
+  });
+});
+
+describe('デモのドラゴンは、走っている間、よく動いて見える', () => {
+  /**
+   * ユーザーの指摘 (2026-10-08):「デモプレイのドラゴンは、あまりモーションが無い」。測ると、走っている間のつばさの振れが ±7° ほどで、
+   * 脚と腕の振りも「なめらかにする処理」で 64% に削られていた (狙い ±40° → 実際 ±26°)。大きなつばさが動かないと、体全体が止まって見える。
+   */
+  it('走り (デモの速さ) で 2 秒: つばさは 45° 以上、脚は 60° 以上、腕は 50° 以上、しっぽは 25° 以上、振れる', () => {
+    const look = readFileSync(new URL('../../public/demo/dragon.look.txt', import.meta.url), 'utf8').trim();
+    const built = buildCharacter(decodeLook(look)!);
+    const params = statsToParams(built.analysis.stats, built.analysis.traits);
+    const anim = new CharacterAnimator(built.rig);
+    const range = new Map<string, [number, number]>();
+    for (let i = 0; i < 180; i++) {
+      anim.update(1 / 60, { speed: params.maxSpeed, maxSpeed: params.maxSpeed, grounded: true, vy: 0, landCount: 0, landImpact: 0 });
+      if (i < 60) continue;
+      for (const part of built.rig.parts) {
+        for (const [axis, v] of [['x', part.pivot.rotation.x], ['y', part.pivot.rotation.y], ['z', part.pivot.rotation.z]] as const) {
+          const key = `${part.kind}:${axis}`;
+          const r = range.get(key) ?? [Infinity, -Infinity];
+          range.set(key, [Math.min(r[0], v), Math.max(r[1], v)]);
+        }
+      }
+    }
+    const deg = (key: string): number => {
+      const r = range.get(key);
+      return r ? ((r[1] - r[0]) * 180) / Math.PI : 0;
+    };
+    expect(deg('wing:z'), 'つばさ').toBeGreaterThan(45);
+    expect(deg('leg:x'), '脚').toBeGreaterThan(60);
+    expect(deg('arm:x'), '腕').toBeGreaterThan(50);
+    expect(deg('tail:y'), 'しっぽ').toBeGreaterThan(25);
+    built.rig.dispose();
   });
 });
