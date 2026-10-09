@@ -14,10 +14,18 @@ export interface TitleOptions {
   hasDraft?: boolean;
   /** 開発用 (?debug / dev サーバーのみ表示) */
   onArena?(): void;
+  /**
+   * 入口 (TAP START) から始めるか。起動して最初の 1 回だけ true。
+   * ブラウザは、画面を押すまで音を出せない。最初に「TAP START」で 1 回押してもらえば、メニューが出た時には BGM が鳴っている。
+   */
+  gate?: boolean;
+  /** 入口で押された時 (メニューを出す直前) */
+  onStart?(): void;
 }
 
 export class TitleScreen implements Screen {
   readonly el: HTMLElement;
+  private readonly cleanup: (() => void)[] = [];
 
   constructor(opts: TitleOptions) {
     const menu = h(
@@ -31,16 +39,44 @@ export class TitleScreen implements Screen {
     if (opts.onArena) {
       menu.appendChild(h('button', { class: 'btn btn-ghost', text: '🧪 テストアリーナ (開発用)', on: { click: opts.onArena } }));
     }
+    const tap = h('div', { class: 'title-tap', text: 'TAP START' });
     this.el = h(
       'div',
-      { class: 'screen title-screen' },
+      { class: `screen title-screen${opts.gate ? ' gate' : ''}` },
       h('div', { class: 'title-logo', text: 'ラクガキアクション' }),
       h('div', { class: 'title-sub', text: 'ラクガキが立体になり、動き出す。' }),
+      tap,
       menu,
     );
+    if (opts.gate) {
+      // 入口: 画面のどこを押しても (どのキーでも)、メニューへ。押した指が、そのままメニューのボタンを押さないよう、離してから出す
+      let started = false;
+      const start = (): void => {
+        if (started) return;
+        started = true;
+        for (const c of this.cleanup.splice(0)) c();
+        opts.onStart?.();
+        this.el.classList.remove('gate');
+      };
+      const onUp = (e: Event): void => {
+        e.preventDefault();
+        start();
+      };
+      const onKey = (e: KeyboardEvent): void => {
+        if (e.key === 'Tab' || e.metaKey || e.ctrlKey || e.altKey) return;
+        start();
+      };
+      this.el.addEventListener('pointerup', onUp);
+      window.addEventListener('keydown', onKey);
+      this.cleanup.push(
+        () => this.el.removeEventListener('pointerup', onUp),
+        () => window.removeEventListener('keydown', onKey),
+      );
+    }
   }
 
   dispose(): void {
+    for (const c of this.cleanup.splice(0)) c();
     this.el.remove();
   }
 }

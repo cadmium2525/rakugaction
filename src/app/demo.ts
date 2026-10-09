@@ -11,6 +11,16 @@ export const DEMO_MAX_SEC = 130;
 export const DEMO_STAGE_ID = 'stage1';
 export const DEMO_ROUTE = 'main';
 
+export type DemoKind = 'play' | 'draw';
+
+/**
+ * 次に流すデモを決める: デモ① (play = ドラゴンが STAGE 1 を遊ぶ) と デモ② (draw = ラクガキを描く) を、交互に流す。
+ * 最初の 1 回だけは、どちらになるかは運 (next が null の時)。返り値 = 今回流す物と、その次に流す物。
+ */
+export function pickDemo(next: DemoKind | null, random: () => number = Math.random): { now: DemoKind; next: DemoKind } {
+  const now = next ?? (random() < 0.5 ? 'play' : 'draw');
+  return { now, next: now === 'play' ? 'draw' : 'play' };
+}
 /** デモの見せ場: 走り出してから、幅跳びを 1 回見せるまでの時間 (秒) */
 export const DEMO_DIVE_AFTER = 0.7;
 

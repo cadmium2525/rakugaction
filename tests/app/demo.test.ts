@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch, demoDriver } from '../../src/app/demo';
+import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, IdleWatch, demoDriver, pickDemo } from '../../src/app/demo';
+import { DRAW_DEMO_DRAW_SEC, DRAW_DEMO_SHOW_SEC, DrawDemoPlan } from '../../src/ui/drawDemo';
 import type { IdleEnv } from '../../src/app/demo';
 import { CharacterAnimator, WING_RUN_HZ } from '../../src/character/animator';
 import { buildCharacter } from '../../src/character/builder';
@@ -188,5 +189,69 @@ describe('デモのドラゴンは、走っている間、よく動いて見え�
     expect(deg('arm:x'), '腕').toBeGreaterThan(50);
     expect(deg('tail:y'), 'しっぽ').toBeGreaterThan(25);
     built.rig.dispose();
+  });
+});
+
+describe('デモ①とデモ②は、交互に流れる', () => {
+  it('最初の 1 回は、どちらになるかは運。そのあとは、① のあとは ②、② のあとは ①', () => {
+    expect(pickDemo(null, () => 0.1).now).toBe('play');
+    expect(pickDemo(null, () => 0.9).now).toBe('draw');
+    let next = pickDemo(null, () => 0.1).next;
+    const seq: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const p = pickDemo(next, () => 0.99);
+      seq.push(p.now);
+      next = p.next;
+    }
+    expect(seq).toEqual(['draw', 'play', 'draw', 'play', 'draw', 'play']);
+  });
+});
+
+describe('デモ②: ラクガキを描く所', () => {
+  const drawing = decodeLook(readFileSync(new URL('../../public/demo/dragon.look.txt', import.meta.url), 'utf8').trim())!;
+
+  it('パーツを、描いた順に 1 つずつ描き終える。線は、とちゅうを飛ばさずに引く。全部で 17〜30 秒、できあがりを 6 秒見せて終わる', () => {
+    const begun: number[] = [];
+    const done: number[] = [];
+    let strokes = 0;
+    let fills = 0;
+    let gap = false;
+    const cursor = new Map<object, number>();
+    const plan = new DrawDemoPlan(drawing, {
+      begin: (p) => begun.push(p),
+      stroke: (op, from, to) => {
+        strokes++;
+        // 同じ線の続きは、前に引き終えた点の次から始まる
+        const prev = cursor.get(op);
+        if (prev !== undefined && from !== prev + 1) gap = true;
+        cursor.set(op, to);
+      },
+      fill: () => fills++,
+      partDone: (p) => done.push(p),
+    });
+    let t = 0;
+    let drawEnd = -1;
+    while (!plan.finished && t < 120) {
+      plan.step(1 / 60);
+      t += 1 / 60;
+      if (drawEnd < 0 && plan.shown >= 0) drawEnd = t;
+    }
+    const n = drawing.parts.length;
+    expect(begun).toEqual([...Array(n).keys()]);
+    expect(done).toEqual([...Array(n).keys()]);
+    expect(gap).toBe(false);
+    expect(fills).toBe(drawing.parts.reduce((s, p) => s + p.ops.filter((o) => o.kind === 'fill').length, 0));
+    expect(strokes).toBeGreaterThan(200);
+    expect(drawEnd).toBeGreaterThan(DRAW_DEMO_DRAW_SEC);
+    expect(drawEnd).toBeLessThan(30);
+    expect(t - drawEnd).toBeCloseTo(DRAW_DEMO_SHOW_SEC, 1);
+  });
+
+  it('コマ落ちしても (1 コマ 0.1 秒)、同じ順に最後まで描き終える', () => {
+    const done: number[] = [];
+    const plan = new DrawDemoPlan(drawing, { begin: () => undefined, stroke: () => undefined, fill: () => undefined, partDone: (p) => done.push(p) });
+    for (let i = 0; i < 1200 && !plan.finished; i++) plan.step(0.1);
+    expect(plan.finished).toBe(true);
+    expect(done.length).toBe(drawing.parts.length);
   });
 });

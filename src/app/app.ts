@@ -1,3 +1,5 @@
+import { DrawDemoScreen } from '../ui/drawDemo';
+import type { DemoKind } from './demo';
 import { parseSave, serializeSave } from '../save/schema';
 import { formatCode } from '../transfer/transfer';
 import { buildCharacter } from '../character/builder';
@@ -58,7 +60,7 @@ import { TitleScreen } from '../ui/titleScreen';
 import { AudioManager } from '../audio/audioManager';
 import type { BgmId } from '../audio/songs';
 import { BGM } from '../audio/songs';
-import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, DemoOverlay, IdleWatch, demoDriver, loadDemoDrawing } from './demo';
+import { DEMO_IDLE_MS, DEMO_MAX_SEC, DEMO_ROUTE, DEMO_STAGE_ID, DemoOverlay, IdleWatch, demoDriver, loadDemoDrawing, pickDemo } from './demo';
 import { PlayScene } from './playScene';
 import { Profile } from './profile';
 import { StageSession } from './stageSession';
@@ -81,6 +83,19 @@ function rankMessage(o: SubmitOutcome): string {
   if (o.status === 'created') return `🏆 ランキングに登録しました${rank}  名前と姿は、確認のあとに公開されます`;
   if (o.status === 'updated') return `🏆 自己ベストを更新しました${rank}`;
   return `登録済みの記録の方が速いため、更新されませんでした${rank}`;
+}
+
+/** 起動の読み込み画面を、最低これだけ出す (ms) */
+const BOOT_MIN_MS = 1200;
+
+/** 起動の読み込み画面: ロゴと、動く帯。 */
+function bootScreen(): Screen {
+  return {
+    el: h('div', { class: 'screen boot-screen' }, h('div', { class: 'title-logo', text: 'ラクガキアクション' }), h('div', { class: 'boot-bar' }, h('div', { class: 'boot-fill' })), h('div', { class: 'boot-text', text: 'よみこみ中…' })),
+    dispose() {
+      this.el.remove();
+    },
+  };
 }
 
 function loadingScreen(text: string): Screen {
@@ -146,6 +161,10 @@ export class App {
   /** デモの上の幕 (デモを流している間だけ) */
   private demo: DemoOverlay | null = null;
   private demoTimer = 0;
+  /** 入口 (TAP START) を通ったか。通るまで、タイトルは入口の形で出す */
+  private started = false;
+  /** 次に流すデモ (play = ドラゴンが STAGE 1 を遊ぶ / draw = ラクガキを描く)。最初はどちらか (運)、そのあとは交互 */
+  private nextDemo: DemoKind | null = null;
 
   private viewEl!: HTMLElement;
   private uiEl!: HTMLElement;
@@ -161,6 +180,9 @@ export class App {
     this.uiEl = h('div', { class: 'ui-layer' });
     const hint = h('div', { class: 'rotate-hint' }, h('div', { class: 'rot-icon', text: '📱' }), h('div', { text: '画面を横向きにしてください' }));
     root.append(this.viewEl, this.uiEl, hint);
+    // 起動の読み込み画面 (セーブとランキングの設定を読む間。短すぎると一瞬ちらつくだけなので、最低 1.2 秒は出す)
+    const bootStart = performance.now();
+    this.setScreen(bootScreen());
 
     // 物理エンジン (WASM) はタイトル表示中に裏で読み込んでおく
     void loadRapier();
@@ -179,12 +201,18 @@ export class App {
     else if (this.params.has('ta') && this.devMode) await this.devTimeAttack();
     else if (this.params.has('hub') && this.devMode) await this.devHub();
     else if (this.params.has('demo') && this.devMode) {
+      this.started = true;
       this.showTitle();
-      await this.startDemo();
+      const kind = this.params.get('demo');
+      await this.startDemo(kind === 'draw' || kind === 'play' ? kind : undefined);
     }
     else if (this.params.has('birth') && this.devMode) await this.devBirth(this.params.get('birth') || 'normal');
     else if (this.params.has('editor')) this.showEditor();
-    else this.showTitle();
+    else {
+      const rest = BOOT_MIN_MS - (performance.now() - bootStart);
+      if (rest > 0) await new Promise<void>((r) => window.setTimeout(r, rest));
+      this.showTitle();
+    }
     this.showNotice();
   }
 
@@ -558,6 +586,13 @@ export class App {
         onRanking: this.ranking.available ? () => this.showRanking(() => this.showTitle()) : undefined,
         hasSave: this.profile.characters.length > 0,
         hasDraft: this.drafts.load() !== null,
+        // 起動して最初の 1 回は、入口 (TAP START) から。押してもらうと、音が出せるようになる
+        gate: !this.started,
+        onStart: () => {
+          this.started = true;
+          this.audio.unlock();
+          this.audio.sfx('go', 0.7);
+        },
         onArena: this.devMode ? () => void this.startArena('STANDARD') : undefined,
       }),
     );
@@ -565,11 +600,38 @@ export class App {
   }
 
   /**
-   * デモ: 赤いドラゴン (見本のキャラクター) が、STAGE 1 を自動で遊ぶ。タイトルでしばらく操作が無い時に流す。
-   * 録画ではなく、本物のステージをその場で動かす (操作はボット)。記録・経験値・セーブには何も残さない。
-   * 画面を押す・ゴールする・時間切れで、タイトルへ戻る。絵やボットを読み込めない時は、何もしない (タイトルのまま)。
+   * デモ (タイトルでしばらく操作が無い時に流す)。2 種類を、交互に流す (最初だけ、どちらになるかは運):
+   *   デモ① play = 赤いドラゴン (見本のキャラクター) が、STAGE 1 を自動で遊ぶ
+   *   デモ② draw = そのドラゴンのラクガキを描く所 (線が 1 本ずつ引かれ、パーツが立体に足されていく)
+   * どちらも、記録・経験値・セーブには何も残さない。画面を押す・最後まで流れる・時間切れで、タイトルへ戻る。
+   * 絵やボットを読み込めない時は、何もしない (タイトルのまま)。
    */
-  async startDemo(): Promise<void> {
+  async startDemo(kind?: 'play' | 'draw'): Promise<void> {
+    const picked = pickDemo(kind ?? this.nextDemo);
+    this.nextDemo = picked.next;
+    if (picked.now === 'draw') await this.startDrawDemo();
+    else await this.startPlayDemo();
+  }
+
+  /** デモ②: ラクガキを描く所。 */
+  private async startDrawDemo(): Promise<void> {
+    const onTitle = (): boolean => this.screen instanceof TitleScreen && this.session === null;
+    if (!onTitle()) return;
+    const drawing = await loadDemoDrawing('./');
+    if (!onTitle()) return;
+    if (!drawing) {
+      this.idle.start();
+      return;
+    }
+    const end = (): void => this.showTitle();
+    this.leaveGame();
+    this.setScreen(new DrawDemoScreen({ drawing, onDone: end }));
+    this.demo = new DemoOverlay(this.root, end);
+    this.root.classList.add('is-demo', 'is-demo-draw');
+  }
+
+  /** デモ①: 赤いドラゴンが、STAGE 1 を自動で遊ぶ (録画ではなく、本物のステージをその場で動かす。操作はボット)。 */
+  private async startPlayDemo(): Promise<void> {
     const entry = getStageEntry(DEMO_STAGE_ID);
     const onTitle = (): boolean => this.screen instanceof TitleScreen && this.session === null;
     if (!entry || !onTitle()) return;
@@ -1125,7 +1187,7 @@ export class App {
   private leaveGame(): void {
     this.demo?.dispose();
     this.demo = null;
-    this.root.classList.remove('is-demo');
+    this.root.classList.remove('is-demo', 'is-demo-draw');
     window.clearTimeout(this.demoTimer);
     this.session?.dispose();
     this.session = null;
