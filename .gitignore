@@ -8,3 +8,4 @@ qa-output/
 .env
 .env.*
 .claude/settings.local.json
+pv-out/
