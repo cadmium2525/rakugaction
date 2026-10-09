@@ -1,3 +1,5 @@
+import { FirestoreTransferBackend } from '../transfer/firestoreTransfer';
+import { MemoryTransferBackend, TransferService } from '../transfer/transfer';
 import { loadRankingConfig } from './config';
 import { FirestoreRankingBackend } from './firestore';
 import type { KeyValueStore } from './firestore';
@@ -23,6 +25,9 @@ export const BOARD_CACHE_MS = 60_000;
 
 export class RankingService {
   private cache: { at: number; limit: number; board: RankingBoard } | null = null;
+
+  /** データの引き継ぎ (同じ Firebase を使う)。設定が無ければ、使えない */
+  transfer = new TransferService(null, null);
 
   constructor(
     private readonly backend: RankingBackend | null,
@@ -137,10 +142,16 @@ export async function createRankingService(opts: CreateRankingOptions = {}): Pro
     // 開発用: 見本の記録 (承認・審査中・非表示がまざった TOP) を入れておく
     const { seedDemoRanking } = await import('../dev/rankingDemo');
     seedDemoRanking(backend.store);
-    return new RankingService(backend);
+    const service = new RankingService(backend);
+    // 開発用: 引き継ぎも、メモリ上の預け先で試せる (同じタブの中だけ)
+    service.transfer = new TransferService(new MemoryTransferBackend(), null);
+    return service;
   }
   const fetchImpl = opts.fetchImpl ?? fetch.bind(globalThis);
   const cfg = await loadRankingConfig(fetchImpl);
   if (!cfg) return new RankingService(null);
-  return new RankingService(new FirestoreRankingBackend(cfg, { fetch: fetchImpl, store: opts.store ?? createStore() }));
+  const backend = new FirestoreRankingBackend(cfg, { fetch: fetchImpl, store: opts.store ?? createStore() });
+  const service = new RankingService(backend);
+  service.transfer = new TransferService(new FirestoreTransferBackend(cfg.projectId, () => backend.session(), fetchImpl), backend);
+  return service;
 }

@@ -166,6 +166,19 @@ export class SaveManager {
     }
   }
 
+  /**
+   * 受け取ったデータで、保存を上書きする (データの引き継ぎ)。予約中の自動保存は捨てる (古い内容で書き戻さない)。
+   * 書けなければ false (lastError に理由)。このあと、ページを読み込み直して、新しいデータで始める。
+   */
+  async importData(data: SaveData): Promise<boolean> {
+    if (this.timer !== null) clearTimeout(this.timer);
+    this.timer = null;
+    this.snapshot = null;
+    this.blocked = false;
+    await this.queue;
+    return this.writeNow(() => data);
+  }
+
   /** 保存データを全て消す (「データの初期化」)。保存の停止も解除する。 */
   async reset(): Promise<void> {
     if (this.timer !== null) clearTimeout(this.timer);

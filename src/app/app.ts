@@ -1,3 +1,5 @@
+import { parseSave, serializeSave } from '../save/schema';
+import { formatCode } from '../transfer/transfer';
 import { buildCharacter } from '../character/builder';
 import { createPlaceholderRig } from '../character/placeholder';
 import { STAT_FORMULA_VERSION } from '../character/record';
@@ -386,10 +388,92 @@ export class App {
           this.requestSave();
           this.showSettings(back);
         },
+        transferAvailable: this.ranking.transfer.available && this.save !== null,
+        onTransferCreate: () => void this.createTransferCode(),
+        onTransferReceive: () => void this.receiveTransfer(),
         onReset: () => void this.resetAllData(),
         onBack: back,
       }),
     );
+  }
+
+  // ===== データの引き継ぎ (引き継ぎコード。docs/TRANSFER.md) =====
+
+  /** 元の端末: 今のセーブデータを預けて、コードを見せる。この端末のデータは、そのまま残る。 */
+  async createTransferCode(): Promise<void> {
+    const t = this.ranking.transfer;
+    toast(this.root, 'データを預けています…', 1500);
+    let json: string;
+    try {
+      json = serializeSave(this.snapshot());
+    } catch (e) {
+      // セーブデータが大きすぎて文字列にできない (保存の上限を超えている)
+      toast(this.root, `コードを作れませんでした: ${e instanceof Error ? e.message : String(e)}`, 4000);
+      return;
+    }
+    const res = await t.create(json);
+    if (!res.ok) {
+      toast(this.root, `コードを作れませんでした: ${res.message}`, 4000);
+      return;
+    }
+    const code = formatCode(res.value.code);
+    for (;;) {
+      const pick = await choiceDialog(this.root, {
+        title: `引き継ぎコード  ${code}`,
+        message: '新しい端末で「設定 → データの引き継ぎ → コードを入力」を開き、このコードを入れてください。24 時間以内・1 回だけ使えます。この端末のデータは残ります。コードは、人に見せないでください (ランキングの記録の持ち主も引き継がれます)。',
+        buttons: [
+          { value: 'copy', label: '📋 コピー' },
+          { value: 'close', label: 'とじる', kind: 'primary' },
+        ],
+      });
+      if (pick !== 'copy') return;
+      try {
+        await navigator.clipboard.writeText(code);
+        toast(this.root, 'コピーしました', 1500);
+      } catch {
+        // コピーできない環境 (許可が無い・古いブラウザ): 画面のコードを書き写してもらう
+        toast(this.root, 'コピーできませんでした。コードを書き写してください', 3000);
+      }
+    }
+  }
+
+  /** 新しい端末: コードを入れて、受け取る。確かめてから、この端末のデータを上書きして、読み込み直す。 */
+  async receiveTransfer(): Promise<void> {
+    const t = this.ranking.transfer;
+    const raw = await nameDialog(this.root, { title: '引き継ぎコードを入力', initial: '', okLabel: '受け取る', placeholder: 'XXXX-XXXX-XXXX', maxLength: 20 });
+    if (raw === null) return;
+    toast(this.root, '確かめています…', 1500);
+    const res = await t.receive(raw);
+    if (!res.ok) {
+      toast(this.root, `受け取れませんでした: ${res.message}`, 4000);
+      return;
+    }
+    // 受け取ったデータも、端末のセーブと同じ検査を通す (壊れた所は直し、読めなければ受け取らない)
+    const parsed = parseSave(res.value.payload.save);
+    if (!parsed.ok) {
+      toast(this.root, parsed.reason === 'newer' ? '受け取れませんでした: 新しい版のデータです。このページを読み込み直してから、もう一度お試しください' : '受け取れませんでした: データを読めませんでした', 5000);
+      return;
+    }
+    const data = parsed.result.data;
+    const when = data.savedAt ? new Date(data.savedAt).toLocaleString('ja-JP') : '不明';
+    const pick = await choiceDialog(this.root, {
+      title: 'このデータを受け取りますか？',
+      message: `受け取るデータ: キャラクター ${data.profile.characters.length} 体 (最後の保存: ${when})。この端末の今のデータ (キャラクター ${this.profile.characters.length} 体) は消えます。元にもどせません。`,
+      buttons: [
+        { value: 'cancel', label: 'やめる', kind: 'primary' },
+        { value: 'ok', label: '受け取って上書きする', kind: 'danger' },
+      ],
+    });
+    if (pick !== 'ok') return;
+    if (!this.save || !(await this.save.importData(data))) {
+      // 書けなかった時は、預けた物を消さない (もう一度、同じコードで試せる)
+      toast(this.root, `受け取ったデータを保存できませんでした${this.save?.lastError ? `: ${this.save.lastError.message}` : ''}`, 5000);
+      return;
+    }
+    this.drafts.clear();
+    await t.finish(res.value);
+    toast(this.root, 'データを受け取りました。読み込み直します…', 2000);
+    window.setTimeout(() => location.reload(), 1200);
   }
 
   /** 画質の設定を変える (すぐ反映して保存)。 */

@@ -40,6 +40,9 @@ export interface NameOptions {
   title: string;
   initial: string;
   okLabel?: string;
+  /** 入力欄のうすい文字・最大の文字数 (省略 = 名前用) */
+  placeholder?: string;
+  maxLength?: number;
 }
 
 /**
@@ -48,7 +51,7 @@ export interface NameOptions {
  */
 export function nameDialog(host: HTMLElement, o: NameOptions): Promise<string | null> {
   return new Promise((resolve) => {
-    const input = h('input', { class: 'name-input dlg-input', attrs: { type: 'text', maxlength: String(NAME_MAX), value: o.initial, 'aria-label': o.title, placeholder: '名前を入力', enterkeyhint: 'done', autocomplete: 'off' } });
+    const input = h('input', { class: 'name-input dlg-input', attrs: { type: 'text', maxlength: String(o.maxLength ?? NAME_MAX), value: o.initial, 'aria-label': o.title, placeholder: o.placeholder ?? '名前を入力', enterkeyhint: 'done', autocomplete: 'off' } });
     const close = (ok: boolean): void => {
       overlay.remove();
       const name = sanitizeName(input.value, '');

@@ -30,6 +30,10 @@ export interface SettingsOptions {
   bgm: number;
   se: number;
   onVolume(kind: 'bgm' | 'se', value: number): void;
+  /** データの引き継ぎ (引き継ぎコード)。使えない時 (Firebase の設定なし) は、ボタンを出さない */
+  transferAvailable?: boolean;
+  onTransferCreate?(): void;
+  onTransferReceive?(): void;
   /** セーブデータを全て消す (確認の後に呼ばれる) */
   onReset(): void;
   onBack(): void;
@@ -120,6 +124,20 @@ export class SettingsScreen implements Screen {
           h('small', { class: 'st-note', text: `キャラクター ${opts.characterCount} 体 / Lv.${opts.level} / 最終保存: ${when}` }),
           opts.saveError ? h('small', { class: 'st-note warn', text: `保存に失敗しました: ${opts.saveError}` }) : null,
         ),
+        opts.transferAvailable
+          ? h(
+              'div',
+              { class: 'st-row' },
+              h('div', { class: 'st-label', text: 'データの引き継ぎ' }),
+              h(
+                'div',
+                { class: 'st-seg' },
+                h('button', { class: 'btn btn-ghost st-opt', text: '📤 コードを作る', on: { click: () => opts.onTransferCreate?.() } }),
+                h('button', { class: 'btn btn-ghost st-opt', text: '📥 コードを入力', on: { click: () => opts.onTransferReceive?.() } }),
+              ),
+              h('small', { class: 'st-note', text: 'ほかの端末へ、キャラクター・進み具合・設定・ランキングの記録の持ち主を引き継ぎます。コードは 24 時間・1 回だけ使えます (オンラインが必要)' }),
+            )
+          : null,
         opts.fullscreenAvailable
           ? h('div', { class: 'st-row' }, h('div', { class: 'st-label', text: '画面' }), h('button', { class: 'btn btn-ghost', text: opts.isFullscreen ? '⛶ 全画面を解除' : '⛶ 全画面にする', on: { click: () => opts.onFullscreen() } }))
           : null,

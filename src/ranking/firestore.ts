@@ -111,6 +111,27 @@ export class FirestoreRankingBackend implements RankingBackend {
     }
   }
 
+  /** 引き継ぎ用: 匿名ログイン済みの ID とトークン (無ければ、匿名ユーザーを作る)。 */
+  session(): Promise<{ uid: string; token: string } | { error: RankingResult<never> }> {
+    return this.ensureAuth();
+  }
+
+  /** 引き継ぎ用: この端末の匿名 ID と、その更新用の鍵 (ランキングの記録の持ち主のしるし)。ログインできなければ null。 */
+  async exportIdentity(): Promise<{ uid: string; refresh: string } | null> {
+    const s = await this.ensureAuth();
+    const refresh = this.deps.store.get(STORE_REFRESH);
+    return 'error' in s || !refresh ? null : { uid: s.uid, refresh };
+  }
+
+  /** 引き継ぎ用: 別の端末の匿名 ID を、この端末の物にする (次の通信から、その ID でログインする)。 */
+  adoptIdentity(uid: string, refresh: string): void {
+    this.uid = uid;
+    this.idToken = null;
+    this.expiresAt = 0;
+    this.deps.store.set(STORE_UID, uid);
+    this.deps.store.set(STORE_REFRESH, refresh);
+  }
+
   private setAuth(uid: string, idToken: string, refreshToken: string, expiresInSec: number): void {
     this.uid = uid;
     this.idToken = idToken;
