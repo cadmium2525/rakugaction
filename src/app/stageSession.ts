@@ -12,6 +12,7 @@ import { StageTimer } from '../timeattack/timer';
 import { Hud } from '../ui/hud';
 import { Minimap } from '../ui/minimap';
 import type { AudioManager } from '../audio/audioManager';
+import type { BgmId } from '../audio/songs';
 import { soundsFor } from '../audio/eventSounds';
 import { GhostView } from '../render/ghostView';
 import { GhostRecorder } from '../timeattack/ghost';
@@ -83,6 +84,8 @@ export interface SessionDeps {
   ghost?: GhostData | null;
   /** 音 (効果音・ジングル)。無ければ鳴らさない (デモ・テスト) */
   audio?: Pick<AudioManager, 'sfx' | 'jingle' | 'setDucked' | 'bgm'>;
+  /** このステージの曲。やり直す時に、流し直す (クリアのジングルやボスの曲で、止まったり変わったりしているため)。無ければ何もしない */
+  bgm?: BgmId | null;
 }
 
 type Phase = 'ready' | 'playing' | 'goal' | 'done';
@@ -146,8 +149,11 @@ export class StageSession {
   private crumbleHintShown = false;
   /** 開発/QA 用: プレイ中の入力をボットに任せる (本番 UI からは使われない)。 */
   botInput: ((si: SimInput) => void) | null = null;
+  /** いまの能力 (レベルが上がったら setParams で入れ替える。やり直しでは、これでステージを作り直す) */
+  private params: PlayerParams;
 
   private constructor(private readonly deps: SessionDeps) {
+    this.params = deps.params;
     this.timer = new StageTimer(deps.clock);
     this.hud = new Hud(deps.root, () => this.scene?.setPaused(true));
     this.hud.setStageName(deps.stage.name);
@@ -235,11 +241,17 @@ export class StageSession {
     this.deps.audio?.sfx('go');
   }
 
+  /** 次にやり直す時からの能力を入れ替える (クリアでレベルが上がった時)。 */
+  setParams(params: PlayerParams): void {
+    this.params = params;
+  }
+
   /** 最初からやり直す (ステージを作り直し、READY から)。 */
   async restart(): Promise<void> {
     this.menu.hide();
     this.scene.setPaused(false);
-    await this.scene.loadStage(this.deps.stage, this.deps.params, this.deps.makeRig());
+    await this.scene.loadStage(this.deps.stage, this.params, this.deps.makeRig());
+    if (this.deps.bgm !== undefined) this.deps.audio?.bgm(this.deps.bgm);
     this.signsShown.clear();
     this.hintCooldown = 0;
     this.syncHud();
@@ -248,7 +260,11 @@ export class StageSession {
 
   private onPauseChange(paused: boolean): void {
     this.deps.audio?.setDucked(paused);
-    if (this.phase === 'goal' || this.phase === 'done') return;
+    if (this.phase === 'goal' || this.phase === 'done') {
+      // ゴールの演出中・結果の画面では、止めない (再開のメニューを出さないので、止めると先へ進めなくなる)。アプリを切り替えた時は、戻ってから続きが流れる
+      if (paused) this.scene.setPaused(false);
+      return;
+    }
     if (paused) {
       this.timer.pause();
       this.menu.setObjective(this.objectiveInfo());
@@ -264,7 +280,7 @@ export class StageSession {
   private checkpointPenaltyPreview(): number | null {
     const min = this.deps.stage.missPenaltySec ?? 0;
     if (min <= 0 || this.phase !== 'playing') return null;
-    return missPenaltySec(this.scene.sim.distanceToCheckpoint(), min, returnSpeed(this.deps.params.maxSpeed));
+    return missPenaltySec(this.scene.sim.distanceToCheckpoint(), min, returnSpeed(this.params.maxSpeed));
   }
 
   /** ポーズ画面に出す、集めるアイテムの一覧 (クリア条件のあるステージだけ)。 */
@@ -309,7 +325,7 @@ export class StageSession {
           this.syncHud();
           // ミスのペナルティ (広いフィールドのステージだけ): チェックポイントまで歩いて戻る時間を足す。操作できるようになってからのミスだけ数える
           const min = this.deps.stage.missPenaltySec ?? 0;
-          const sec = this.phase === 'playing' && min > 0 ? missPenaltySec(e.dist, min, returnSpeed(this.deps.params.maxSpeed)) : 0;
+          const sec = this.phase === 'playing' && min > 0 ? missPenaltySec(e.dist, min, returnSpeed(this.params.maxSpeed)) : 0;
           if (sec > 0) {
             this.timer.addPenalty(sec * 1000);
             this.penaltyMs += Math.round(sec * 1000);
@@ -543,6 +559,8 @@ export class StageSession {
 
   dispose(): void {
     this.disposed = true;
+    // 一時停止のメニューから出た時に、BGM が小さいまま残らないように
+    this.deps.audio?.setDucked(false);
     if (this.ghostView) {
       this.view.scene.remove(this.ghostView.group);
       this.ghostView.dispose();

@@ -91,7 +91,9 @@ export class FirestoreRankingBackend implements RankingBackend {
           this.setAuth(j.user_id, j.id_token, j.refresh_token ?? refresh, Number(j.expires_in) || 3600);
           return { uid: j.user_id, token: j.id_token };
         }
-        // 更新に失敗 (トークンが無効になった等): 保存を捨てて、匿名ユーザーを作り直す
+        // 一時的な失敗 (混雑 429・サーバーの不調 5xx など) では、保存を捨てない: 捨てると別の匿名ユーザーになり、これまでの記録を自分の物として更新できなくなる
+        if (r.status !== 400) return { error: fail(FirestoreRankingBackend.reasonOf(r.status), `ログインを更新できませんでした (${r.status})。時間をおいて、もう一度お試しください`) };
+        // 400 = トークンが無効になった (INVALID_REFRESH_TOKEN / TOKEN_EXPIRED / USER_NOT_FOUND): 保存を捨てて、匿名ユーザーを作り直す
         this.deps.store.remove(STORE_REFRESH);
       }
       const r = await this.http(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(this.cfg.apiKey)}`, {

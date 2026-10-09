@@ -78,6 +78,23 @@ describe('FirestoreRankingBackend: 送信', () => {
     expect(store.map.get('rakugaction.rank.uid')).toBe('uid2');
   });
 
+  it('更新が一時的に失敗 (429 / 503) しても、本人のしるしを捨てない (次に送る時は、同じユーザーのまま)', async () => {
+    for (const status of [429, 503]) {
+      const fb = new FakeFirebase();
+      const store = memStore();
+      await make(fb, store).submit(sample());
+      fb.failNext = status;
+      const r = await make(fb, store).submit(fast);
+      expect(r.ok).toBe(false);
+      expect(fb.signUps).toBe(1);
+      expect(store.map.get('rakugaction.rank.refresh')).toBe('refresh-1');
+      expect(store.map.get('rakugaction.rank.uid')).toBe('uid1');
+      const again = await make(fb, store).submit(fast);
+      expect(again.ok && again.value.status).toBe('updated');
+      expect(fb.docs.size).toBe(1);
+    }
+  });
+
   it('ID トークンの期限が近づいたら更新する', async () => {
     const fb = new FakeFirebase();
     let now = 1_000_000;

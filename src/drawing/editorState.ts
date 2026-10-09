@@ -207,6 +207,8 @@ export class EditorState {
     const slot = newSlot(freshId(this.drawing), kind, { view: o.view ?? bodyView, pair: o.pair ?? pairByDefault, side: o.side ?? 'C', ...(kind === 'decal' ? { scale: 0.5 } : {}) });
     this.drawing.parts.push(slot);
     this.currentId = slot.id;
+    // 新しいパーツは、いつも正面の絵から (横・裏のページを開いたまま足すと、そちらに線が入ってしまう)
+    this.page = 'main';
     return slot;
   }
 
@@ -220,6 +222,7 @@ export class EditorState {
     const slot: PartSlot = { ...src, id: freshId(this.drawing), mount: null, ops: JSON.parse(JSON.stringify(src.ops)) as DrawOp[], ...(src.alt ? { alt: JSON.parse(JSON.stringify(src.alt)) as DrawOp[] } : {}), ...(src.back ? { back: JSON.parse(JSON.stringify(src.back)) as DrawOp[] } : {}) };
     this.drawing.parts.push(slot);
     this.currentId = slot.id;
+    this.page = 'main';
     return slot;
   }
 

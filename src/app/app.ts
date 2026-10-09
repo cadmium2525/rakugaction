@@ -23,7 +23,7 @@ import { detectDefaultQuality, isQuality } from '../render/quality';
 import type { Quality } from '../render/quality';
 import { RenderHost } from '../render/renderHost';
 import { allStagesExp, stageExp } from '../progression/exp';
-import { TimeAttackRun, compareWithBest } from '../timeattack/run';
+import { TimeAttackRun, analyzeSplits, compareWithBest } from '../timeattack/run';
 import type { Split, TimeAttackResult } from '../timeattack/run';
 import { SplitScreen, TimeAttackResultScreen } from '../ui/timeAttackScreens';
 import { RankingService, createRankingService } from '../ranking/service';
@@ -891,6 +891,7 @@ export class App {
       ghost: this.settings.ghost ? this.profile.stage(entry.id).ghost : null,
       hints: this.settings.hints,
       audio: this.audio,
+      bgm: entry.id in BGM ? (entry.id as BgmId) : null,
       onFinish: (r) => this.onStageFinished(entry.id, r),
       onQuit: () => void this.showHub(),
     });
@@ -940,7 +941,7 @@ export class App {
           session.setControlsVisible(true);
           // レベルが上がっていたら、もういちど遊ぶ時から新しい能力で
           const cur = this.profile.selected;
-          if (levelUp && cur) session.scene.sim.applyParams(this.paramsOf(cur));
+          if (levelUp && cur) session.setParams(this.paramsOf(cur));
           void session.restart();
         },
         onHub: () => void this.showHub(),
@@ -1022,8 +1023,8 @@ export class App {
     if (!run || !session) return;
     const split: Split = { stageId: r.stageId, timeMs: r.timeMs, simMs: r.simMs, deaths: r.deaths, falls: r.falls, hits: r.hits };
     if (!run.finishStage(split)) return;
-    // 通常のステージ記録 (ベスト) も更新する。EXP は走り全体の完走時にまとめて与える
-    this.profile.recordClear(r.stageId, r.timeMs, r.splits, getStageEntry(r.stageId)?.rev, r.ghost);
+    // 通常のステージ記録 (ベスト) も更新する。EXP は走り全体の完走時にまとめて与える。異常のある区間 (参考記録になる) は、ベストにしない
+    if (analyzeSplits([r.stageId], [split], this.parSec()).length === 0) this.profile.recordClear(r.stageId, r.timeMs, r.splits, getStageEntry(r.stageId)?.rev, r.ghost);
     session.hud.el.style.display = 'none';
     session.setControlsVisible(false);
     if (run.complete) {
@@ -1056,12 +1057,14 @@ export class App {
     const clean = result.flags.length === 0;
     const gain = allStagesExp(this.profile.allStagesRuns === 0, cmp.newBest);
     const before = this.profile.progress;
+    const rec = this.profile.selected;
+    // ランキングへ送るのは、走った時のレベルと能力 (このあと EXP でレベルが上がっても、変えない)
+    const ranWith = rec ? { stats: this.effectiveStats(rec), level: this.profile.level } : null;
     const lv = clean ? this.profile.addExp(gain.total) : { before: before.level, after: before.level, gained: 0 };
     if (clean) this.profile.recordTimeAttack(cmp.newBest ? { totalMs: result.totalMs, splitsMs: result.splits.map((s) => s.timeMs), revKey: stageRevKey() } : null);
     const after = this.profile.progress;
     const levelUp = lv.after > lv.before ? summarizeLevelUp(lv.before, lv.after) : undefined;
     this.lastTaResult = result;
-    const rec = this.profile.selected;
     let screen: TimeAttackResultScreen | null = null;
     screen = new TimeAttackResultScreen({
         stages: run.stageIds.map((id) => this.stageLabel(id)),
@@ -1072,7 +1075,7 @@ export class App {
         bestMs: this.profile.allStagesBest?.totalMs ?? null,
         progress: clean ? { gain, before, after, levelUp } : undefined,
         // 参考記録 (フラグ付き) はランキングに送れない。ランキングが未設定ならボタンを出さない
-        onSubmit: clean && rec && this.ranking.available ? () => void this.submitRanking(screen, result, rec) : undefined,
+        onSubmit: clean && rec && ranWith && this.ranking.available ? () => void this.submitRanking(screen, result, rec, ranWith) : undefined,
         onRanking: this.ranking.available ? () => this.showRanking() : undefined,
         statusText: this.ranking.available ? '' : 'ランキングは現在利用できません',
         submitNote: SUBMIT_NOTE,
@@ -1086,10 +1089,10 @@ export class App {
   }
 
   /** ALL STAGES の記録をランキングへ送る (結果は画面のメッセージで知らせる。失敗してもゲームは続けられる)。 */
-  private async submitRanking(screen: TimeAttackResultScreen | null, result: TimeAttackResult, rec: CharacterRecord): Promise<void> {
+  private async submitRanking(screen: TimeAttackResultScreen | null, result: TimeAttackResult, rec: CharacterRecord, ranWith: { stats: CharacterStats; level: number }): Promise<void> {
     screen?.setStatus('送信中…');
-    const eff = this.effectiveStats(rec);
-    const res = await this.ranking.submit({ result, name: rec.name, label: describeBuild(eff).label, stats: eff, level: this.profile.level, drawing: rec.drawing });
+    const eff = ranWith.stats;
+    const res = await this.ranking.submit({ result, name: rec.name, label: describeBuild(eff).label, stats: eff, level: ranWith.level, drawing: rec.drawing });
     if (!res.ok) {
       screen?.setStatus(`ランキングに登録できませんでした: ${res.message}`);
       return;

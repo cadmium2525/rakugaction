@@ -212,6 +212,23 @@ describe('EditorState', () => {
     expect([b.pair, b.side, b.mount]).toEqual([false, 'C', null]);
   });
 
+  it('別のページ (横・裏) を開いたままパーツを足しても、新しいパーツは正面の絵から始まる', () => {
+    for (const page of ['alt', 'back'] as const) {
+      const s = human();
+      s.setPage(page);
+      const arm = s.addPart('arm')!;
+      expect(s.page).toBe('main');
+      s.commitOp(pen('#000000', 0.02, [0.2, 0.2, 0.6, 0.6]));
+      const got = slotOf(s.drawing, arm.id)!;
+      expect(got.ops.length).toBe(1);
+      expect(got[page]).toBeUndefined();
+      s.setPage(page);
+      const copy = s.duplicatePart(arm.id)!;
+      expect(s.page).toBe('main');
+      expect(s.currentId).toBe(copy.id);
+    }
+  });
+
   it('種類ごとの上限と、全体の上限を超えて足せない', () => {
     const s = new EditorState();
     expect(s.addPart('head')).not.toBeNull();
