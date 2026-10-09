@@ -23,6 +23,9 @@ export interface TitleOptions {
   onStart?(): void;
 }
 
+/** 入口を押してメニューが出たあと、この時間 (ms) は、メニューのボタンを押せなくする */
+export const GATE_GUARD_MS = 450;
+
 export class TitleScreen implements Screen {
   readonly el: HTMLElement;
   private readonly cleanup: (() => void)[] = [];
@@ -49,27 +52,34 @@ export class TitleScreen implements Screen {
       menu,
     );
     if (opts.gate) {
-      // 入口: 画面のどこを押しても (どのキーでも)、メニューへ。押した指が、そのままメニューのボタンを押さないよう、離してから出す
+      // 入口: 画面のどこを押しても (どのキーでも)、メニューへ。
+      // スマホでは、指を離したあとに、ブラウザが同じ場所へ click を届ける。指を離した時 (pointerup) にメニューを出すと、
+      // その click が、出たばかりのボタンに当たって、押していないボタンが押される (実機で起きた不具合)。
+      // → いちばん最後に来る click で始める。さらに、メニューが出てから少しの間 (GATE_GUARD_MS) は、メニューを押せなくする (二重の守り)
       let started = false;
       const start = (): void => {
         if (started) return;
         started = true;
         for (const c of this.cleanup.splice(0)) c();
         opts.onStart?.();
+        this.el.classList.add('just-opened');
         this.el.classList.remove('gate');
+        const timer = window.setTimeout(() => this.el.classList.remove('just-opened'), GATE_GUARD_MS);
+        this.cleanup.push(() => window.clearTimeout(timer));
       };
-      const onUp = (e: Event): void => {
+      const onClick = (e: Event): void => {
         e.preventDefault();
+        e.stopPropagation();
         start();
       };
       const onKey = (e: KeyboardEvent): void => {
         if (e.key === 'Tab' || e.metaKey || e.ctrlKey || e.altKey) return;
         start();
       };
-      this.el.addEventListener('pointerup', onUp);
+      this.el.addEventListener('click', onClick, true);
       window.addEventListener('keydown', onKey);
       this.cleanup.push(
-        () => this.el.removeEventListener('pointerup', onUp),
+        () => this.el.removeEventListener('click', onClick, true),
         () => window.removeEventListener('keydown', onKey),
       );
     }

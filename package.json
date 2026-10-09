@@ -1,7 +1,7 @@
 {
   "name": "rakugaction",
   "private": true,
-  "version": "0.24.0",
+  "version": "0.24.1",
   "description": "ラクガキから生まれた自分だけのキャラクターで遊ぶ3Dアクションゲーム",
   "type": "module",
   "scripts": {

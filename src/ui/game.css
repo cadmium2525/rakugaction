@@ -2150,3 +2150,8 @@
 .is-demo-draw .demo-overlay {
   padding-top: calc(var(--safe-top) + 6px);
 }
+
+/* 入口 (TAP START) を押した直後: メニューは見えるが、まだ押せない (押した指の click が、出たばかりのボタンに当たらないように) */
+.title-screen.just-opened .title-menu {
+  pointer-events: none;
+}
