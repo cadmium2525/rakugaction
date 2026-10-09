@@ -371,8 +371,9 @@ export class ShowcaseView {
 
   render(dt: number): void {
     if (this.host.contextLost) return;
-    this.host.renderer.render(this.scene, this.camera);
+    // 解像度の調整は、描く前に (描いたあとに変えると、次のコマまで画面が空になる)
     this.host.adaptResolution(dt);
+    this.host.renderer.render(this.scene, this.camera);
   }
 
   get isSettled(): boolean {

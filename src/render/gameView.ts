@@ -141,6 +141,9 @@ export class GameView {
   render(sim: GameSim | null, cam: FollowCamera | null, alpha: number, dt: number): void {
     const host = this.host;
     if (host.contextLost) return;
+    // 解像度の調整は、描く前にする。描いたあとに解像度を変えると、画面が空になり、次のコマまで一瞬まっ黒に見える
+    // (PV のコマ撮りで、2 秒ごとに黒いコマが入って見つかった。実機でも、解像度が切り替わる瞬間にちらついていた)
+    host.adaptResolution(dt);
     // 止め: 当たった瞬間の数コマは、絵を動かさない (世界の計算は進んでいる)
     const frozen = this.impact.step(dt);
     this.dust.update(dt);
@@ -173,7 +176,6 @@ export class GameView {
     if (this.sky) this.sky.position.copy(this.camera.position);
     this.ambient?.update(this.camera.position, dt);
     host.renderer.render(this.scene, this.camera);
-    host.adaptResolution(dt);
   }
 
   /** 着地の土けむりを、足もとに出す (strength 0..1)。 */
