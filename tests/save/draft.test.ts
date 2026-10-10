@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { emptyDrawing } from '../../src/drawing/model';
+import { LIMITS, compactPts, emptyDrawing } from '../../src/drawing/model';
+import { sanitizeDrawing } from '../../src/drawing/sanitize';
 import type { DrawingData } from '../../src/drawing/model';
 import { DraftStore, MAX_DRAFT_CHARS, parseDraft } from '../../src/save/draft';
 
@@ -29,6 +30,20 @@ class FakeStorage {
     this.map.delete(k);
   }
 }
+
+describe('線の座標の書き方 (compactPts)', () => {
+  it('小数 4 けたで書いても、読み込むと元の 1/4096 きざみの値に戻る (全部の値で)', () => {
+    const all: number[] = [];
+    for (let k = 0; k <= LIMITS.coordQuant; k++) all.push(k / LIMITS.coordQuant);
+    const d = emptyDrawing();
+    d.parts[0] = { ...d.parts[0], ops: [{ kind: 'pen', color: '#202124', width: 0.03, pts: all.slice(0, 4096) }] };
+    const text = JSON.stringify(d, compactPts);
+    expect(sanitizeDrawing(JSON.parse(text)).parts[0].ops).toEqual(d.parts[0].ops);
+    for (const v of all) expect(Math.round((Math.round(v * 1e4) / 1e4) * LIMITS.coordQuant) / LIMITS.coordQuant).toBe(v);
+    // 文字数は、そのまま書くより、ずっと少ない
+    expect(text.length).toBeLessThan(JSON.stringify(d).length * 0.6);
+  });
+});
 
 describe('描きかけのラクガキ (下書き)', () => {
   it('中断して、アプリを開き直しても、続きから描ける (絵と、最後に描いていたパーツが残る)', () => {

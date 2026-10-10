@@ -45,6 +45,15 @@ export class DrawingRaster {
     this.live = null;
   }
 
+  /** 別のラスタの中身を、そのまま写す (同じ絵を描き直すより、ずっと速い)。大きさが同じ物どうしだけ。 */
+  copyFrom(src: DrawingRaster): void {
+    if (src.res !== this.res) throw new Error('DrawingRaster.copyFrom: 大きさが違う');
+    this.version++;
+    this.rgba.set(src.rgba);
+    this.fillFlag.set(src.fillFlag);
+    this.live = null;
+  }
+
   /** op 列を最初から再生する。 */
   replay(ops: readonly DrawOp[]): void {
     this.clear();
@@ -61,11 +70,11 @@ export class DrawingRaster {
     if (pts.length >= 2) {
       let px = pts[0] * this.res;
       let py = pts[1] * this.res;
-      this.capsule(px, py, px, py, rad, r, g, b, erase, rect);
+      this.capsule(px, py, px, py, rad, r, g, b, erase, rect, false);
       for (let i = 2; i + 1 < pts.length; i += 2) {
         const x = pts[i] * this.res;
         const y = pts[i + 1] * this.res;
-        this.capsule(px, py, x, y, rad, r, g, b, erase, rect);
+        this.capsule(px, py, x, y, rad, r, g, b, erase, rect, true);
         px = x;
         py = y;
       }
@@ -82,7 +91,7 @@ export class DrawingRaster {
     const py = y * this.res;
     this.live = { erase, r, g, b, rad, lastX: px, lastY: py };
     const rect = new RectAcc();
-    this.capsule(px, py, px, py, rad, r, g, b, erase, rect);
+    this.capsule(px, py, px, py, rad, r, g, b, erase, rect, false);
     return rect.result();
   }
 
@@ -92,7 +101,7 @@ export class DrawingRaster {
     const px = x * this.res;
     const py = y * this.res;
     const rect = new RectAcc();
-    this.capsule(s.lastX, s.lastY, px, py, s.rad, s.r, s.g, s.b, s.erase, rect);
+    this.capsule(s.lastX, s.lastY, px, py, s.rad, s.r, s.g, s.b, s.erase, rect, true);
     s.lastX = px;
     s.lastY = py;
     return rect.result();
@@ -103,7 +112,11 @@ export class DrawingRaster {
   }
 
   // ---- 内部 ----
-  /** 線分 (p0→p1) を丸い筆で塗る。距離ベースのアンチエイリアス。 */
+  /**
+   * 線分 (p0→p1) を丸い筆で塗る。距離ベースのアンチエイリアス。
+   * continued = 同じ線の続き (直前に、同じ筆で p0 まで塗ってある)。p0 のまわりの筆の芯は、もう同じ色で塗り終わっているので飛ばす:
+   * ゆっくり描いた太い線は、点の間隔 (1px ほど) より筆 (半径 27px) がずっと大きく、ほとんどの画素が塗り直しになる。
+   */
   private capsule(
     x0: number,
     y0: number,
@@ -115,6 +128,7 @@ export class DrawingRaster {
     b: number,
     erase: boolean,
     rect: RectAcc,
+    continued: boolean,
   ): void {
     const res = this.res;
     this.version++;
@@ -128,19 +142,64 @@ export class DrawingRaster {
     const dy = y1 - y0;
     const len2 = dx * dx + dy * dy;
     const buf = this.rgba;
+    const flag = this.fillFlag;
+    // 太い筆で塗り重ねた絵は、ここを何千万回も通る (描き直しが数秒かかる) ので、結果を変えずに計算を省く:
+    //  届かない画素は平方根を取らずに飛ばす / 行ごとに、届く範囲の x だけを見る / 筆の芯 (被覆 1) は、混ぜる計算をせずに色を置く
+    const reach = rad + 0.5;
+    const reach2 = reach * reach;
+    const core = rad - 0.5;
+    const core2 = core > 0 ? core * core : -1;
+    const loX = Math.min(x0, x1);
+    const hiX = Math.max(x0, x1);
+    const loY = Math.min(y0, y1);
+    const hiY = Math.max(y0, y1);
+    const inv = len2 > 1e-9 ? 1 / len2 : 0;
     for (let y = minY; y <= maxY; y++) {
       const cy = y + 0.5;
-      for (let x = minX; x <= maxX; x++) {
+      const gap = cy < loY ? loY - cy : cy > hiY ? cy - hiY : 0;
+      const half2 = reach2 - gap * gap;
+      if (half2 <= 0) continue;
+      const half = Math.sqrt(half2);
+      const fromX = Math.max(minX, Math.floor(loX - half - 0.5));
+      const toX = Math.min(maxX, Math.ceil(hiX + half - 0.5));
+      // 塗り終わっている範囲 (p0 の芯の中) = [doneFrom, doneTo]。無ければ doneTo < doneFrom
+      let doneFrom = 0;
+      let doneTo = -1;
+      if (continued && core2 > 0) {
+        const s2 = core2 - (cy - y0) * (cy - y0);
+        if (s2 > 0) {
+          const hs = Math.sqrt(s2);
+          doneFrom = Math.max(fromX, Math.ceil(x0 - hs - 0.5));
+          doneTo = Math.min(toX, Math.floor(x0 + hs - 0.5));
+        }
+      }
+      for (let x = fromX; x <= toX; x++) {
+        if (x === doneFrom && doneTo >= doneFrom) {
+          x = doneTo;
+          continue;
+        }
         const cx = x + 0.5;
-        let t = len2 > 1e-9 ? ((cx - x0) * dx + (cy - y0) * dy) / len2 : 0;
+        let t = ((cx - x0) * dx + (cy - y0) * dy) * inv;
         t = t < 0 ? 0 : t > 1 ? 1 : t;
         const ex = cx - (x0 + dx * t);
         const ey = cy - (y0 + dy * t);
-        const d = Math.sqrt(ex * ex + ey * ey);
-        const cov = rad - d + 0.5; // 1px 幅のアンチエイリアス
+        const d2 = ex * ex + ey * ey;
+        if (d2 >= reach2) continue;
+        const i = (y * res + x) * 4;
+        if (d2 <= core2) {
+          if (erase) buf[i] = buf[i + 1] = buf[i + 2] = buf[i + 3] = 0;
+          else {
+            buf[i] = r;
+            buf[i + 1] = g;
+            buf[i + 2] = b;
+            buf[i + 3] = 255;
+          }
+          flag[y * res + x] = 0;
+          continue;
+        }
+        const cov = rad - Math.sqrt(d2) + 0.5; // 1px 幅のアンチエイリアス
         if (cov <= 0) continue;
         const a = cov >= 1 ? 1 : cov;
-        const i = (y * res + x) * 4;
         if (erase) {
           const na = buf[i + 3] * (1 - a);
           buf[i + 3] = na;

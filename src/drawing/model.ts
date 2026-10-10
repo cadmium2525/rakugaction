@@ -206,6 +206,16 @@ export const LIMITS = {
   maxSlots: 12,
 } as const;
 
+/**
+ * 絵を JSON に書く時の、線の座標の書き方 (JSON.stringify の 2 番目の引数に渡す): 小数 4 けたに丸める。
+ * 座標は 1/4096 きざみで持っているので、そのまま書くと 0.1234130859375 のように長くなり、描き込んだ絵が下書きやセーブの上限をすぐ超える。
+ * 4 けたに丸めても、読み込む時に 1/4096 きざみへ戻すと元と同じ値になる (ずれは 0.00005 以下 = きざみの 0.2 倍)。文字数は、およそ半分。
+ */
+export function compactPts(key: string, value: unknown): unknown {
+  if (key !== 'pts' || !Array.isArray(value)) return value;
+  return value.map((n: unknown) => (typeof n === 'number' ? Math.round(n * 1e4) / 1e4 : n));
+}
+
 /** ラスタライズ解像度 (正方形)。エディタ表示と 3D 化で同じものを使う。 */
 export const RASTER_RES = 384;
 

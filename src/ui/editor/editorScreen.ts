@@ -1,7 +1,7 @@
 import './editor.css';
 import { EditorState, RECENT_COLORS } from '../../drawing/editorState';
 import type { Page, Tool } from '../../drawing/editorState';
-import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, FORWARD_STEPS, KIND_ICON, TILT_STEPS, isFlatTilt, KIND_LABEL, KIND_MAX, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
+import { BASE_PALETTE, BRUSH_SIZES, DEPTH_STEPS, FORWARD_STEPS, KIND_ICON, TILT_STEPS, isFlatTilt, KIND_LABEL, KIND_MAX, LIMITS, PART_KINDS, RASTER_RES, SCALE_STEPS, canAdd, cloneDrawing, countKind, hasAlt, hasAnyInk, hasBack } from '../../drawing/model';
 import type { DrawOp, DrawingData, Mount, PartKind, PartSlot } from '../../drawing/model';
 import { DrawingRaster } from '../../drawing/raster';
 import { resolveSlotOps } from '../../drawing/defaults';
@@ -156,6 +156,8 @@ export class EditorScreen implements Screen {
   private disposed = false;
   // ---- 下書き (描きかけを残す) ----
   private draftTimer = 0;
+  /** 立体のプレビューを作るのを、「作っています」の表示を出してからに回すタイマー */
+  private previewTimer = 0;
   /** まだ下書きに残していない変更がある */
   private draftDirty = false;
   /** 最後に下書きへ渡した絵 (同じ絵を何度も書かない。色や道具を変えただけでは絵は変わらない) */
@@ -343,9 +345,15 @@ export class EditorScreen implements Screen {
   /** プレビュー用のラスタ (反転を解決。何も描かれていなければ既定形状で代用)。 */
   private previewRaster(slot: PartSlot): DrawingRaster {
     let e = this.previews.get(slot.id);
+    // 線を引いている最中は、紙に描きかけの線が乗っている。前のプレビューのままにして、線が決まってから作り直す
+    if (e && this.strokeKind !== null && slot.id === this.state.currentId) return e.raster;
     if (!e || e.ops !== slot.ops || e.flip !== slot.flip || e.kind !== slot.kind || e.view !== slot.view) {
       const raster = e?.raster ?? new DrawingRaster(RASTER_RES);
-      raster.replay(resolveSlotOps(slot).ops);
+      // 描いている紙 (編集中のラスタ) が同じ絵を持っていれば、写すだけにする。線を 1 本描くたびに、このパーツの線を全部描き直すと、
+      // 太い筆で塗り重ねた絵では 1 本ごとに画面が固まる (スマホで数秒)。反転・既定の形で代用するパーツは、絵が違うので描き直す
+      const edit = this.rasters.get(slot.id);
+      if (edit && edit.ops === slot.ops && !slot.flip && (slot.kind === 'decal' || slot.ops.some((o) => o.kind === 'pen'))) raster.copyFrom(edit.raster);
+      else raster.replay(resolveSlotOps(slot).ops);
       e = { raster, ops: slot.ops, flip: slot.flip, kind: slot.kind, view: slot.view };
       this.previews.set(slot.id, e);
       this.layoutCache = null;
@@ -1232,7 +1240,19 @@ export class EditorScreen implements Screen {
   private openPreview(): void {
     this.modal.removeAttribute('hidden');
     this.previewMode = CharacterPreview3D.available() ? this.previewMode : '2d';
-    this.renderPreview();
+    window.clearTimeout(this.previewTimer);
+    if (this.previewMode !== '3d') {
+      this.renderPreview();
+      return;
+    }
+    // 立体にするのは、描き込んだ絵だと数秒かかる (その間、画面は動かない)。何も出さずに固まると、こわれたように見えるので、先に知らせてから作る
+    this.modal3dCanvas.style.display = 'none';
+    this.modalCanvas.style.display = 'none';
+    this.modalTabs.replaceChildren(h('div', { class: 'ed-modal-wait', text: '立体にしています…' }));
+    this.previewTimer = window.setTimeout(() => {
+      this.previewTimer = 0;
+      if (!this.disposed && !this.modal.hasAttribute('hidden')) this.renderPreview();
+    }, 50);
   }
 
   /** 3D / 2D の切り替えと、中身の更新。3D は開いている間だけ WebGL を持つ。 */
@@ -1274,6 +1294,8 @@ export class EditorScreen implements Screen {
   }
 
   private closePreview(): void {
+    window.clearTimeout(this.previewTimer);
+    this.previewTimer = 0;
     this.modal.setAttribute('hidden', '');
     this.closePreview3d();
   }
@@ -1314,7 +1336,9 @@ export class EditorScreen implements Screen {
 
   private norm(e: PointerEvent): [number, number] {
     const r = this.rect ?? this.canvas.getBoundingClientRect();
-    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+    // 保存する時と同じ刻み (1/4096) にそろえる: 紙に描いた絵が、保存された線を描き直した絵と、同じになる (プレビューには紙の絵を写すため)
+    const q = LIMITS.coordQuant;
+    return [Math.round(((e.clientX - r.left) / r.width) * q) / q, Math.round(((e.clientY - r.top) / r.height) * q) / q];
   }
 
   private readonly onDown = (e: PointerEvent): void => {
@@ -1561,6 +1585,13 @@ export class EditorScreen implements Screen {
       this.invalidateRaster();
       this.blit();
       if (res === 'limit') toast(this.opts.host, 'これ以上は描けません。「戻す」か「全消去」で整理してください');
+    } else {
+      // 点の数の上限で線が途中までになった時は、紙の絵を保存された線に合わせ直す (紙の絵は、プレビューにもそのまま写すため)
+      const saved = st.ops[st.ops.length - 1];
+      if (saved && saved.kind !== 'fill' && saved.pts.length !== pts.length) {
+        this.invalidateRaster();
+        this.blit();
+      }
     }
     this.afterCommit();
   }

@@ -1,4 +1,4 @@
-import { cloneDrawing, hasAnyInk } from '../drawing/model';
+import { cloneDrawing, compactPts, hasAnyInk } from '../drawing/model';
 import type { DrawingData } from '../drawing/model';
 import { sanitizeDrawing } from '../drawing/sanitize';
 
@@ -61,7 +61,7 @@ export class DraftStore {
     this.mem = { savedAt: now, currentId, drawing: cloneDrawing(drawing) };
     this.persisted = false;
     if (!this.ls) return;
-    const text = JSON.stringify({ format: FORMAT, ...this.mem });
+    const text = JSON.stringify({ format: FORMAT, ...this.mem }, compactPts);
     if (text.length > MAX_DRAFT_CHARS) return;
     try {
       this.ls.setItem(KEY, text);

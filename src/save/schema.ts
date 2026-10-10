@@ -6,6 +6,7 @@ import type { CharacterStats, CharacterTraits } from '../character/stats';
 import { sanitizeName } from '../core/text';
 import { GAME_VERSION, SAVE_SCHEMA_VERSION } from '../core/version';
 import { hasAnyInk } from '../drawing/model';
+import { compactPts } from '../drawing/model';
 import { sanitizeDrawing } from '../drawing/sanitize';
 import { MAX_LEVEL, expForLevel } from '../progression/level';
 import { isQuality } from '../render/quality';
@@ -284,7 +285,7 @@ export function parseSave(json: string): { ok: true; result: ParsedSave } | { ok
 
 /** JSON 文字列にする。大きすぎる場合は例外 (呼び出し側が保存失敗として扱う)。 */
 export function serializeSave(data: SaveData): string {
-  const text = JSON.stringify(data);
+  const text = JSON.stringify(data, compactPts);
   if (text.length > MAX_SAVE_CHARS) throw new SaveTooLargeError(text.length);
   return text;
 }

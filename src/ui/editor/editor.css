@@ -831,6 +831,12 @@
   touch-action: none;
   cursor: grab;
 }
+.ed-modal-wait {
+  padding: 28px 8px;
+  text-align: center;
+  font-weight: 700;
+  opacity: 0.8;
+}
 .ed-modal-tabs {
   width: min(100%, 360px);
 }
